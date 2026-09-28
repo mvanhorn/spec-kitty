@@ -139,57 +139,96 @@ Done means:
 
 - **Purpose**: DIRECTIVE_043 architectural-gate discipline and C-007 red-first: the gate must be demonstrably non-vacuous against a real tree before the fix that turns it green. The contract requires the G1–G6 assertions to be the **first commit** of this WP, red.
 - **Steps**:
-  1. Create `tests/architectural/test_owned_checkout_single_authority.py` with `pytestmark = [pytest.mark.architectural]`, a module docstring naming the contract file, and one test per gate:
-     - **G1** `resolve_ownership_claim` is referenced only in `src/specify_cli/core/owned_mission.py` plus its definition in `src/specify_cli/core/checkout_ownership.py` (`:190` on the planning base). Every reference form counts: `ast.alias.name` (including `import … as x`), `Attribute.attr`, `Name.id`, and string `Constant`s used with `getattr`/`importlib`. Planning-base floor: `cli/commands/next_cmd.py:167,170`, `core/mission_creation.py:33,848`.
-     - **G2** calls `resolve_owned_mission(` / `adopt_owned_checkout(` only from `src/specify_cli/cli/commands/_owned_checkout.py` and `src/specify_cli/core/owned_mission.py`. Planning-base floor includes `coordination/status_transition.py:917`, `status/models.py:902`, `status/bootstrap.py:183`, `migration/backfill_runtime_state.py:1441`, and the CLI commands `accept.py:342,732`, `tasks_mark_status.py:180`, `tasks_move_task.py:463`, `spec_commit_cmd.py:110`, `mission_check_prerequisites.py:599`, `mission_finalize.py:202`, `mission_runtime/resolution.py:1514`.
-     - **G3** `OwnedCheckout._mint` is referenced only in `owned_mission.py` (covered by WP01's self-mutation case; here it runs over the real tree).
-     - **G4** the identifier `effective_root` appears nowhere in `src/` outside `src/charter`: not as a parameter, field, local annotation or local binding, keyword argument, TypedDict key, or string dict key `"effective_root"`. Two exemptions only: the module rule `src/charter/**` (org-pack root, a different concept) and the **symbol** rule for org-pack method reads — the method is `OrgPackConfig.effective_root` (`src/charter/offering/drg/org_pack_config.py:374`); its call sites in `specify_cli` are `analysis_inputs.py:207`, `charter_runtime/lint/checks/org_layer.py:330`, `cli/commands/_doctrine_collect.py:513`, `doctrine/config.py:42`, `doctrine/org_charter.py:700`, `doctrine/snapshot.py:719`. Implement the symbol rule as "an `Attribute` named `effective_root` that is the `func` of a `Call` on a receiver the scanner can prove is an org-pack config", or, if the scanner cannot prove the receiver, as the exact-call-site shape `<name>.effective_root(<repo root>)` in those modules — whichever WP01's scanner supports; document the choice in the gate's docstring. (The contract text calls the symbol `PackContext.effective_root`; the real class is `OrgPackConfig`. Use the real symbol and note the correction in the Activity Log.)
-     - **G5** no parameter or field carries an owned root as a path under any of `owned_root`, `owned_checkout`, `checkout_root`, `effective_root`, annotated `Path`, `pathlib.Path`, `Path | None`, `Optional[Path]`, `Union[Path, None]`, `os.PathLike`, or the string form of any of these. Only exemption: the fields of `mission_runtime.owned_checkout.OwnedCheckout`, by fully qualified class name. Planning-base floor: `tasks_mark_status.py:114`, `tasks_move_task.py:248`, `mission_creation.py:127`.
-     - **G6** positive signature pin: each consumer in `contracts/owned-checkout-carrier.md` §7 declares a parameter or field `owned: OwnedCheckout | None`: `mission_runtime.placement_seam`, `mission_runtime.mission_context_for`, `mission_runtime.resolve_action_context`, `specify_cli.task_utils.support.locate_work_package`, `specify_cli.workspace.context.resolve_workspace_for_wp`, `specify_cli.coordination.status_service.EventLogReadContract`, `specify_cli.status.models.TransitionRequest`, `runtime.next.runtime_bridge.DecideNextContext`, the prompt builder entry point in `runtime/next/prompt_builder.py` (pin the function WP12 converted — read WP12's code; `build_prompt` at `:61` on the planning base is the public entry), and the review-base helper `claim_commit_for_wp` in `src/mission_runtime/claim_commit.py` (WP12). Implement it by parsing the defining module and checking the argument or class field, not by importing (keeps the gate AST-only).
-  2. For each gate, assert on the full offender list and print it in the failure message as `path:line kind detail`, so the red commit is self-describing.
-  3. Add a small non-vacuity floor per gate (the contract's "floor on the planning base"): the gate must evaluate at least one real candidate site (for example G4 must have scanned ≥ 1 file under `src/specify_cli/`), so an emptied scan root can never pass vacuously.
-  4. Expose the allowlist constant the ratchet will read in T097, e.g. `_OWNED_ROOT_BARE_PATH_ALLOWLIST: frozenset[str] = frozenset()`, and assert inside G4/G5 that offenders not in it fail.
-  5. Run the file; confirm every gate G1, G2, G4, G5, G6 is red and G3 is green-or-red as the tree dictates. Record the counts.
-  6. Commit **only this file** first: `test(arch): owned-checkout single-authority gate G1–G6, committed red (WP18/T095)` with a body such as `Offenders at red: G1=<n> G2=<n> G3=<n> G4=<n> G5=<n> G6=<n missing pins>`.
-- **Files**: `tests/architectural/test_owned_checkout_single_authority.py` (new). Read-only: `tests/architectural/_owned_checkout_scan.py`, `tests/architectural/test_owned_checkout_gate_selftest.py`, `tests/architectural/_ast_scan.py`.
+  1. Create `tests/architectural/test_owned_checkout_single_authority.py` with `pytestmark = [pytest.mark.architectural]`, a module docstring naming `contracts/architectural-gate.md`, and one test per gate. Compose WP01's scanner functions; do not parse or walk the AST yourself beyond what the scanner exposes.
+  2. **G1** — `resolve_ownership_claim` is referenced only in `src/specify_cli/core/owned_mission.py`, plus its definition in `src/specify_cli/core/checkout_ownership.py` (`:190` on the planning base).
+     - Every reference form counts: `ast.alias.name` (including `import … as x`), `Attribute.attr`, `Name.id`, and string `Constant`s used with `getattr` / `importlib`.
+     - Planning-base floor: `cli/commands/next_cmd.py:167,170`; `core/mission_creation.py:33,848`.
+  3. **G2** — `resolve_owned_mission(` / `adopt_owned_checkout(` are called only from `src/specify_cli/cli/commands/_owned_checkout.py` and `src/specify_cli/core/owned_mission.py`.
+     - Planning-base floor: `coordination/status_transition.py:917`, `status/models.py:902`, `status/bootstrap.py:183`, `migration/backfill_runtime_state.py:1441`, `mission_runtime/resolution.py:1514`;
+     - and the CLI commands `accept.py:342,732`, `tasks_mark_status.py:180`, `tasks_move_task.py:463`, `spec_commit_cmd.py:110`, `mission_check_prerequisites.py:599`, `mission_finalize.py:202`.
+  4. **G3** — `OwnedCheckout._mint` is referenced only in `owned_mission.py`. WP01's self-mutation case covers the rule; here it runs over the real tree.
+  5. **G4** — the identifier `effective_root` appears nowhere in `src/` outside `src/charter`: not as a parameter, field, local annotation, local binding (including a walrus target), keyword argument, TypedDict key, or string dict key `"effective_root"`. Exactly two exemptions:
+     - the module rule `src/charter/**` (org-pack root, a different concept), with a written reason in the docstring;
+     - the **symbol** rule for org-pack method reads. The method is `OrgPackConfig.effective_root` (`src/charter/offering/drg/org_pack_config.py:374`); its `specify_cli` call sites are `analysis_inputs.py:207`, `charter_runtime/lint/checks/org_layer.py:330`, `cli/commands/_doctrine_collect.py:513`, `doctrine/config.py:42`, `doctrine/org_charter.py:700`, `doctrine/snapshot.py:719`. Implement it as "an `Attribute` named `effective_root` that is the `func` of a `Call`" (the owned sense is never a method), or with a stricter receiver check if WP01's scanner supports one; document the choice in the gate docstring.
+     The contract text calls the symbol `PackContext.effective_root`; the real class is `OrgPackConfig`. Use the real symbol and note the correction in the Activity Log.
+  6. **G5** — no parameter or field carries an owned root as a path under any of `owned_root`, `owned_checkout`, `checkout_root`, `effective_root`, annotated `Path`, `pathlib.Path`, `Path | None`, `Optional[Path]`, `Union[Path, None]`, `os.PathLike`, or the string form of any of these.
+     - Only exemption: the fields of `mission_runtime.owned_checkout.OwnedCheckout`, by fully qualified class name.
+     - Planning-base floor: `tasks_mark_status.py:114`, `tasks_move_task.py:248`, `mission_creation.py:127`.
+  7. **G6** — positive signature pin: each consumer in `contracts/owned-checkout-carrier.md` §7 declares a parameter or field `owned: OwnedCheckout | None`:
+     - `mission_runtime.placement_seam`, `mission_runtime.mission_context_for`, `mission_runtime.resolve_action_context` (defined in `src/mission_runtime/resolution.py`);
+     - `specify_cli.task_utils.support.locate_work_package`, `specify_cli.workspace.context.resolve_workspace_for_wp`;
+     - `specify_cli.coordination.status_service.EventLogReadContract`, `specify_cli.status.models.TransitionRequest`, `runtime.next.runtime_bridge.DecideNextContext`;
+     - the prompt-builder entry point in `src/runtime/next/prompt_builder.py` (pin the function WP12 converted; `build_prompt` at `:61` is the public entry on the planning base);
+     - the review-base helper `claim_commit_for_wp` in `src/mission_runtime/claim_commit.py` (WP12).
+     Check by parsing the defining module, not by importing it, so the gate stays AST-only.
+  8. For each gate, assert on the full offender list and print it in the failure message as `path:line kind detail`, so the red commit is self-describing.
+  9. Add a non-vacuity floor per gate: each gate must have evaluated at least one real candidate (for example G4 scanned ≥ 1 file under `src/specify_cli/`; G6 found all ten definitions), so an emptied scan root can never pass.
+  10. Expose the allowlist constant the ratchet reads in T097: `_OWNED_ROOT_BARE_PATH_ALLOWLIST: frozenset[str] = frozenset()`, and make G4/G5 fail on any offender not in it.
+  11. Run the file; G1, G2, G4, G5 and G6 must be red, and G3 whatever the tree dictates. Commit **only this file**: `test(arch): owned-checkout single-authority gate G1–G6, committed red (WP18/T095)`, with a body line such as `Offenders at red: G1=<n> G2=<n> G3=<n> G4=<n> G5=<n> G6=<n missing pins>`.
+- **Files**:
+  - `tests/architectural/test_owned_checkout_single_authority.py` (new).
+  - Read-only: `tests/architectural/_owned_checkout_scan.py`, `tests/architectural/test_owned_checkout_gate_selftest.py`, `tests/architectural/_ast_scan.py`.
 - **Parallel?**: No; must be the first commit.
 - **Validation checklist**:
-  - [ ] The commit contains exactly one file and it is red with the recorded counts (paste the pytest summary into the Activity Log).
-  - [ ] Comments and docstrings containing `effective_root` are not counted (verify against a docstring such as `specify_cli/doctrine/snapshot.py:93`).
-  - [ ] `src/charter/**` is excluded by module rule, with a written reason in the gate docstring.
-- **Edge cases**: string forms of annotations (`"Path | None"`) and `from __future__ import annotations` both produce string/AST annotations — rely on the scanner's annotation normaliser. TypedDict keys are class-body `AnnAssign`s. `**{"effective_root": x}` splats are `Dict` keys inside a `Call`'s `**` keyword. A walrus binding (`(effective_root := ...)`) is a `NamedExpr` target — G4 bans it (see T097 for the one planning-base instance).
+  - [ ] The commit contains exactly one file, it is red, and the counts are in the message; paste the pytest summary into the Activity Log.
+  - [ ] Comments and docstrings containing `effective_root` are not counted (check against `specify_cli/doctrine/snapshot.py:93`).
+  - [ ] `src/charter/**` is excluded by module rule with a written reason.
+- **Edge cases**:
+  - String annotations (`"Path | None"`) and `from __future__ import annotations` both appear; rely on the scanner's annotation normaliser.
+  - TypedDict keys are class-body `AnnAssign`s; `**{"effective_root": x}` splats are `Dict` keys inside a `Call`'s `**` keyword; a walrus binding is a `NamedExpr` target.
 
 ### Subtask T096 – Delete the dual keywords, `effective_root_kwargs`, the `OwnedMission` alias and the legacy properties
 
-- **Purpose**: the plan's temporary scaffolding ends here. "The legacy keyword is deleted in the closing WP, together with `effective_root_kwargs`. Nothing ships in between." These deletions are what turns G4/G5 green.
-- **Steps** (each bullet is one out-of-map closure edit; list each in the commit message as `<path>: <rationale>`; line numbers are planning-base anchors, re-locate them on your lane base):
-  1. **`placement_seam` / `PlacementSeam`** — `src/mission_runtime/resolution.py:2491` (`placement_seam(repo_root, mission_slug, *, effective_root: Path | None = None)`) and the `PlacementSeam.effective_root` field (`:1981`). Delete the legacy keyword and field and whatever WP04 added to reconcile them with `owned`. Rationale: "closing WP: dual keyword retired per Staging Strategy (WP04-owned)".
+- **Purpose**: the plan's temporary scaffolding ends here. "The legacy keyword is deleted in the closing WP, together with `effective_root_kwargs`. Nothing ships in between." These deletions are most of what turns G4/G5 green.
+- **Steps** (each numbered item is one out-of-map closure edit; list each in the commit message as `<path>: <rationale>`; line numbers are planning-base anchors, so re-locate them on your lane base):
+  1. **`placement_seam` / `PlacementSeam`** — `src/mission_runtime/resolution.py:2491` (`placement_seam(repo_root, mission_slug, *, effective_root: Path | None = None)`) and the `PlacementSeam.effective_root` field (`:1981`). Delete the legacy keyword and field, and whatever WP04 added to reconcile them with `owned`. Rationale: "closing WP: dual keyword retired per Staging Strategy (WP04-owned)".
   2. **`mission_context_for`** — `resolution.py:1040-1046`. Same deletion, same rationale.
   3. **`resolve_action_context`** — `resolution.py:2507-2517`. Same.
-  4. **`resolve_workspace_for_wp`** — `src/specify_cli/workspace/context.py:699` (the legacy keyword was added by WP05; the planning-base signature has neither). Rationale: "closing WP: dual keyword retired (WP05-owned)".
-  5. **`locate_work_package`** — `src/specify_cli/task_utils/support.py:563-564` (legacy keyword), the `effective_root_kwargs` splat at `:587`, the `if effective_root is not None` at `:594`, and the import at `:15`. Rationale: "closing WP: dual keyword retired (WP04-owned)".
-  6. **`TransitionRequest`** — `src/specify_cli/status/models.py:899` (`effective_root: Path | None = None`) and, if WP07 kept it as part of the dual shape, `owned_mission: OwnedMission | None` (`:908`) plus the `TYPE_CHECKING` import at `:24-26`. Rationale: "closing WP: dual field retired (WP07-owned)".
+  4. **`resolve_workspace_for_wp`** — `src/specify_cli/workspace/context.py:699`. The legacy keyword was added by WP05 (the planning-base signature has neither keyword). Rationale: "closing WP: dual keyword retired (WP05-owned)".
+  5. **`locate_work_package`** — `src/specify_cli/task_utils/support.py`:
+     - the legacy keyword at `:563-564`;
+     - the `effective_root_kwargs` splat at `:587` and the `if effective_root is not None` at `:594`;
+     - the import at `:15`.
+     Rationale: "closing WP: dual keyword retired (WP04-owned)".
+  6. **`TransitionRequest`** — `src/specify_cli/status/models.py`:
+     - `effective_root: Path | None = None` (`:899`);
+     - `owned_mission: OwnedMission | None` (`:908`), if WP07 kept it as part of the dual shape;
+     - the `TYPE_CHECKING` import at `:24-26`.
+     Rationale: "closing WP: dual field retired (WP07-owned)".
   7. **`effective_root_kwargs` / `_EffectiveRootKwargs`** — `src/specify_cli/core/owned_mission.py:41-47`. Rationale: "closing WP: bridging helper retired (WP02-owned)".
-  8. **`OwnedMission` alias** — `src/specify_cli/core/owned_mission.py` (the transitional alias WP02/T010 left at the former class site `:18`) and any re-export. Rationale: "closing WP: rename complete, no alias (occurrence_map code_symbols: rename)".
-  9. **`OwnedCheckout` transitional legacy properties** (`primary`, `root`, `directory`, `slug`, `target`) — `src/mission_runtime/owned_checkout.py` (WP01/T001). Rationale: "closing WP: legacy attribute names retired (WP01-owned)". Remove any `mission_runtime` public-surface entry they added (check `tests/architectural/test_mission_runtime_surface.py` and `_PUBLIC_SURFACE`).
-  10. After each deletion, `grep -rn` for the removed name across `src/` **and** `tests/` and collect the breakages for T097; do not fix them inside this step.
-- **Files**: `src/mission_runtime/resolution.py`, `src/specify_cli/workspace/context.py`, `src/specify_cli/task_utils/support.py`, `src/specify_cli/status/models.py`, `src/specify_cli/core/owned_mission.py`, `src/mission_runtime/owned_checkout.py` (all out-of-map closure edits).
+  8. **`OwnedMission` alias** — `src/specify_cli/core/owned_mission.py` (the transitional alias WP02/T010 left at the former class site `:18`) and any re-export. Rationale: "closing WP: rename complete, no alias (occurrence_map `code_symbols: rename`)".
+  9. **`OwnedCheckout` transitional legacy properties** (`primary`, `root`, `directory`, `slug`, `target`) — `src/mission_runtime/owned_checkout.py` (WP01/T001). Rationale: "closing WP: legacy attribute names retired (WP01-owned)". If WP01 listed them anywhere in the `mission_runtime` public surface (`_PUBLIC_SURFACE`, `tests/architectural/test_mission_runtime_surface.py`), remove them there too.
+  10. After each deletion, `grep -rn` for the removed name across `src/` **and** `tests/`, and collect the breakages for T097. Do not fix them inside this step, so the deletion commit stays reviewable.
+  11. Commit the deletions together: `refactor(owned-checkout): retire transitional dual keywords, bridging helper, alias and legacy properties (WP18/T096)`. The tree may be red between T096 and T097 inside this WP; the WP as a whole ends green.
+- **Files** (all out-of-map closure edits):
+  - `src/mission_runtime/resolution.py`, `src/mission_runtime/owned_checkout.py`
+  - `src/specify_cli/workspace/context.py`, `src/specify_cli/task_utils/support.py`
+  - `src/specify_cli/status/models.py`, `src/specify_cli/core/owned_mission.py`
 - **Parallel?**: No; after T095.
 - **Validation checklist**:
   - [ ] `grep -rnw "effective_root_kwargs\|_EffectiveRootKwargs\|OwnedMission" src/` prints nothing.
   - [ ] `grep -rn "def placement_seam\|def mission_context_for\|def resolve_action_context\|def resolve_workspace_for_wp\|def locate_work_package" -A8 src | grep effective_root` prints nothing.
   - [ ] `tests/architectural/test_mission_runtime_surface.py` passes (MR-1/MR-2 surface unchanged apart from removed transitional names).
   - [ ] `tests/architectural/test_compat_shims.py` passes (no shim left behind).
-- **Edge cases**: `mission_runtime/resolution.py` is covered by the `mission_runtime` outbound ledger (`_baselines.yaml` `test_layer_rules.mission_runtime_allowed_specify_cli: 10`); deleting code must not add an import. If any deletion leaves a function at complexity > 15 (it should reduce it), fix it in place.
+  - [ ] `tests/architectural/test_layer_rules.py` passes (no new outbound edge).
+- **Edge cases**:
+  - `src/mission_runtime/resolution.py` is covered by the `mission_runtime` outbound ledger (`_baselines.yaml` `test_layer_rules.mission_runtime_allowed_specify_cli: 10`); deleting code must not add an import.
+  - If any deletion leaves a function above complexity 15 (it should only reduce complexity), fix it in place.
+  - `tests/architectural/test_no_dead_symbols.py` may flag a helper that only the dual keyword used; delete it rather than allowlisting it.
 
 ### Subtask T097 – Sweep leftover owned-root identifiers → gate green; `_baselines.yaml` cap 0
 
-- **Purpose**: drive G1–G6 to green with an empty allowlist and pin the zero with the ratchet meta-test.
+- **Purpose**: drive G1–G6 to green with an empty allowlist, keep every test green after the T096 deletions, and pin the zero with the ratchet meta-test.
 - **Steps**:
-  1. Run the gate; fix every remaining offender at its source by converting it to `owned: OwnedCheckout | None` (never by adding an exemption). Expected residue: the bridges earlier WPs logged in their Activity Logs (search WP13–WP17 prompt Activity Logs for "bridge"), plus anything the scanner finds that mypy never did. Each fix in another WP's file is an out-of-map closure edit with a rationale line.
-  2. Rename the one org-pack **local** binding G4 catches on the planning base: `src/specify_cli/charter_runtime/lint/checks/org_layer.py:327-330` binds `effective_root := pack.effective_root(repo_root)` in a comprehension. Rename the local (for example `pack_root`), leaving the method call intact. Rationale: "G4 bans the identifier as a binding; the org-pack method call stays under the symbol rule".
-  3. Re-point the **tests** broken by T096 (tests are not scanned by G4, but they must stay green). Planning-base test files that use the retired names outside the org-pack sense (27 files; confirm with `grep -rlnw "effective_root\|effective_root_kwargs\|OwnedMission" tests --include=*.py`): `tests/agent/test_context_validation_unit.py`, `tests/architectural/test_git_topology_one_copy.py`, `tests/architectural/test_read_surface_placement_guard.py` (`mission_context_for(..., effective_root=repo)` at `:447, 464, 480, 496`), `tests/architectural/test_single_mission_surface_resolver.py`, `tests/consolidation/test_pr_merge_baseline.py`, `tests/integration/test_explicit_checkout_commands.py`, `tests/migration/test_runtime_feature_dir_threading.py` (constructs `OwnedMission(...)`), `tests/mission_runtime/test_builder_fs_free_identity.py`, `tests/mission_runtime/test_coord_read_seam_callers.py`, `tests/mission_runtime/test_owned_single_branch_ssot.py`, `tests/mission_runtime/test_resolution_target_branch.py`, `tests/mission_runtime/test_status_surface_dir_deleted_arm.py`, `tests/next/test_decision_unit.py`, `tests/next/test_runtime_bridge_unit.py`, `tests/runtime/test_artifact_presence_placement.py`, `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py`, `tests/specify_cli/cli/commands/agent/test_tasks_mark_status_recovery.py` (`OwnedMission(...)` fixture), `tests/specify_cli/cli/commands/agent/test_tasks_move_task_pre_review_identity_read.py` (`OwnedMission(...)` at `:182`), `tests/specify_cli/cli/commands/test_next_answer_effective_root.py`, `tests/specify_cli/cli/commands/test_next_owned_commit_guard.py`, `tests/specify_cli/coordination/test_status_transition.py`, `tests/specify_cli/core/test_must_not_flip_anchors.py`, `tests/specify_cli/next/test_next_invocation_lifecycle_seam.py`, `tests/status/test_bootstrap.py`, `tests/status/test_transition_pipeline.py`. Most will already have been re-pointed by their owning WPs; fix only what is still red, re-pointing to `owned=` with a fact minted by the WP02 test helper, assertions unchanged. The org-pack test files (`tests/charter/test_pack_context.py`, `tests/doctrine/test_org_pack_*.py`, `tests/specify_cli/doctrine/*`, `tests/specify_cli/cli/commands/test_doctrine_collect.py`) use the unrelated org-pack sense and must not change.
-  4. **Ratchet registration.** Add to `tests/architectural/_baselines.yaml`, following its schema (top-level section = gate test-module name, leaf = integer, `# justification:` comment):
+  1. **Source offenders.** Run the gate and fix every remaining offender at its source, converting it to `owned: OwnedCheckout | None` (never by adding an exemption). Expected residue: the bridges earlier WPs logged (search the WP13–WP17 prompt Activity Logs for "bridge"), plus anything the scanner finds that mypy never did. Each fix in another WP's file is an out-of-map closure edit with a rationale line.
+  2. **The org-pack local.** Rename the one org-pack **binding** G4 catches on the planning base: `src/specify_cli/charter_runtime/lint/checks/org_layer.py:327-330` binds `effective_root := pack.effective_root(repo_root)` in a comprehension. Rename the local (for example `pack_root`) and leave the method call intact. Rationale: "G4 bans the identifier as a binding; the org-pack method call stays under the symbol rule".
+  3. **Tests broken by T096.** Tests are not scanned by G4, but they must stay green. Planning-base test files that use the retired names in the owned sense (27; confirm with `grep -rlnw "effective_root\|effective_root_kwargs\|OwnedMission" tests --include=*.py`):
+     - architectural: `tests/architectural/test_git_topology_one_copy.py`, `test_read_surface_placement_guard.py` (`mission_context_for(..., effective_root=repo)` at `:447, 464, 480, 496`), `test_single_mission_surface_resolver.py`;
+     - mission_runtime / runtime / next: `tests/mission_runtime/test_builder_fs_free_identity.py`, `test_coord_read_seam_callers.py`, `test_owned_single_branch_ssot.py`, `test_resolution_target_branch.py`, `test_status_surface_dir_deleted_arm.py`; `tests/runtime/test_artifact_presence_placement.py`; `tests/next/test_decision_unit.py`, `test_runtime_bridge_unit.py`;
+     - CLI / status / coordination: `tests/agent/test_context_validation_unit.py`; `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py`, `test_tasks_mark_status_recovery.py` (`OwnedMission(...)` fixture), `test_tasks_move_task_pre_review_identity_read.py` (`OwnedMission(...)` at `:182`); `tests/specify_cli/cli/commands/test_next_answer_effective_root.py`, `test_next_owned_commit_guard.py`; `tests/specify_cli/coordination/test_status_transition.py`; `tests/specify_cli/core/test_must_not_flip_anchors.py`; `tests/specify_cli/next/test_next_invocation_lifecycle_seam.py`; `tests/status/test_bootstrap.py`, `test_transition_pipeline.py`;
+     - others: `tests/consolidation/test_pr_merge_baseline.py`, `tests/integration/test_explicit_checkout_commands.py`, `tests/migration/test_runtime_feature_dir_threading.py` (`OwnedMission(...)`).
+     Most will already have been re-pointed by their owning WPs. Fix only what is still red: re-point to `owned=` with a fact minted by the WP02 test helper, assertions unchanged, one rationale line each. The org-pack-sense test files (`tests/charter/test_pack_context.py`, `tests/doctrine/test_org_pack_*.py`, `tests/specify_cli/doctrine/*`, `tests/specify_cli/cli/commands/test_doctrine_collect.py`) must not change.
+  4. **Ratchet leaf.** Add to `tests/architectural/_baselines.yaml`, following its schema (top-level section = gate test-module name, integer leaf, `# justification:` comment):
      ```yaml
      # tests/architectural/test_owned_checkout_single_authority.py — owned-checkout
      # single-authority gate (mission owned-checkout-lifecycle-authority-01M3M2ZB,
@@ -199,60 +238,96 @@ Done means:
        owned_root_bare_path_params: 0  # justification: empty allowlist by construction; never grows.
      ```
      A top-level scalar is refused by `test_yaml_leaves_refuses_a_scalar_section`, so the section/leaf shape is mandatory.
-  5. **Meta-test wiring (out-of-map).** `tests/architectural/test_ratchet_baselines.py` fails any YAML leaf without a `_SIZE_RATCHETS` row (`test_every_baseline_leaf_is_enforced_by_a_size_ratchet`) and pins the section count (`test_size_ratchet_table_meets_floor`: `assert len(_REQUIRED_TOP_LEVEL_KEYS) == 14`). Add one row `_SizeRatchet("test_owned_checkout_single_authority", "owned_root_bare_path_params", "tests.architectural.test_owned_checkout_single_authority", "_OWNED_ROOT_BARE_PATH_ALLOWLIST")` and bump the floor to 15 with its comment. That file is not owned by any WP in this mission: declare it as an out-of-map closure edit ("register the new gate's zero cap with the ratchet meta-test, as every _baselines.yaml leaf must be").
-  6. Run the gate and the ratchet meta-test until green; commit `fix(owned-checkout): retire transitional surfaces; single-authority gate green (WP18/T096-T097)`.
-- **Files**: `tests/architectural/_baselines.yaml` (owned); `tests/architectural/test_owned_checkout_single_authority.py` (owned); out-of-map: `tests/architectural/test_ratchet_baselines.py`, `src/specify_cli/charter_runtime/lint/checks/org_layer.py`, any residual source file from step 1, the test files in step 3 that are still red.
+  5. **Meta-test wiring (out-of-map).** `tests/architectural/test_ratchet_baselines.py` fails any YAML leaf without a `_SIZE_RATCHETS` row (`test_every_baseline_leaf_is_enforced_by_a_size_ratchet`) and pins the section count (`test_size_ratchet_table_meets_floor`: `assert len(_REQUIRED_TOP_LEVEL_KEYS) == 14`).
+     - Add the row `_SizeRatchet("test_owned_checkout_single_authority", "owned_root_bare_path_params", "tests.architectural.test_owned_checkout_single_authority", "_OWNED_ROOT_BARE_PATH_ALLOWLIST")`.
+     - Bump the floor assertion to 15 and extend its comment.
+     - No WP in this mission owns that file: declare it as an out-of-map closure edit ("register the new gate's zero cap with the ratchet meta-test, as every `_baselines.yaml` leaf must be").
+  6. Run the gate and the ratchet meta-test until green. Commit: `fix(owned-checkout): sweep residual owned roots; single-authority gate green (WP18/T097)`.
+- **Files**:
+  - Owned: `tests/architectural/_baselines.yaml`, `tests/architectural/test_owned_checkout_single_authority.py`.
+  - Out-of-map: `tests/architectural/test_ratchet_baselines.py`, `src/specify_cli/charter_runtime/lint/checks/org_layer.py`, any residual source file from step 1, the still-red test files from step 3.
 - **Parallel?**: No; after T096.
 - **Validation checklist**:
-  - [ ] `uv run --frozen pytest tests/architectural/test_owned_checkout_single_authority.py tests/architectural/test_ratchet_baselines.py tests/architectural/test_owned_checkout_gate_selftest.py -q` green.
+  - [ ] `uv run --frozen pytest tests/architectural/test_owned_checkout_single_authority.py tests/architectural/test_ratchet_baselines.py tests/architectural/test_owned_checkout_gate_selftest.py -q` is green.
   - [ ] `_OWNED_ROOT_BARE_PATH_ALLOWLIST` is empty and the YAML leaf is 0.
   - [ ] `grep -rnw "effective_root" src --include=*.py | grep -v "^src/charter/"` prints only org-pack method calls (`.effective_root(`) and docstrings/comments.
-  - [ ] Each out-of-map edit appears in the commit message with its rationale.
-- **Edge cases**: `occurrence_map.yaml` marks `_baselines.yaml` as `manual_review` ("may only shrink or gain the new gate's zero cap; never loosen") — do not touch any other leaf. `mypy --strict` on the files you edited is mandatory here: `follow_imports = "skip"` means only files named on the command line are fully checked.
+  - [ ] Every out-of-map edit appears in the commit message with its rationale.
+- **Edge cases**:
+  - `occurrence_map.yaml` marks `_baselines.yaml` `manual_review` ("may only shrink or gain the new gate's zero cap; never loosen"); touch no other leaf.
+  - `mypy --strict` on the source files you edited is mandatory: `follow_imports = "skip"` means only files named on the command line are fully checked.
 
 ### Subtask T098 – SC-001 end-to-end walkthrough test (quickstart), incl. stale copy and cwd matrix
 
-- **Purpose**: SC-001 and NFR-001: using only documented `--owned-checkout` commands, take an owned Mission from create to WP01's review prompt with 0 errors and 0 differences in the repository root checkout, regardless of where the operator stands.
+- **Purpose**: SC-001 and NFR-001: using only documented `--owned-checkout` commands, take an owned Mission from create to WP01's review prompt with 0 errors and 0 differences in the repository root checkout, wherever the operator stands.
 - **Steps**:
-  1. Create `tests/integration/test_owned_lifecycle_acceptance_e2e.py` with `pytestmark = [pytest.mark.integration, pytest.mark.git_repo]`. Invoke commands in process with `typer.testing.CliRunner` against the assembled root app (`from specify_cli import app` — `__all__` exports it; confirm it resolves to the assembled Typer, otherwise use the per-command sub-apps the WP08–WP13 acceptance files use). In-process keeps the test on the per-PR path (plan: Test Layout).
-  2. Use the WP02 fixtures: `owned_checkouts` (R plus a linked worktree P on its own branch), `r_snapshot` (R's working tree including ignored files, excluding exactly P's resolved subtree, R's `HEAD` and index, the shared lock root `<common-dir>/spec-kitty-locks`, an isolated `SPEC_KITTY_HOME`), `stale_root_copy` (a stale copy of the mission under R).
-  3. Script the `quickstart.md` sequence, asserting exit 0 and parsing `--json` output at each step:
-     1. `agent mission create demo --mission-type software-dev --owned-checkout P --target-branch <P's branch> --topology single_branch --json` → capture `mission_slug`/`mid8`.
-     2. write `spec.md` in P; `spec-commit --owned-checkout P --mission <slug> <spec.md> <meta.json>`.
+  1. Create `tests/integration/test_owned_lifecycle_acceptance_e2e.py` with `pytestmark = [pytest.mark.integration, pytest.mark.git_repo]`.
+  2. Invoke commands in process with `typer.testing.CliRunner` against the root app: `from specify_cli import app` (exported in `specify_cli.__all__`; confirm it resolves to the assembled Typer, otherwise use the per-command sub-apps the WP08–WP13 acceptance files use). In-process keeps the test on the per-PR path (plan: Test Layout).
+  3. Use the WP02 fixtures from `tests/integration/conftest.py`:
+     - `owned_checkouts` — R plus a linked worktree P on its own branch;
+     - `r_snapshot` — R's working tree including ignored files but excluding exactly P's resolved subtree, R's `HEAD` and index, the shared lock root `<common-dir>/spec-kitty-locks`, and an isolated `SPEC_KITTY_HOME`;
+     - `stale_root_copy` — a stale copy of the mission under R.
+  4. Script the `quickstart.md` sequence, asserting exit 0 and parsing `--json` output at each step (one helper function per step):
+     1. `agent mission create demo --mission-type software-dev --owned-checkout P --target-branch <P's branch> --topology single_branch --json` → capture the mission handle.
+     2. Write `spec.md` in P; `spec-commit --owned-checkout P --mission <slug> <spec.md> <meta.json>`.
      3. `agent mission setup-plan --owned-checkout P --mission <slug> --json` → `plan.md` exists and is committed in P.
      4. `agent tasks status --owned-checkout P --mission <slug> --json`.
-     5. write `tasks.md` and a one-WP `tasks/WP01-*.md` in P (minimal valid frontmatter; `owned_files` pointing at a file in P); `agent mission finalize-tasks --owned-checkout P --mission <slug> --json`.
+     5. Write `tasks.md` and one `tasks/WP01-*.md` in P (minimal valid frontmatter; `owned_files` naming a file in P); `agent mission finalize-tasks --owned-checkout P --mission <slug> --json`.
      6. `next --agent claude --owned-checkout P --mission <slug> --result success --json` → decision is implement WP01 with workspace == P.
-     7. `agent tasks move-task WP01 --to claimed`, then `--to in_progress`, commit an implementation change in P, then `--to for_review`, each with `--owned-checkout P --mission <slug>`.
+     7. `agent tasks move-task WP01 --to claimed`, then `--to in_progress`; commit an implementation change in P; then `--to for_review` — each with `--owned-checkout P --mission <slug>`.
      8. `next --agent claude --owned-checkout P --mission <slug> --json` → a review prompt whose base is WP01's claim commit (FR-010: the unique commit whose diff to `status.events.jsonl` introduced the last `to_lane=claimed` event id).
      9. `agent context resolve --owned-checkout P --action implement --mission <slug> --wp-id WP01 --json` → `resolution_kind == "owned_checkout"`, `lane_id is None`, `wp_file` and `workspace_path` under P.
-  4. After every step assert: every path in the JSON payload resolves under P (walk the payload for strings that look like absolute paths); `r_snapshot` shows 0 differences.
-  5. Parametrise the whole walk over `cwd ∈ {"R", "P", "elsewhere"}` (`monkeypatch.chdir`), and over `stale ∈ {False, True}`. With `stale=True`, every payload of the five FR-007 reads (`agent tasks status`, `setup-plan`, `context resolve`, `next`, `finalize-tasks`) carries a non-null top-level `stale_repository_root_copy` whose `path` is under R and whose `mission_id` matches, and no other path is under R; with `stale=False` the field is `null`.
-  6. Add the two documented refusals as a short tail: `agent action implement --owned-checkout P ...` and `agent action review --owned-checkout P ...` exit ≠ 0 with `error_code == "OWNED_ACTION_UNSUPPORTED"`, and R is unchanged.
-  7. Keep the helper functions small (complexity ≤ 15) and the file self-explanatory: one function per quickstart step, a single `_walk(runner, P, slug)` driver.
-- **Files**: `tests/integration/test_owned_lifecycle_acceptance_e2e.py` (new). Read-only: `quickstart.md`, `tests/integration/conftest.py`, the WP08–WP13 acceptance files.
+  5. After every step assert that every absolute path in the JSON payload resolves under P (walk the payload for path-like strings) and that `r_snapshot` shows 0 differences.
+  6. Parametrise the walk over `cwd ∈ {"R", "P", "elsewhere"}` (`monkeypatch.chdir`) and `stale ∈ {False, True}`:
+     - `stale=True`: every payload of the five FR-007 reads (`agent tasks status`, `setup-plan`, `context resolve`, `next`, `finalize-tasks`) carries a non-null top-level `stale_repository_root_copy` whose `path` is under R and whose `mission_id` matches; no other path is under R;
+     - `stale=False`: the field is `null`.
+  7. Tail: `agent action implement --owned-checkout P ...` and `agent action review --owned-checkout P ...` exit ≠ 0 with `error_code == "OWNED_ACTION_UNSUPPORTED"`, and R is unchanged.
+  8. Keep helpers small (complexity ≤ 15): one function per quickstart step and a single `_walk(runner, P, slug)` driver that T099 reuses.
+- **Files**:
+  - `tests/integration/test_owned_lifecycle_acceptance_e2e.py` (new).
+  - Read-only: `quickstart.md`, `tests/integration/conftest.py`, the WP08–WP13 acceptance files.
 - **Parallel?**: Independent of T095–T097 in code, but it must run green on the post-T097 tree; write it after T097.
 - **Validation checklist**:
-  - [ ] 6 parametrisations (3 cwd × 2 stale) pass; total runtime noted in the Activity Log (target: well under the per-PR budget; if it exceeds ~60 s, keep only `cwd=P, stale=True` per PR and mark the rest `slow` with a rationale).
-  - [ ] Temporarily reverting one seam fix (for example make the placement seam ignore `owned`) turns the test red (mutation check; do not commit).
-  - [ ] No `sleep`, no network, `SPEC_KITTY_HOME` isolated.
-- **Edge cases**: R's own lane and coordination worktrees must stay inside the snapshot (the fixture excludes exactly P's subtree, never a blanket `.worktrees/`). When cwd is "elsewhere", commands must still resolve R from `--owned-checkout`, not from cwd. The claim commit is found with `git log -S<event_id>`; the test must not assume a commit subject.
+  - [ ] All 6 parametrisations (3 cwd × 2 stale) pass; record the runtime in the Activity Log. If the file exceeds roughly 60 s, keep `cwd=P, stale=True` per PR and mark the rest `slow` with a rationale.
+  - [ ] Temporarily making one seam ignore `owned` (for example the placement seam) turns the test red (mutation check; do not commit).
+  - [ ] No `sleep`, no network; `SPEC_KITTY_HOME` is isolated.
+- **Edge cases**:
+  - R's own lane and coordination worktrees stay inside the snapshot (the fixture excludes exactly P's subtree, never a blanket `.worktrees/`).
+  - With cwd "elsewhere", commands must still resolve R from `--owned-checkout`, not from cwd.
+  - The claim commit is located by event id (`git log -S<event_id>`); never assume a commit subject.
 
 ### Subtask T099 – NFR-002 / NFR-003 measurements (`performance` marker)
 
-- **Purpose**: NFR-002 (1 ownership validation per owned command; 0 additional per-read git subprocesses for owned status reads versus the non-owned path) is the per-PR proxy; NFR-003 (median of 5 < 2 s for owned `agent tasks status`, `setup-plan`, `context resolve`) is the nightly wall-clock check.
+- **Purpose**: NFR-002 (exactly 1 ownership validation per owned command; 0 additional per-read git subprocesses for owned status reads versus the non-owned path) is the per-PR proxy. NFR-003 (median of 5 runs < 2 s for owned `agent tasks status`, `setup-plan` and `context resolve`) is the nightly wall-clock check.
 - **Steps**:
-  1. **NFR-002 validation count (per PR)** — in `tests/integration/test_owned_lifecycle_acceptance_e2e.py`: a fixture that wraps the real `specify_cli.core.checkout_ownership.resolve_ownership_claim` with a counter (module-attribute monkeypatch; `owned_mission` imports it lazily inside the validator, so the patch is seen) and calls `specify_cli.workspace.context.clear_workspace_resolution_caches()` before each command. Reuse the T098 driver with the counter enabled and assert the counter increments by **exactly 1** for every owned command in the walk (0 or ≥ 2 fails, FR-003).
-  2. **NFR-002 subprocess count (per PR)** — same file: count `git` subprocess invocations (wrap `subprocess.run` and `subprocess.Popen` where argv[0] ends with `git`) during one owned `agent tasks status --json` and during one non-owned `agent tasks status --json` on an equivalent mission in a plain repository root checkout; assert `owned - non_owned <= 0` after subtracting the validator's own probes (measure the validator's probes separately with the same counter around a direct validation, and record all three numbers in the assertion message).
-  3. **NFR-003 latency (nightly)** — `tests/performance/test_owned_checkout_perf.py`, every test `@pytest.mark.performance` (collected but skipped unless `SPEC_KITTY_RUN_PERFORMANCE=1`, per `tests/conftest.py`). Build the acceptance fixture once (module-scoped: R + P + a finalized one-WP owned mission), then for each of the three commands run it 5 times through the real entry point (`subprocess.run([sys.executable, "-m", "specify_cli", ...], cwd=P, timeout=60)`, mirroring `tests/performance/test_cli_startup_budget_4409.py:285-302`), take the median of the wall-clock times, and assert with `tests._perf_helpers.assert_timing_budget(median, 2.0, name="<command> owned median-of-5")`. Treat a non-zero exit as `float("inf")` with stderr in the name, like the startup test.
-  4. Keep functional assertions (exit code, payload shape) out of the performance file's timing tests or duplicate them per-PR in the e2e file: `tests/architectural/test_performance_marker_guard.py` and `test_timing_coverage_invariant.py` police the split between timing and functional asserts.
-- **Files**: `tests/integration/test_owned_lifecycle_acceptance_e2e.py` (append), `tests/performance/test_owned_checkout_perf.py` (new).
+  1. **NFR-002 validation count (per PR)**, in `tests/integration/test_owned_lifecycle_acceptance_e2e.py`:
+     - a fixture wraps the real `specify_cli.core.checkout_ownership.resolve_ownership_claim` with a counter (module-attribute monkeypatch; `owned_mission` imports it lazily inside the validator, so the patch is seen) and delegates to it unchanged;
+     - call `specify_cli.workspace.context.clear_workspace_resolution_caches()` before each command;
+     - reuse the T098 `_walk` driver with the counter enabled and assert the counter increments by **exactly 1** for every owned command in the walk (0 or ≥ 2 fails, FR-003); run it for `cwd=P, stale=False` only, to keep per-PR cost down.
+  2. **NFR-002 subprocess count (per PR)**, same file:
+     - wrap `subprocess.run` and `subprocess.Popen` with a counter that records calls whose argv[0] ends in `git`;
+     - measure one owned `agent tasks status --json` and one non-owned `agent tasks status --json` on an equivalent mission in a plain repository root checkout;
+     - measure the validator's own git probes separately with the same counter around a direct validation;
+     - assert `owned - validator_probes - non_owned <= 0` and put all three numbers in the assertion message.
+  3. **NFR-003 latency (nightly)**, in `tests/performance/test_owned_checkout_perf.py`:
+     - every test is `@pytest.mark.performance` (collected but skipped unless `SPEC_KITTY_RUN_PERFORMANCE=1`, per `tests/conftest.py:325-333`);
+     - `tests/performance/` is outside `tests/integration/`, so the WP02 fixtures are not auto-applied: import them explicitly and re-export via `__all__` (pattern: `tests/integration/test_owned_checkout_mark_status.py:13-22`), or build the fixture with the WP02 helpers, module-scoped (R + P + a finalized one-WP owned mission);
+     - run each command 5 times through the real entry point, `subprocess.run([sys.executable, "-m", "specify_cli", ...], cwd=P, capture_output=True, text=True, timeout=60)` (mirroring `tests/performance/test_cli_startup_budget_4409.py:285-302`);
+     - take the median of the wall-clock times and assert with `tests._perf_helpers.assert_timing_budget(median, 2.0, name="<command> owned median-of-5")`; a non-zero exit counts as `float("inf")` with the stderr tail in `name`.
+  4. Keep functional assertions (exit code, payload shape) out of the performance file's timing tests, or duplicate them per PR in the e2e file. `tests/architectural/test_performance_marker_guard.py` and `test_timing_coverage_invariant.py` police the split between timing and functional asserts.
+  5. Commit: `test(owned-checkout): NFR-002 counts per PR, NFR-003 latency nightly (WP18/T099)`.
+- **Files**:
+  - `tests/integration/test_owned_lifecycle_acceptance_e2e.py` (append).
+  - `tests/performance/test_owned_checkout_perf.py` (new).
 - **Parallel?**: After T098 (it reuses the driver).
 - **Validation checklist**:
   - [ ] `SPEC_KITTY_RUN_PERFORMANCE=1 uv run --frozen pytest tests/performance/test_owned_checkout_perf.py -m performance -q` passes locally; record the three medians in the Activity Log.
-  - [ ] Without the env var the performance tests are collected and skipped (not errored).
-  - [ ] The count tests fail when a second validation is planted (mutation check; do not commit).
-- **Edge cases**: the first run of a command in a fresh interpreter pays import cost; the median of 5 absorbs it, do not add warm-up runs that are excluded from the median. Workspace resolution caches are process-global: clear them between in-process counted commands or the counts go to 0 on reuse.
+  - [ ] Without the env var the performance tests are collected and skipped, not errored.
+  - [ ] The count tests fail when a second validation is planted, and when validation is bypassed (mutation checks; do not commit).
+  - [ ] `tests/architectural/test_performance_marker_guard.py` and `tests/architectural/test_timing_coverage_invariant.py` pass.
+- **Edge cases**:
+  - The first run of a command in a fresh interpreter pays import cost; the median of 5 absorbs it. Do not add excluded warm-up runs.
+  - Workspace-resolution caches are process-global: clear them between in-process counted commands, or the counts drop to 0 on reuse.
+  - Git calls made by the test's own fixture setup must happen before the counter is installed.
 
 ### Subtask T100 – Terminology guard, docs freshness, final targeted validation
 

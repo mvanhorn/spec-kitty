@@ -140,46 +140,71 @@ Planning-base identifier lines: `issue_matrix.py` 8, `review/cycle.py` 15, `cons
 
 ### Subtask T090 – Convert `tasks/issue_matrix.py`
 
-- **Purpose**: the issue-matrix writer and its finalize-time scaffold thread the owned root into the write seam and the placement seam.
+- **Purpose**: the issue-matrix writer and its finalize-time scaffold thread the owned root into the write seam and the placement seam. Owned `finalize-tasks` (O6) writes the issue matrix through here, so a missed site would write it into the repository root checkout.
 - **Steps**:
-  1. Import (`:51`): replace `from specify_cli.core.owned_mission import effective_root_kwargs` with `OwnedCheckout` from `mission_runtime`.
-  2. `write_issue_matrix(..., effective_root)` (`:358`) → `owned: OwnedCheckout | None = None`; `:393-404` `write_artifact(..., effective_root=effective_root)` (the keyword is on `:403`) → `owned=owned` (WP07 `write_seam`, callee rule).
-  3. `scaffold_issue_matrix(..., effective_root)` (`:445`) → `owned`; `:478` `if effective_root is not None:` → `if owned is not None:`; `:481` `placement_seam(repo_root, mission_slug, effective_root=effective_root)` → `owned=owned`; `:495-503` `write_issue_matrix(**effective_root_kwargs(effective_root))` → `owned=owned`; `:511` `if effective_root is not None: raise RuntimeError(...)` → `if owned is not None:` (same message).
-  4. Apply the caller rule for `mission_finalize.py:922-930` (WP13).
-- **Files**: `src/specify_cli/tasks/issue_matrix.py`.
+  1. Import (`:51`): replace `from specify_cli.core.owned_mission import effective_root_kwargs` with `OwnedCheckout` from `mission_runtime` (follow the module's `TYPE_CHECKING` style if it has one).
+  2. `write_issue_matrix` (`:350-405`):
+     - the parameter at `:358` becomes `owned: OwnedCheckout | None = None`;
+     - `:393-404` `write_artifact(..., effective_root=effective_root)` (the keyword is on `:403`) → `owned=owned` (WP07 `write_seam`; callee rule).
+  3. `scaffold_issue_matrix` (`:437-513`):
+     - the parameter at `:445` becomes `owned`;
+     - `:478` `if effective_root is not None:` → `if owned is not None:`;
+     - `:481` `placement_seam(repo_root, mission_slug, effective_root=effective_root)` → `owned=owned`;
+     - `:495-503` `write_issue_matrix(..., **effective_root_kwargs(effective_root))` → `owned=owned`;
+     - `:511` `if effective_root is not None: raise RuntimeError(result.diagnostic or "Owned issue matrix write failed.")` → `if owned is not None:` with the same message.
+  4. Update docstrings that name the removed parameter.
+  5. Apply the caller rule for `cli/commands/agent/mission_finalize.py:922-930` (WP13), which passes `**({"effective_root": owned.root} if owned else {})`.
+  6. Commit: `refactor(tasks): issue matrix takes the OwnedCheckout fact (WP17/T090)`.
+- **Files**:
+  - `src/specify_cli/tasks/issue_matrix.py`
+  - Possibly one call in `src/specify_cli/cli/commands/agent/mission_finalize.py` (out-of-map, only after WP13 merged).
 - **Parallel?**: `[P]`.
 - **Validation checklist**:
-  - [ ] `tests/specify_cli/tasks/test_issue_matrix_scaffold.py`, `test_issue_matrix_structured.py`, `test_issue_ref_url_provenance.py`, `tests/mission_runtime/test_issue_matrix_content_source.py`, `tests/mission_runtime/test_issue_matrix_ref_read.py`, `tests/specify_cli/cli/commands/review/test_issue_matrix_partition.py`, `test_zero_reference_not_applicable.py`, `tests/integration/test_issue_verdict_concurrent_lock.py`, `tests/integration/test_issue_verdict_coord_legacy_md_preservation.py`, `tests/policy/test_issue_matrix_cross_site_consistency.py`, `tests/tasks/test_issue_reference_classification.py` pass unchanged.
+  - [ ] `tests/specify_cli/tasks/test_issue_matrix_scaffold.py`, `test_issue_matrix_structured.py`, `test_issue_ref_url_provenance.py` pass unchanged.
+  - [ ] `tests/mission_runtime/test_issue_matrix_content_source.py`, `tests/mission_runtime/test_issue_matrix_ref_read.py` pass unchanged.
+  - [ ] `tests/specify_cli/cli/commands/review/test_issue_matrix_partition.py`, `test_zero_reference_not_applicable.py`, `tests/specify_cli/cli/commands/test_issue_3033_post_consolidation_write.py` pass unchanged.
+  - [ ] `tests/integration/test_issue_verdict_concurrent_lock.py`, `tests/integration/test_issue_verdict_coord_legacy_md_preservation.py`, `tests/policy/test_issue_matrix_cross_site_consistency.py`, `tests/tasks/test_issue_reference_classification.py` pass unchanged.
   - [ ] `tests/integration/test_explicit_checkout_commands.py::test_finalize_issue_matrix_uses_owned_writer` passes unchanged.
-- **Edge cases**: the non-owned arm uses `coord_read_dir_for(...) or feature_dir`, the owned arm the placement seam's `ISSUE_MATRIX` read dir; keep both. The idempotent early return (existing JSON or legacy `.md`) must fire before any write in both arms.
+- **Edge cases**:
+  - The non-owned arm uses `coord_read_dir_for(...) or feature_dir`; the owned arm uses the placement seam's `ISSUE_MATRIX` read dir. Keep both.
+  - The idempotent early return (existing JSON or legacy `.md`) must fire before any write in both arms.
+  - `write_issue_matrix` has non-owned callers (`cli/commands/agent/issue_verdict.py`, `tasks/issue_matrix_migration.py`) that pass no keyword; they are unaffected.
 
 ### Subtask T091 – Campsite plus conversion: `review/cycle.py`
 
-- **Purpose**: the review-cycle writer is on the owned review path (`move-task --to planned` with feedback, the rejection cycle). `create_rejected_review_cycle` is at complexity 12 and listed in the plan's campsite set; tidy it first, then convert.
+- **Purpose**: the review-cycle writer is on the owned review path (`move-task --to planned` with feedback, the rejection cycle). `create_rejected_review_cycle` is at complexity 12 and is in the plan's campsite list; tidy it first, then convert.
 - **Steps**:
-  1. **Campsite commit first** (behaviour-preserving, no signature change): in `create_rejected_review_cycle` (`:1125-1290`) the expression `effective_root or main_repo_root` is computed in three functions (`_commit_review_cycle_artifact` `:705`, `_adopt_or_allocate_review_cycle_locked` `:1010`, `create_rejected_review_cycle` `:1179`). Extract one private helper, for example `_operation_root(main_repo_root, owned)`, and any sub-block needed to bring `create_rejected_review_cycle` comfortably under 15 (the sub-artifact directory resolution and the persistence-outcome construction are natural seams). Commit: `refactor(review): campsite create_rejected_review_cycle before owned conversion (WP17/T091)`.
+  1. **Campsite commit first** (behaviour-preserving, no signature change). The expression `effective_root or main_repo_root` is computed in three functions: `_commit_review_cycle_artifact` (`:705`), `_adopt_or_allocate_review_cycle_locked` (`:1010`) and `create_rejected_review_cycle` (`:1179`). Extract one private helper, for example `_operation_root(main_repo_root, ...)`, and any sub-block needed to bring `create_rejected_review_cycle` comfortably under 15. Natural seams: the sub-artifact directory resolution (`:1179-1185`) and the persistence-outcome construction (`:1246-1260`). Commit: `refactor(review): campsite create_rejected_review_cycle before owned conversion (WP17/T091)`.
   2. **Conversion commit**:
 
      | Line | Function | Change |
      |---|---|---|
      | 179 | `_review_cycle_wp_dir(..., effective_root)` | param → `owned`; `:281` `placement_seam(..., effective_root=effective_root)` → `owned=owned` |
      | 683 | `_commit_review_cycle_artifact(..., effective_root)` | param → `owned`; `:699` `MissionHandle(effective_root=...)` → `owned=owned` (WP07); `:702-705` operation root via the helper; `:717-718` `placement_seam(effective_root=)` → `owned=owned` |
-     | 1001 | `_adopt_or_allocate_review_cycle_locked(..., effective_root)` | param → `owned`; `:1010-1012` operation root + `placement_seam` |
-     | 1125 | `create_rejected_review_cycle(..., effective_root)` (public) | param → `owned`; forwards at `:1180`, `:1231`, `:1246`, `:1272`; operation root `:1179, 1184, 1240, 1247, 1280` |
+     | 1001 | `_adopt_or_allocate_review_cycle_locked(..., effective_root)` | param → `owned`; `:1010-1012` operation root and `placement_seam` |
+     | 1125 | `create_rejected_review_cycle(..., effective_root)` (public) | param → `owned`; forwards at `:1180`, `:1231`, `:1246`, `:1272`; operation-root reads `:1179, 1184, 1240, 1247, 1280` |
 
-  3. The operation-root helper returns `owned.owned_root if owned is not None else main_repo_root`; name its return value something other than `owned_root`/`effective_root` if you bind it to a local (gate G4 bans the identifier `effective_root` everywhere in `src/`).
-  4. Apply the caller rule for `tasks_verdict_persistence.py:901, 936` (WP16).
-- **Files**: `src/specify_cli/review/cycle.py`.
+  3. The operation-root helper returns `owned.owned_root if owned is not None else main_repo_root`. If you bind its result to a local, do not call it `effective_root` or annotate it as an owned root (gate G4 bans the identifier everywhere in `src/`; G5 scans parameters and fields).
+  4. Apply the caller rule for `cli/commands/agent/tasks_verdict_persistence.py:901, 936` (WP16). `tasks_materialization.py:234` and `tasks_move_task.py` call it without the keyword and are unaffected.
+  5. Update the docstrings of the four functions to describe `owned`.
+- **Files**:
+  - `src/specify_cli/review/cycle.py`
+  - Possibly two calls in `src/specify_cli/cli/commands/agent/tasks_verdict_persistence.py` (out-of-map, only after WP16 merged).
 - **Parallel?**: No internal dependency on the other subtasks.
 - **Validation checklist**:
-  - [ ] `uv run --frozen ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=15' src/specify_cli/review/cycle.py` is clean and `create_rejected_review_cycle` is below its planning-base 12.
-  - [ ] `tests/review/test_cycle.py`, `tests/specify_cli/review/test_cycle_kind_flip.py`, `tests/review/test_artifacts.py`, `tests/review/test_arbiter.py`, `tests/review/test_verdict_status_lock_bound.py`, `tests/review/test_verdict_save_performance.py`, `tests/mission_runtime/test_coord_read_seam_callers.py`, `tests/agent/test_workflow_review_cycle_pointer.py` pass unchanged.
+  - [ ] `uv run --frozen ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=15' src/specify_cli/review/cycle.py` is clean, and `create_rejected_review_cycle` is below its planning-base 12.
+  - [ ] `tests/review/test_cycle.py`, `tests/specify_cli/review/test_cycle_kind_flip.py`, `tests/review/test_artifacts.py`, `tests/review/test_arbiter.py` pass unchanged.
+  - [ ] `tests/review/test_verdict_status_lock_bound.py`, `tests/review/test_verdict_save_performance.py`, `tests/mission_runtime/test_coord_read_seam_callers.py`, `tests/agent/test_workflow_review_cycle_pointer.py` pass unchanged.
   - [ ] `tests/architectural/test_single_mission_surface_resolver.py` still passes (it pins the review-cycle sub-artifact routing).
-- **Edge cases**: the commit retry loop in `_commit_review_cycle_artifact` (`attempt` counter) must keep its exact retry semantics. `evidence_ref` is computed relative to the operation root; for owned runs that must stay the owned checkout so evidence paths remain relative to P.
+  - [ ] The campsite commit alone passes the same list before the conversion commit.
+- **Edge cases**:
+  - The commit retry loop in `_commit_review_cycle_artifact` (`attempt` counter) keeps its exact retry semantics.
+  - `evidence_ref` is computed relative to the operation root; for owned runs that stays the owned checkout, so evidence paths remain relative to P.
+  - `tests/mission_runtime/test_coord_read_seam_callers.py:262, 271, 330` build `MissionHandle(..., effective_root=...)` for this module's callers; that is WP07's `MissionHandle` shape — if it is red after WP07, report it (WP18/T097 re-points leftovers), do not edit it here.
 
 ### Subtask T092 – Convert `consolidation/baseline.py`
 
-- **Purpose**: `accept --mode pr --merge-commit` records the PR merge baseline from the owned checkout's own `meta.json`; that read and the write leg are threaded through `effective_root` today.
+- **Purpose**: `accept --mode pr --merge-commit` records the PR merge baseline from the owned checkout's own `meta.json`. That declared-target read and the write leg are threaded through `effective_root` today (#4231 fold).
 - **Steps**:
   1. Convert the five functions; each `effective_root` parameter becomes `owned: OwnedCheckout | None = None`:
 
@@ -191,49 +216,93 @@ Planning-base identifier lines: `issue_matrix.py` 8, `review/cycle.py` 15, `cons
      | 792 | `resolve_primary_meta_dir` (public) | `:804` lazy import of `effective_root_kwargs`; `:806` `placement_seam(**effective_root_kwargs(effective_root))` → `placement_seam(..., owned=owned)` |
      | 814 | `record_pr_merge_baseline_for_mission` (public) | `:833, 834, 841` forwards |
 
-  2. Delete the lazy `effective_root_kwargs` import at `:804`. Update the docstrings at `:466` and `:828-831` to describe `owned`.
-  3. Apply the caller rule for `accept.py:398-402` and `accept.py:906` (WP14).
-  4. **Out-of-map test re-point (the one test edit this WP makes).** `tests/consolidation/test_pr_merge_baseline.py:842-894` (`test_verify_effective_root_resolves_declared_target_from_owned_checkout`) calls `verify_pr_merge_evidence(..., effective_root=worktree_root)` directly. No WP owns that file, and the call cannot survive the signature change. Re-point exactly that one call to `owned=<fact>`, building the fact with the WP02 test helper for minting a fact in tests (the checkout in that test is a bare `git worktree add` without an ownership claim, so the production validator would refuse it; never call `OwnedCheckout._mint`, gate G3). Keep the test name, the docstring's intent, and both assertions unchanged. Rationale for the commit message and Activity Log: "WP17: verify_pr_merge_evidence now takes the validated fact; the one direct unit call is re-pointed; assertions unchanged (FR-022)."
-- **Files**: `src/specify_cli/consolidation/baseline.py`; `tests/consolidation/test_pr_merge_baseline.py` (one call, out-of-map).
+  2. Delete the lazy `effective_root_kwargs` import at `:804`.
+  3. Update the docstrings at `:466` and `:828-831` to describe `owned` ("the owned checkout's own `meta.json`").
+  4. Apply the caller rule for `cli/commands/accept.py:398-402` and `accept.py:906` (WP14). `cli/commands/migrate_cmd.py` calls `verify_pr_merge_evidence`, `record_pr_merge_baseline_for_mission` and `resolve_primary_meta_dir` without the keyword and is unaffected.
+  5. **Out-of-map test re-point (the one test edit this WP makes).** `tests/consolidation/test_pr_merge_baseline.py:842-894` (`test_verify_effective_root_resolves_declared_target_from_owned_checkout`) calls `verify_pr_merge_evidence(..., effective_root=worktree_root)` directly. No WP owns that file, and the call cannot survive the signature change.
+     - Re-point exactly that one call to `owned=<fact>`.
+     - Build the fact with the WP02 test helper for minting a fact in tests: the checkout in that test is a bare `git worktree add` on branch `owned-checkout` without an ownership claim, so the production validator would refuse it. Never call `OwnedCheckout._mint` (gate G3).
+     - Keep the test name, the docstring's intent and both assertions unchanged.
+     - Rationale for the commit message and the Activity Log: "WP17: verify_pr_merge_evidence now takes the validated fact; the one direct unit call is re-pointed; assertions unchanged (FR-022)."
+  6. Commit: `refactor(consolidation): PR-merge baseline takes the OwnedCheckout fact (WP17/T092)`.
+- **Files**:
+  - `src/specify_cli/consolidation/baseline.py`
+  - `tests/consolidation/test_pr_merge_baseline.py` (one call, out-of-map)
+  - Possibly two calls in `src/specify_cli/cli/commands/accept.py` (out-of-map, only after WP14 merged)
 - **Parallel?**: `[P]`.
 - **Validation checklist**:
-  - [ ] `tests/consolidation/test_pr_merge_baseline.py` (all tests), `tests/consolidation/test_baseline_committed_meta_decode.py`, `tests/specify_cli/cli/commands/review/test_dead_code_baseline.py`, `tests/specify_cli/cli/commands/test_accept_merge_commit.py`, `tests/cli/commands/test_merge_status_commit.py`, `tests/consolidation/test_merge_done_recording.py` pass.
-  - [ ] `git diff -- tests/consolidation/test_pr_merge_baseline.py` touches only the one call (plus the fact construction lines).
-- **Edge cases**: the bare (non-owned) call in the same test must still raise `PrMergeEvidenceError` for the bogus repository-root target branch — that proves the owned arm reads P's `meta.json`, which is the whole point of the arm.
+  - [ ] `tests/consolidation/test_pr_merge_baseline.py` (all tests) and `tests/consolidation/test_baseline_committed_meta_decode.py` pass.
+  - [ ] `tests/specify_cli/cli/commands/review/test_dead_code_baseline.py`, `tests/specify_cli/cli/commands/test_accept_merge_commit.py`, `tests/cli/commands/test_merge_status_commit.py`, `tests/consolidation/test_merge_done_recording.py` pass unchanged.
+  - [ ] `git diff -- tests/consolidation/test_pr_merge_baseline.py` touches only the one call plus the fact construction lines.
+  - [ ] `grep -nw "effective_root\|effective_root_kwargs" src/specify_cli/consolidation/baseline.py` prints nothing.
+- **Edge cases**:
+  - The bare (non-owned) call in the same test must still raise `PrMergeEvidenceError` for the bogus repository-root target branch; that proves the owned arm reads P's `meta.json`, which is the whole point of the arm.
+  - `record_pr_merge_baseline_for_mission` resolves both the write leg's `feature_dir` and the declared-target read from the same `owned`; they must never resolve different `meta.json` files.
+  - `verify_pr_merge_evidence` is read-only git; keep it free of writes in both arms (`--diagnose` / `--no-commit` rely on that).
 
 ### Subtask T093 – Convert `git/commit_helpers.py`, `missions/_read_path_resolver.py`
 
 - **Purpose**: two small, isolated sites. `safe_commit` accepts an `effective_root` it immediately discards (`del effective_root` at `commit_helpers.py:1091`, "Compatibility-only routing hint after retirement of the ambient sync emitter"), so the right conversion is deletion. `resolve_subtasks_gate_dir` is on the status-transition subtask gate.
 - **Steps**:
-  1. `git/commit_helpers.py`: delete the `effective_root: Path | None = None` parameter (`:1003`) and the `del effective_root` line plus its comment (`:1090-1091`). Do not add an `owned` parameter: nothing in `safe_commit` uses the owned checkout (FR-001 bans bare owned roots; it does not require dead parameters).
-  2. Remove the keyword from its two callers (both in merged prerequisite WPs; one-line out-of-map edits each, with rationale "dead parameter deleted in `safe_commit` (WP17/T093)"):
+  1. `git/commit_helpers.py`: delete the `effective_root: Path | None = None` parameter (`:1003`) and the `del effective_root` line with its comment (`:1090-1091`). Do not add an `owned` parameter: nothing in `safe_commit` uses the owned checkout, and FR-001 bans bare owned roots, not missing dead parameters.
+  2. Remove the keyword from its two callers. Both are in merged prerequisite WPs; each is a one-line out-of-map edit with the rationale "dead parameter deleted in `safe_commit` (WP17/T093)":
      - `coordination/commit_router.py:438` (`**effective_root_kwargs(effective_root)` on the planning base; WP07 may already have changed it — delete whatever owned-root keyword it now passes to `safe_commit`);
      - `coordination/transaction.py:836` (`effective_root=self.worktree_root if self._primary_root is not None else None`).
-     Confirm with `grep -rn -A10 "safe_commit(" src --include=*.py | grep effective_root` that no other caller passes it (30 call sites on the planning base; only those two do). Also check tests: `grep -rn "safe_commit(" tests --include=*.py | xargs -r grep -l effective_root` (none on the planning base).
-  3. `missions/_read_path_resolver.py`: `resolve_subtasks_gate_dir(..., effective_root)` (`:1485`) → `owned: OwnedCheckout | None = None`; `:1520` `if effective_root is not None:` → `if owned is not None:`; `:1523-1524` `placement_seam(primary_root, mission_slug, effective_root=effective_root)` → `owned=owned`. Caller `status/transition_pipeline.py:102` (WP07, merged): switch its keyword to `owned=` in a one-line out-of-map edit if WP07 left a bridge there.
-- **Files**: `src/specify_cli/git/commit_helpers.py`, `src/specify_cli/missions/_read_path_resolver.py`; out-of-map one-liners in `src/specify_cli/coordination/commit_router.py`, `src/specify_cli/coordination/transaction.py`, `src/specify_cli/status/transition_pipeline.py`.
+  3. Confirm no other caller passes it: `grep -rn -A10 "safe_commit(" src --include=*.py | grep effective_root` (30 call sites on the planning base; only those two pass it). Check tests too: `grep -rln "safe_commit(" tests --include=*.py | xargs -r grep -ln effective_root` (none on the planning base).
+  4. `missions/_read_path_resolver.py`, `resolve_subtasks_gate_dir` (`:1478-1530`):
+     - the parameter at `:1485` becomes `owned: OwnedCheckout | None = None`;
+     - `:1520` `if effective_root is not None:` → `if owned is not None:`;
+     - `:1523-1524` `placement_seam(primary_root, mission_slug, effective_root=effective_root)` → `owned=owned`.
+  5. Its caller `status/transition_pipeline.py:102` (WP07, merged): switch the keyword to `owned=` in a one-line out-of-map edit if WP07 left a bridge there. `status/emit.py:695` only mentions it in a docstring.
+  6. Commit: `refactor(git,missions): drop dead safe_commit effective_root; subtasks gate dir takes the fact (WP17/T093)`.
+- **Files**:
+  - `src/specify_cli/git/commit_helpers.py`, `src/specify_cli/missions/_read_path_resolver.py`
+  - Out-of-map one-liners: `src/specify_cli/coordination/commit_router.py`, `src/specify_cli/coordination/transaction.py`, `src/specify_cli/status/transition_pipeline.py`
 - **Parallel?**: `[P]`.
 - **Validation checklist**:
   - [ ] `uv run --frozen mypy --strict src/specify_cli/git/commit_helpers.py` (it is in the `make typecheck` target) plus the multi-file command in Test Strategy.
-  - [ ] `tests/git_ops/test_safe_commit_helper_integration.py`, `tests/git_ops/test_safe_commit_commit_failure_classification.py`, `tests/integration/git/test_safe_commit_backstop.py`, `tests/git/test_guard_capability_regression.py`, `tests/git/test_protection_preserved.py`, `tests/specify_cli/status/test_subtasks_gate_dir_seam.py`, `tests/specify_cli/status/test_infer_subtasks_primary.py`, `tests/specify_cli/missions/test_read_path_resolver_redundant_cast_gate.py`, `tests/task_utils/test_set_scalar_retired.py` pass unchanged.
+  - [ ] `tests/git_ops/test_safe_commit_helper_integration.py`, `tests/git_ops/test_safe_commit_commit_failure_classification.py`, `tests/integration/git/test_safe_commit_backstop.py`, `tests/git/test_guard_capability_regression.py`, `tests/git/test_protection_preserved.py` pass unchanged.
+  - [ ] `tests/specify_cli/status/test_subtasks_gate_dir_seam.py`, `tests/specify_cli/status/test_infer_subtasks_primary.py`, `tests/specify_cli/missions/test_read_path_resolver_redundant_cast_gate.py`, `tests/task_utils/test_set_scalar_retired.py` pass unchanged.
   - [ ] `tests/architectural/test_no_read_side_bypass.py` passes (it references `resolve_subtasks_gate_dir`).
-- **Edge cases**: `_read_path_resolver.py` is referenced by 110 test files; most do not exercise `resolve_subtasks_gate_dir`. Run the targeted list above plus `make test-fast`, not all 110.
+  - [ ] `tests/specify_cli/coordination/test_commit_router_partition.py` and `tests/specify_cli/coordination/test_status_transition.py` pass (callers of `safe_commit`).
+- **Edge cases**:
+  - `_read_path_resolver.py` is referenced by 110 test files; most do not exercise `resolve_subtasks_gate_dir`. Run the targeted list above plus `make test-fast`, not all 110.
+  - `safe_commit` is also reached through `destination_ref`/`target` compatibility handling right below the deleted line; do not touch that shim (out of scope, separate retirement).
+  - If WP06/WP07 already dropped the keyword at their call sites, steps 2-3 reduce to the grep confirmation; record that in the Activity Log instead of making an empty edit.
+  - `resolve_subtasks_gate_dir` has a `primary_root is None` fallback through `resolve_canonical_root(feature_dir)` before the owned branch; keep that order, so an owned call with no primary root still resolves the root first.
 
 ### Subtask T094 – Convert `migration/runtime_state_cutover.py`, `migration/backfill_runtime_state.py`
 
-- **Purpose**: the birth-cutover and backfill already receive the validated value object (`owned: OwnedMission | None`, #3866). Conversion here is a type change plus canonical attribute names plus removing the `{"owned": owned}` splats and one owned-root keyword.
+- **Purpose**: the birth-cutover and backfill already receive the validated value object (`owned: OwnedMission | None`, #3866). Here the conversion is a type change, canonical attribute names, removal of the `{"owned": owned}` splats, and one owned-root keyword. The accept flow (WP14) and owned finalize depend on these legs writing only into P.
 - **Steps**:
-  1. `runtime_state_cutover.py`: the `TYPE_CHECKING` import at `:50-51` becomes `from mission_runtime import OwnedCheckout` (keep it under `TYPE_CHECKING` if runtime does not need it). Retype `owned: OwnedMission | None` → `OwnedCheckout | None` in `_seed_phase` (`:129`), `_verify_phase` (`:149`), `_resolve_primary_home_or_degrade` (`:199`), `_flip_target` (`:253`), `_already_at_snapshot_authority` (`:271`), `_flip_phase` (`:291`), `cutover_mission` (`:347`), `stamp_accept_cutover` (`:486`).
-  2. `_resolve_primary_home_or_degrade` `:226-230`: `resolve_artifact_surface(owned.primary, owned.slug, MissionArtifactKind.PRIMARY_METADATA, effective_root=owned.root)` → `resolve_artifact_surface(owned.repository_root, owned.mission_slug, MissionArtifactKind.PRIMARY_METADATA, owned=owned)` (callee rule for `resolve_artifact_surface`).
-  3. `cutover_mission` `:406`: delete `scope = {"owned": owned} if owned is not None else {}` and pass `owned=owned` at `:413, 421, 435, 448` (every callee already defaults `owned=None`, so the plain keyword is equivalent).
-  4. `backfill_runtime_state.py`: `TYPE_CHECKING` import at `:84-85`; retype `_runtime_feature_dir` (`:1433`), `backfill_runtime_state` (`:1453`), `_invocation_write_refusal` (`:2081`), `verify_backfill` (`:2129`). `_runtime_feature_dir` `:1445-1447`: `owned.directory` → `owned.mission_dir` (keep the exact-directory guard and its `OWNED_MISSION_PATH_REFUSED` code). `verify_backfill` `:2169-2170`: delete the `scope` splat, pass `owned=owned`.
-  5. Update the #3866 comments (`backfill_runtime_state.py:1438-1442`, `runtime_state_cutover.py` equivalents) so they name the fact, not a re-resolution that no longer exists.
-- **Files**: `src/specify_cli/migration/runtime_state_cutover.py`, `src/specify_cli/migration/backfill_runtime_state.py`.
+  1. `runtime_state_cutover.py` import: the `TYPE_CHECKING` block at `:50-51` becomes `from mission_runtime import OwnedCheckout` (keep it under `TYPE_CHECKING` unless runtime needs it).
+  2. Retype `owned: OwnedMission | None` → `OwnedCheckout | None` in:
+     - `_seed_phase` (`:129`), `_verify_phase` (`:149`);
+     - `_resolve_primary_home_or_degrade` (`:199`), `_flip_target` (`:253`);
+     - `_already_at_snapshot_authority` (`:271`), `_flip_phase` (`:291`);
+     - `cutover_mission` (`:347`), `stamp_accept_cutover` (`:486`).
+  3. `_resolve_primary_home_or_degrade` `:226-230`: `resolve_artifact_surface(owned.primary, owned.slug, MissionArtifactKind.PRIMARY_METADATA, effective_root=owned.root)` → `resolve_artifact_surface(owned.repository_root, owned.mission_slug, MissionArtifactKind.PRIMARY_METADATA, owned=owned)` (callee rule for `resolve_artifact_surface`).
+  4. `cutover_mission` `:406`: delete `scope = {"owned": owned} if owned is not None else {}` and pass `owned=owned` at `:413`, `:421`, `:435`, `:448`. Every callee already defaults `owned=None`, so the plain keyword is equivalent.
+  5. `backfill_runtime_state.py` import: the `TYPE_CHECKING` block at `:84-85` becomes `OwnedCheckout`.
+  6. Retype `_runtime_feature_dir` (`:1433`), `backfill_runtime_state` (`:1453`), `_invocation_write_refusal` (`:2081`), `verify_backfill` (`:2129`).
+  7. `_runtime_feature_dir` `:1445-1447`: `owned.directory` → `owned.mission_dir`. Keep the exact-directory guard and its `OWNED_MISSION_PATH_REFUSED` code unchanged.
+  8. `verify_backfill` `:2169-2170`: delete the `scope` splat and pass `owned=owned`.
+  9. Update the #3866 comments (`backfill_runtime_state.py:1438-1442` and the equivalent note in `runtime_state_cutover.py`) so they name the fact rather than a re-resolution that no longer exists.
+  10. Commit: `refactor(migration): cutover and backfill take the OwnedCheckout fact (WP17/T094)`.
+- **Files**:
+  - `src/specify_cli/migration/runtime_state_cutover.py`
+  - `src/specify_cli/migration/backfill_runtime_state.py`
 - **Parallel?**: `[P]`.
 - **Validation checklist**:
-  - [ ] `tests/specify_cli/migration/test_runtime_state_cutover.py`, `test_backfill_cutover_guard.py`, `test_backfill_migration_coexistence.py`, `test_backfill_writer_locking.py`, `test_cutover_partition_decouple.py`, `test_dogfood_corpus_backfilled.py`, `tests/migration/test_birth_cutover.py`, `tests/migration/test_corpus_frontload_idempotent.py`, `tests/migration/test_runtime_feature_dir_threading.py`, `tests/integration/test_migration_backfill.py`, `tests/specify_cli/cli/commands/test_backfill_runtime_state_cli.py`, `tests/specify_cli/cli/commands/test_cutover_doctor.py`, `tests/specify_cli/cli/test_accept_birth_cutover.py`, `tests/specify_cli/cli/commands/test_accept_birth_cutover_seam.py`, `tests/specify_cli/upgrade/test_runtime_state_backfill_migration.py` pass unchanged.
+  - [ ] `tests/specify_cli/migration/` (all), `tests/migration/test_birth_cutover.py`, `tests/migration/test_corpus_frontload_idempotent.py`, `tests/migration/test_runtime_feature_dir_threading.py` pass unchanged.
+  - [ ] `tests/integration/test_migration_backfill.py`, `tests/specify_cli/cli/commands/test_backfill_runtime_state_cli.py`, `tests/specify_cli/cli/commands/test_cutover_doctor.py`, `tests/specify_cli/upgrade/test_runtime_state_backfill_migration.py` pass unchanged.
+  - [ ] `tests/specify_cli/cli/test_accept_birth_cutover.py`, `tests/specify_cli/cli/commands/test_accept_birth_cutover_seam.py` pass unchanged.
   - [ ] `tests/integration/test_explicit_checkout_commands.py::test_accept_commits_metadata_matrix_and_cutover_only_in_owned` passes unchanged.
-- **Edge cases**: `tests/migration/test_runtime_feature_dir_threading.py:16-38` constructs `OwnedMission(...)` directly and asserts `_runtime_feature_dir(owned.directory, owned) == owned.directory`. You do not own that file. If WP02's transitional alias still lets it construct an object exposing `mission_dir`, it keeps passing; if it goes red only because the alias object lacks `mission_dir`, report it as a WP02 alias gap in the Activity Log (do not edit the file) — WP18/T097 re-points every remaining `OwnedMission` test construction when the alias is deleted.
+  - [ ] `grep -nw "OwnedMission\|effective_root" src/specify_cli/migration/runtime_state_cutover.py src/specify_cli/migration/backfill_runtime_state.py` prints nothing.
+- **Edge cases**:
+  - `tests/migration/test_runtime_feature_dir_threading.py:16-38` constructs `OwnedMission(...)` directly and asserts `_runtime_feature_dir(owned.directory, owned) == owned.directory`. You do not own that file. If WP02's transitional alias still constructs an object exposing `mission_dir`, it keeps passing; if it goes red only because the alias object lacks `mission_dir`, report it as a WP02 alias gap in the Activity Log (do not edit the file). WP18/T097 re-points every remaining `OwnedMission` test construction when the alias is deleted.
+  - `_runtime_feature_dir` is called for both the PRIMARY and the status leg in `cutover_mission` (`:409-410`); both must stay anchored to `owned.mission_dir`.
+  - The backfill's foreign-lane write refusal (`_invocation_write_refusal`) must keep returning the same checkout-naming message.
 
 ## Test Strategy
 
