@@ -65,7 +65,8 @@
         "WP03"
       ],
       "write_scope": [
-        "src/specify_cli/cli/commands/charter/generate.py"
+        "src/specify_cli/cli/commands/charter/generate.py",
+        "tests/specify_cli/cli/commands/test_charter_generate_autotrack.py"
       ],
       "predicted_surfaces": [
         "api",
@@ -79,8 +80,8 @@
       "parallel_group": 2
     }
   ],
-  "computed_at": "2026-09-28T16:38:29.305941+00:00",
+  "computed_at": "2026-09-28T18:19:47.354256+00:00",
   "computed_from": "dependency_graph+ownership",
   "planning_artifact_wps": [],
-  "planning_commit_sha": "7d01f3ba811fa319c50c8cdbc8bad7b7f6ad5dc0"
+  "planning_commit_sha": "f7bbd5c905a8cfabcc5eb77b1161eb124beab2e2"
 }
