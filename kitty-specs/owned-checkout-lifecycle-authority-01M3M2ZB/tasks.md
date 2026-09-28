@@ -300,7 +300,7 @@ T057, T058, T060–T063 (runtime part), T066, T067 (WP11). T056/T059 moved to WP
 ## Work Package WP19: `next` CLI entry takes the fact (Priority: P0)
 
 **Goal**: `next_cmd.py` validates once through `resolve_owned_or_adopt(NEXT_OWNED_TOPOLOGIES)`, resolves a handle-less run in P, adopts flaglessly, emits `stale_repository_root_copy` in owned runs, and hands the fact to WP11's runtime. Carries #5009 edaa9cd83 and 1be5352ee.
-**Independent Test**: through the real `next`: O5 (runtime half; US3-AS1 full-prompt row strict xfail until WP12), O9, the stale copy, the FR-023 pairing, the FR-022 `lanes_with_coord` in-process CLI twin, and the FR-003 count of exactly 1.
+**Independent Test**: through the real `next`: O5 (runtime half; US3-AS1 full-prompt row strict xfail until WP12), O9, the stale copy, the FR-023 pairing, the FR-022 `lanes_with_coord` in-process CLI twin, the FR-003 count of exactly 1, and US3-AS6 (a branch-flip test hook on R between validation and prompt build, proving the validation count stays 1 and every output stays under P).
 **Prompt**: `tasks/WP19-next-cli-entry-takes-the-fact.md`
 **Requirement Refs**: FR-002, FR-007, FR-008, FR-022, FR-023
 

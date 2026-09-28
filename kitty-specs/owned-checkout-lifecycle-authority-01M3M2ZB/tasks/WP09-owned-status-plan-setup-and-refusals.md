@@ -393,7 +393,7 @@ Each functional commit turns its slice of T044/T049 green.
      | non-single_branch mission | `make_owned_checkouts(topology="lanes_with_coord")` | `OWNED_TOPOLOGY_UNSUPPORTED` |
      | **valid P (control)** | P unchanged | `status` / `setup-plan` / `context-resolve`: success; implement / review: `OWNED_ACTION_UNSUPPORTED` |
 
-  2. Put the expected-code table in a module constant. For the three rows marked "WP02's minter test pins", read `tests/core/test_owned_mission_minter.py` and `tests/core/test_adopt_owned_checkout.py` and copy the pinned code, citing the test name in a comment. If WP02 pins no code for a row, stop and raise it with the reviewer rather than inventing one: the NFR-004 registry does not list a lane or coordination refusal code.
+  2. Put the expected-code table in a module constant. For the three rows marked "WP02's minter test pins", read `tests/core/test_owned_mission_minter.py` and `tests/core/test_adopt_owned_checkout.py` and copy the pinned code, citing the test name in a comment. The NFR-004 registry (data-model.md) already lists `OWNED_CHECKOUT_IS_MISSION_WORKTREE` for both the lane and the coordination case; if WP02's tests pin a different code for a row, stop and raise it with the reviewer rather than inventing one.
   3. For every row assert:
      - exit 1;
      - the code is in the registered set;

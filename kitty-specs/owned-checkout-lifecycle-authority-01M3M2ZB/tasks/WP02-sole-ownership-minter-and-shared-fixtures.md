@@ -161,9 +161,14 @@ Also:
   2. Add the module constants:
      ```python
      LIFECYCLE_OWNED_TOPOLOGIES: Final = frozenset({MissionTopology.SINGLE_BRANCH})
-     NEXT_OWNED_TOPOLOGIES: Final = frozenset({MissionTopology.SINGLE_BRANCH, MissionTopology.LANES_WITH_COORD, MissionTopology.COORD})
+     NEXT_OWNED_TOPOLOGIES: Final = frozenset({
+         MissionTopology.SINGLE_BRANCH,
+         MissionTopology.LANES,
+         MissionTopology.LANES_WITH_COORD,
+         MissionTopology.COORD,
+     })
      ```
-     Note that `LANES` is deliberately absent from both (research R-02).
+     Note that `LANES` is deliberately absent from `LIFECYCLE_OWNED_TOPOLOGIES` but present in `NEXT_OWNED_TOPOLOGIES`: today's `next --owned-checkout` applies no topology check at all, so `next` must keep accepting a plain lanes-without-coordination owned mission (research R-02, U1). Add `test_next_topologies_accept_lanes`: a `lanes` (no coordination) mission, called with `allowed_topologies=NEXT_OWNED_TOPOLOGIES`, returns a fact whose `topology is LANES`. Pair it, on the same fixture, with `test_lifecycle_default_refuses_lanes`, which raises `OWNED_TOPOLOGY_UNSUPPORTED` with the default `allowed_topologies`.
   3. Change the signature to `resolve_owned_mission(repository_root, checkout, handle, *, target_override=None, allowed_topologies=LIFECYCLE_OWNED_TOPOLOGIES) -> OwnedCheckout`.
   4. Replace `:108-110` with `_require_allowed_topology(meta, topology, allowed_topologies)`:
      - `meta is None` or topology `None` → `OWNED_TOPOLOGY_UNSUPPORTED`;
@@ -188,6 +193,10 @@ Also:
 - **Purpose**: `--owned-checkout <R>` currently passes the claim primitive (`checkout_ownership.py:225-231` returns `OWNED`). The fact's invariant `owned_root != repository_root` would then raise a raw `ValueError`. It must instead be a typed refusal with a registered code (FR-020, NFR-004, research R-14).
 - **Steps**:
   1. **Red first** in `tests/core/test_owned_mission_minter.py`: `test_repository_root_is_refused`. Put R on an unprotected branch equal to the mission target (for example `git checkout -b codex/root-owned` in R), with a single_branch mission committed in R, and call `resolve_owned_mission(R, R, slug)`. Expect `ActionContextError` with `code == "OWNED_CHECKOUT_IS_REPOSITORY_ROOT"`. On base this returns a value (accepted), so it is a genuine red. Add a same-fixture control: the valid linked P is accepted.
+
+     **U2 pins (missing path and non-worktree directory).** Add two more cases in the same test module, each paired with the valid-P control on the same fixture, so WP09 T049 has a pinned code to cite for both rows instead of inventing one:
+     - `test_missing_path_is_refused`: call `resolve_owned_mission(R, tmp_path / "does-not-exist", slug)`. Expect `ActionContextError` with `code == "OWNERSHIP_BROKEN_POINTER"` (the claim primitive's `BrokenPointerCheckoutError`, `checkout_ownership.py:73-76`, fired because the path has no readable git topology).
+     - `test_non_worktree_directory_is_refused`: call `resolve_owned_mission(R, R / "docs", slug)` for a plain, non-git subdirectory of R (create it with `(R / "docs").mkdir()`; no `git init` inside it). Expect `ActionContextError` with `code == "OWNERSHIP_NESTED"` (`NestedCheckoutError`, `checkout_ownership.py:61-64`).
   2. In `src/specify_cli/core/checkout_ownership.py`, add a module constant `OWNED_CHECKOUT_IS_REPOSITORY_ROOT = "OWNED_CHECKOUT_IS_REPOSITORY_ROOT"` and a pure predicate `claims_repository_root(claim: OwnershipClaim) -> bool` (`claim.claimed_checkout == claim.resolved_primary`). **Do not** change `resolve_ownership_claim` or `OwnershipValidationResult`: `tests/core/test_checkout_ownership.py:111` and `:334` pin the primitive (five values; self-ownership is `OWNED`). ADR 2026-08-12-1 defines that primitive, and WP03 documents the minter-level refusal.
   3. In `owned_mission._require_owned_claim`, raise `ActionContextError(OWNED_CHECKOUT_IS_REPOSITORY_ROOT, "--owned-checkout names the repository root checkout; pass a linked owned checkout instead.")` when the predicate holds. The same guard is reused by T008 and T009.
   4. Add to `tests/core/test_checkout_ownership.py`: `claims_repository_root` is True for R, False for a linked worktree, and False for a nested or foreign claim.
@@ -213,6 +222,7 @@ Also:
 - **Validation checklist**:
   - [ ] `pytest tests/core/test_checkout_ownership.py tests/core/test_owned_mission_minter.py -q` is green.
   - [ ] Search the tests for CLI invocations that pass the repository root as `--owned-checkout` (`grep -rn "owned-checkout\", str(" tests`) and confirm none relied on it. Record the result in the Activity Log.
+  - [ ] `test_missing_path_is_refused` and `test_non_worktree_directory_is_refused` are green, each pinning the code WP09 T049 cites (`OWNERSHIP_BROKEN_POINTER`, `OWNERSHIP_NESTED`).
 - **Edge cases**:
   - Symlinked R or case-variant R: the claim resolves paths, so compare the resolved paths. On Windows the case-variant path is covered by the fact's normcase comparison (WP01). Add one test passing `R` through a symlink `link -> R`; it must still refuse.
   - The refusal must fire **before** mission resolution, so no read of R's `kitty-specs` happens (NFR-001 spirit).
@@ -378,7 +388,7 @@ Also:
 
 | Requirement | Red-first test | Entry point | Why non-vacuous |
 |---|---|---|---|
-| FR-023 | `test_next_topologies_accept_lanes_with_coord` | `resolve_owned_mission` (pre-existing) | paired with the lifecycle-default refusal on the same fixture |
+| FR-023 | `test_next_topologies_accept_lanes_with_coord`, `test_next_topologies_accept_lanes` | `resolve_owned_mission` (pre-existing) | each paired with the lifecycle-default refusal on the same fixture |
 | FR-002 (minter half) | `test_returns_validated_fact` and the branch/protection ratchets | `resolve_owned_mission` | the fact type check is red on base; the branch and protection refusals prove the checks `next` will inherit (the CLI half is WP19) |
 | FR-020 | `test_repository_root_is_refused` | `resolve_owned_mission` | red on base: R is accepted today; control: valid P accepted |
 | FR-021 (helper) | `tests/core/test_adopt_owned_checkout.py` | new function (the CLI-level O10 red is WP08) | nine cases with claim-count assertions; the R case asserts 0 claims |

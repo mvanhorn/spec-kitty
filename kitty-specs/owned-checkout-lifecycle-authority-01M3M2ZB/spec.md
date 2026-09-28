@@ -43,7 +43,7 @@ This mission makes the owned checkout the single authority for every lifecycle r
 
 The validator records the mission's stored topology in the validated fact. **Each command enforces its own allowed topologies:**
 
-- `next` keeps supporting owned coordination-topology missions (for example `lanes_with_coord`), as ADR 2026-08-12-1 allows today.
+- `next` keeps accepting every topology it accepts today: `single_branch`, `lanes`, `coord` and `lanes_with_coord` (`NEXT_OWNED_TOPOLOGIES`), preserving current behaviour rather than newly narrowing it, as ADR 2026-08-12-1 allows today.
 - The lifecycle commands of ADR 2026-09-03-1 (`agent tasks status`, `setup-plan`, `context resolve`, `finalize-tasks`, `move-task`, `mark-status`, `spec-commit`, `accept`) remain single_branch-only. Other topologies are refused with `OWNED_TOPOLOGY_UNSUPPORTED`.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -77,7 +77,7 @@ After an owned create and a substantive spec commit, the operator checks status 
    - a missing path;
    - a non-worktree directory;
    - R itself (`OWNED_CHECKOUT_IS_REPOSITORY_ROOT`);
-   - a lane or coordination worktree;
+   - a lane or coordination worktree (`OWNED_CHECKOUT_IS_MISSION_WORKTREE`);
    - a mismatched or detached branch (`OWNED_BRANCH_REFUSED`);
    - a protected target (`OWNED_BRANCH_REFUSED`);
    - a non-single_branch mission (`OWNED_TOPOLOGY_UNSUPPORTED`).
@@ -236,7 +236,7 @@ Decision `01M3M4GTA4ENB73A0HDS65WZ1P`: a flagless command run from **inside a li
 | NFR-001 | Repository root checkout untouched | In every owned acceptance scenario, the R snapshot shows 0 differences. The snapshot covers: R's working tree including ignored files, **excluding exactly P's resolved subtree** when P lives under R (never a blanket `.worktrees/` exclusion, so R's own lane and coordination worktrees are still covered); R's `HEAD` and index; the shared lock root `<common-dir>/spec-kitty-locks`; and an isolated `SPEC_KITTY_HOME`. Scenarios are parametrised over cwd = R, P and an unrelated directory. | Reliability | High | Open |
 | NFR-002 | Validation count | Exactly 1 ownership validation per owned command invocation, and 0 additional per-read git subprocess calls for owned status reads compared with the non-owned path. Both are measured by counting calls in an integration test through the CLI entry point. | Performance | Medium | Open |
 | NFR-003 | Command latency | On the acceptance fixture, the median of 5 runs of owned `agent tasks status`, `setup-plan` and `context resolve` is < 2 s each (charter budget), measured by a `performance`-marked test in the nightly CI run. Per-PR, NFR-002's subprocess-count assertion is the proxy. | Performance | Medium | Open |
-| NFR-004 | Typed errors | Every owned refusal introduced or touched here returns a code from one registered set, the existing `OWNED_*` codes plus `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, `OWNED_ACTION_UNSUPPORTED`, `OWNED_REVIEW_BASE_UNAVAILABLE` and `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`, in `--json` output. 0 surface as an uncaught exception, asserted per refusal scenario. | Reliability | High | Open |
+| NFR-004 | Typed errors | Every owned refusal introduced or touched here returns a code from one registered set, **data-model.md's "Error code registry" (the single authority)**: the existing claim-primitive codes (`WORKTREE_INVOCATION_REFUSED`, `OWNERSHIP_NESTED`, `OWNERSHIP_FOREIGN`, `OWNERSHIP_BROKEN_POINTER`), the existing minter/workspace codes (`OWNED_MISSION_PATH_REFUSED`, `OWNED_TOPOLOGY_UNSUPPORTED`, `OWNED_BRANCH_REFUSED`, `OWNED_INDEX_REFUSED`, `WORK_PACKAGE_UNRESOLVED`), and the codes new to this mission (`OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, `OWNED_CHECKOUT_IS_MISSION_WORKTREE`, `OWNED_ACTION_UNSUPPORTED`, `OWNED_REVIEW_BASE_UNAVAILABLE`, `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`), in `--json` output. **Carve-out for commands with no `--json` option** (`agent action implement` / `review`, FR-018): the code appears in the human refusal line as `Error: [<CODE>] …` on stderr with a non-zero exit, in place of `--json` output. 0 surface as an uncaught exception, asserted per refusal scenario. | Reliability | High | Open |
 | NFR-005 | Quality gates | New and changed code: ruff check and format clean, mypy 0 new findings, complexity ≤ 15, diff coverage ≥ 90% (CI gate). | Maintainability | High | Open |
 | NFR-006 | Cross-platform identity | Owned-checkout identity is correct for one explicit symlink case (`link → real`, constructed by the test) and one case-variant path case. The case-variant test runs on the Windows CI workflow, and its file is added to `ci-windows.yml`'s path filter. | Reliability | Medium | Open |
 

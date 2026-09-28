@@ -82,12 +82,13 @@ WP11 made `runtime/next` carry the `OwnedCheckout` fact and proved it at the run
 | Row | Outcome | Proof (red on base → green here) |
 |---|---|---|
 | FR-002 / O9 | `next --owned-checkout` goes through `resolve_owned_or_adopt(…, NEXT_OWNED_TOPOLOGIES)` and gets branch and protection checks. A protected target is refused with `OWNED_BRANCH_REFUSED`. | CLI test with a protected target, plus a valid control |
-| FR-023 | A `lanes_with_coord` mission is accepted by `next`, and the same mission is refused by a lifecycle command with `OWNED_TOPOLOGY_UNSUPPORTED`. | paired CLI test |
+| FR-023 | A `lanes_with_coord` mission is accepted by `next`, and the same mission is refused by a lifecycle command with `OWNED_TOPOLOGY_UNSUPPORTED`. A plain `lanes` mission is accepted by `next` the same way (U1: `next` keeps accepting every topology it accepts today). | paired CLI test |
 | FR-008 / O5 | `next --result success` at tasks→implement raises no traceback, the workspace is P, and the run is not wedged. The full US3-AS1 row (`kind == "step"` with a prompt file) is a strict xfail that WP12 removes. | CLI test |
 | FR-007 | With a stale copy of M in R, the `next` JSON carries `stale_repository_root_copy` (owned runs only), and no workspace path is under R. A non-owned payload is byte-identical to the base. | CLI test with `stale_root_copy` + non-owned control |
 | FR-022 | Coordination-topology owned `next` still works: the per-PR in-process CLI twin (owned `lanes_with_coord` create → `next`). | twin (green on base, ratchet) |
 | FR-003 | Exactly one ownership validation per `next --owned-checkout` invocation. | call-count assertion |
 | FR-012 (CLI envelope) | WP11's `Decision.error_code` reaches `next --json` as `error_code`. | one subprocess-seam injection through the real command |
+| US3-AS6 | R's branch is flipped by a test hook between validation and prompt build; all reads still use the fact from the start of the command, and validation count stays 1. | monkeypatch hook on the AS-1 fixture (T102 step 10) |
 
 **Done when:**
 - every row above has a red-first test **committed before** its fix commit (reviewers verify the commit order in `git log`);
@@ -154,7 +155,7 @@ WP11 made `runtime/next` carry the `OwnedCheckout` fact and proved it at the run
 - **Steps:**
   1. Create `tests/integration/test_owned_lifecycle_acceptance_next.py` with `pytestmark = [pytest.mark.integration, pytest.mark.git_repo]`. Use WP02's shared fixtures (never import fixtures from test modules). `make_owned_checkouts(...)` is not finalized: run `agent mission finalize-tasks --owned-checkout P --mission H` in setup. Invoke the command through the `next` app/command object from `specify_cli.cli.commands.next_cmd`, as `tests/specify_cli/cli/commands/` does.
   2. **O9 / FR-002.** `make_owned_checkouts(protected_target=True)` (or set `protection.protected_branches: [main, <P's target>]` in P's `.kittify/config.yaml`, following `test_explicit_checkout_commands.py:247-260`). `next --owned-checkout P --mission H --json` → non-zero exit and `json["error_code"] == OwnedRefusalCode.OWNED_BRANCH_REFUSED`. Same-fixture control without protection passes. Red on the base: the claim-only path at `next_cmd.py:161-178` accepts it.
-  3. **FR-023 pairing.** A `lanes_with_coord` owned mission (step 6): `next --owned-checkout P` passes validation; `agent tasks status --owned-checkout P` (WP09) refuses it with `OWNED_TOPOLOGY_UNSUPPORTED`.
+  3. **FR-023 pairing.** A `lanes_with_coord` owned mission (step 6): `next --owned-checkout P` passes validation; `agent tasks status --owned-checkout P` (WP09) refuses it with `OWNED_TOPOLOGY_UNSUPPORTED`. **U1 pin (`LANES` in `NEXT_OWNED_TOPOLOGIES`):** a plain `lanes` (no coordination) owned mission also passes `next --owned-checkout P` validation (green on the base, since today's `next` applies no topology check at all — this is the ratchet that keeps that behaviour), while the same mission is refused by `agent tasks status --owned-checkout P` with `OWNED_TOPOLOGY_UNSUPPORTED`, same as the `lanes_with_coord` pairing.
   4. **O5 / FR-008.** On a finalized owned mission, `next --agent claude --owned-checkout P --mission H --result success --json`. Assert: no traceback (`result.exception` is `None` or `SystemExit`); no `ValueError` in the output; not `blocked` for a workspace-resolution reason; `workspace_path == str(P)`, `action == "implement"`, `wp_id == "WP01"`; a following query does **not** return the same unadvanced decision.
 
      The full US3-AS1 row goes in a **separate** test: `kind == "step"` with an existing `prompt_file` whose workspace is P, marked `xfail(strict=True, reason="WP12 T068: prompt builder owned arm")`. WP12 removes the marker (declared out-of-map edit in this file).
@@ -163,11 +164,17 @@ WP11 made `runtime/next` carry the `OwnedCheckout` fact and proved it at the run
   7. **Stale copy (FR-007).** With `stale_root_copy`, `next --owned-checkout P --result success --json`: `json["stale_repository_root_copy"]["path"]` names R's copy, and `workspace_path` is not under R (`Path.is_relative_to`, excluding P's subtree when P lives under R). Non-owned control on the same repository: the key is **absent** and the payload is byte-identical to the base.
   8. **NFR-001.** Wrap each owned scenario in `r_snapshot`; 0 differences. Run the owned scenarios across the `owned_cwd` matrix (cwd = R, P, unrelated directory; `monkeypatch.chdir`).
   9. **FR-003 count.** Patch `specify_cli.core.checkout_ownership.resolve_ownership_claim` with a counting wrapper; clear the workspace caches first with `clear_workspace_resolution_caches()`. Assert exactly **1** call per `next --owned-checkout` invocation (red on the WP11 result with a count ≥ 2: the claim-only CLI check plus each runtime legacy arm; record the observed count).
-  10. **Flagless adoption pins (T103 step 4).** Adoption from a valid P runs owned; a flagless run from a lane worktree gets the unchanged legacy refusal.
-  11. Commit: `test(next): red-first owned next CLI acceptance (O5, O9, FR-007/022/023, FR-003)`.
+  10. **US3-AS6 / fact-not-re-derived.** On the fixture of step 4 (AS-1: a finalized owned mission, `next --owned-checkout P --result success --json`), install a monkeypatch hook on `specify_cli.core.paths.get_main_repo_root` (or the equivalent site `resolve_owned_or_adopt` calls after validation, whichever the merged WP08/WP11 code actually reads for R's branch) that flips R's current branch (`git -C R checkout -q -b <other>`) after the single `resolve_owned_or_adopt` call and before the prompt is built. Reuse the same `resolve_ownership_claim` counting wrapper from step 9. Assert:
+     - the validation count stays exactly **1** (no second validation is triggered by the branch flip);
+     - `workspace_path == str(P)` and no output path is under R;
+     - the command still exits 0 with `action == "implement"`.
+
+     This is deliberately a stronger, more direct proof than the FR-003 call-count assertion alone (analysis C1): the call-count check would not catch re-derivation of R's identity through `get_main_repo_root(cwd)` or `locate_project_root`, whereas flipping R's branch mid-command and asserting the count stays 1 **and** all outputs stay under P catches both a second validation and a same-fact-but-re-derived-context bug.
+  11. Commit: `test(next): red-first owned next CLI acceptance (O5, O9, FR-007/022/023, FR-003, US3-AS6)`.
 - **Validation checklist:**
   - [ ] Every row is red on the WP11 result for the stated reason (or recorded as a green ratchet), recorded in the Activity Log; the red commit precedes every fix commit.
   - [ ] No assertion reads git stderr text. `SPEC_KITTY_ENABLE_SAAS_SYNC=0` comes from the integration conftest autouse fixture.
+  - [ ] US3-AS6's branch-flip row is green: the validation count stays 1 and every output path stays under P after R's branch changes mid-command.
 
 ### Subtask T103 – `next_cmd` through `resolve_owned_or_adopt(NEXT_OWNED_TOPOLOGIES)` (was T059, plus the CLI campsites)
 

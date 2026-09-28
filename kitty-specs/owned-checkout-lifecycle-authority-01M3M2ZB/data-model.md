@@ -33,7 +33,7 @@
 | `resolve_owned_create_root(repository_root, checkout)` | `OwnedCreateRoot` (typed, frozen; fields `repository_root: Path`, `checkout: Path`; a validated owned root before the mission exists, never a bare `Path`) | `agent mission create` |
 | `adopt_owned_checkout(repository_root, cwd, handle, *, allowed_topologies)` | `OwnedCheckout \| None` | flagless owned-capable commands (FR-021) |
 | `LIFECYCLE_OWNED_TOPOLOGIES` | `frozenset({SINGLE_BRANCH})` | ADR 2026-09-03-1 lifecycle commands |
-| `NEXT_OWNED_TOPOLOGIES` | `frozenset({SINGLE_BRANCH, LANES_WITH_COORD, COORD})` | `next` |
+| `NEXT_OWNED_TOPOLOGIES` | `frozenset({SINGLE_BRANCH, LANES, LANES_WITH_COORD, COORD})` | `next` |
 | `OwnedMission(primary, root, directory, slug, target)` | `OwnedCheckout` | **transitional legacy factory function** marked `# TRANSITIONAL(WP18)`: accepts the old positional arguments, mints an `OwnedCheckout` (topology `SINGLE_BRANCH`) inside the minter module so G3 holds; deleted by WP18 |
 
 ## ResolvedWorkspace (extended)
