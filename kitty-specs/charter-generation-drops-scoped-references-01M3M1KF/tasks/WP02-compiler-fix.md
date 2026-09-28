@@ -16,6 +16,9 @@ requirement_refs:
 planning_base_branch: fix/charter-generation-drops-scoped-references-5257
 merge_target_branch: fix/charter-generation-drops-scoped-references-5257
 branch_strategy: Planning artifacts for this mission were generated on fix/charter-generation-drops-scoped-references-5257. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into fix/charter-generation-drops-scoped-references-5257 unless the human explicitly redirects the landing branch.
+base_branch: kitty/mission-charter-generation-drops-scoped-references-01M3M1KF
+base_commit: 3759ea9e4f334e5fea85f4c74a9e99fb831bb7fc
+created_at: '2026-09-28T21:17:16.172215+00:00'
 subtasks:
 - T007
 - T008
