@@ -149,6 +149,18 @@ acceptance contract for this WP, more concretely than any prose restatement here
   — do not add a fifth enum member.
 - **Graph-load failure never fails closed** (I4). It does not participate in the six-kind
   whole-kind aggregate count either — no per-kind bucket exists to attribute it to.
+- **Classification reuses the canonical `_diagnose_catalog_miss` gate — no `active_languages`
+  threading (round-8 fix, closes analyze findings D1/C1/U1).** Do NOT write a new classify
+  function or thread `active_languages` through `compile_charter` /`_build_references` /
+  `_build_references_from_service` / `_render_kind_references`. Instead, import and call
+  `_diagnose_catalog_miss(raw_id, repository)` from
+  `charter.activation.context_renderers.catalog_diagnosis` (it is in that module's `__all__`, so
+  importing it is legitimate — do not rename it). That single call already implements the
+  `scope_filtered_ids`-check-then-`classify_catalog_miss`-fallback sequence AND already reads
+  `active_languages` off `repository._active_languages` and the fuzzy-match corpus off
+  `_available_catalog_ids(repository)` — see T007/T008 below and plan.md's IC-02. This does not
+  change the whole-kind check, the `graph.unresolved` URN-split/kind-mapping, the graph-load
+  diagnostics sink, the plain-`str` cause typing, or the `_raw_kind_repository` fold-in above.
 - **`--force` (FR-003) touches nothing in this path.** It already only gates catalog-file
   overwrite permission upstream of `_build_references`, never reference resolution. Do not add
   any `force`-conditioned branch to the logic below; FR-003 is verified by a paired
@@ -156,16 +168,33 @@ acceptance contract for this WP, more concretely than any prose restatement here
   assertion, not a code change).
 
 **Reuse, do not reinvent (DIRECTIVE_044):**
+- `charter.activation.context_renderers.catalog_diagnosis._diagnose_catalog_miss(missing_id,
+  repository)` — THE canonical single gate for this classification (already wired for FR-013,
+  already called by `selection_block.py` and `profile_sections.py`). Call it directly from your
+  new classify-and-placeholder helper instead of re-deriving its logic. It already: (a) checks
+  `getattr(repository, "scope_filtered_ids", frozenset())` — defensively, so a bare test double
+  with no `scope_filtered_ids` attribute (e.g. `_EmptyRepository` in
+  `tests/charter/test_catalog_completeness_4785.py`) never raises `AttributeError` (closes analyze
+  finding C1 — do not add your own separate `getattr` for this, the gate already has it); (b) on a
+  genuine miss, calls `classify_catalog_miss(missing_id, _available_catalog_ids(repository))` —
+  the fuzzy-match corpus (analyze finding U1) comes from the gate's own `_available_catalog_ids`,
+  you do not build or pass an `available_ids` list yourself; (c) reads `active_languages` straight
+  off `getattr(repository, "_active_languages", None)` — no threading needed, see the Binding
+  mechanism decisions above. Import direction `compiler.py` → `catalog_diagnosis.py` is verified
+  cycle-free (`catalog_diagnosis.py` depends only on the `_catalog_miss` leaf; nothing in
+  `context_renderers/` imports `compiler`) — see plan.md IC-02.
 - `charter.activation._catalog_miss`: `CatalogMissCause`, `classify_catalog_miss`,
   `classify_scope_filtered_miss` — already built, already tested
-  (`tests/charter/test_context_catalog_miss.py`, part of the baseline). Do not modify this
-  module.
+  (`tests/charter/test_context_catalog_miss.py`, part of the baseline); consumed transitively via
+  `_diagnose_catalog_miss` above, not called directly by `compiler.py`. Do not modify this module.
 - `BaseDoctrineRepository.scope_filtered_ids` (`src/charter/offering/base.py`) — a `frozenset`
-  already populated at repository load time; `raw_id in repository.scope_filtered_ids` is how
-  you distinguish `SCOPE_FILTERED` from `MISSING_ARTIFACT`/`TYPO_SUSPECTED`. This check MUST run
-  BEFORE any placeholder-construction code (Contract C4 regression risk otherwise).
+  already populated at repository load time; `_diagnose_catalog_miss` is what distinguishes
+  `SCOPE_FILTERED` from `MISSING_ARTIFACT`/`TYPO_SUSPECTED` using it defensively (above). Your
+  helper calls the gate BEFORE any placeholder-construction code (Contract C4 regression risk
+  otherwise) — it does not access `scope_filtered_ids` itself.
 - `ArtifactKind(kind_prefix).plural` (`src/charter/offering/artifact_kinds.py`) for the URN
-  kind-mapping above.
+  kind-mapping above (unrelated to the classification-reuse above; still your own responsibility
+  for the `graph.unresolved` routing in T009).
 
 ## Commits
 
@@ -173,9 +202,11 @@ Land T007-T013 as four logically-scoped commits, not one, so each mechanism is i
 reviewable:
 
 1. **T007 + T008** — the shared classify-and-placeholder helper wired into
-   `_render_kind_references`, plus `active_languages` threaded across the four call levels it
-   needs to produce reason text. These two are one mechanism: the helper's reason-bearing output
-   is not meaningfully testable without the language context T008 threads through.
+   `_render_kind_references`, calling the canonical `_diagnose_catalog_miss` gate (round-8 fix,
+   no `active_languages` threading — see Binding mechanism decisions above), plus T008's
+   assertion that the gate's language-set-naming suggestion text actually surfaces end-to-end.
+   These two are one mechanism: the helper's reason-bearing output is not meaningfully testable
+   without confirming the gate's richer suggestion text reaches the emitted diagnostic/summary.
 2. **T009 + T010** — routing `graph.unresolved` through the same shared helper, plus the
    diagnostics/structured-record sink (and graph-load-failure sentinel) on
    `_resolve_transitive_reference_graph`. These two together close the mission's "second,
@@ -197,55 +228,76 @@ Contract C4 regression oracle) — do not defer that check to the final commit.
 
 **Purpose**: Replace the duplicated `diagnostics.append(f"Unresolved reference: {kind}/{raw_id}")`
 call inside `_render_kind_references` (`compiler.py` ~line 1140) with a single new private
-helper — e.g. `_classify_and_placeholder_reference(kind, raw_id, repository, active_languages)`
-— that: (a) checks `raw_id in repository.scope_filtered_ids` first; if true, routes to
-`classify_scope_filtered_miss` (`CatalogMissCause.SCOPE_FILTERED`) and ALWAYS builds and returns
-a placeholder `CharterReference` (decision 3's placeholder-text format from Context above); (b)
-otherwise falls through to `classify_catalog_miss(raw_id, available_ids)`
-(`TYPO_SUSPECTED`/`MISSING_ARTIFACT`) and returns no placeholder — `references` stays `[]` for
-that id, diagnostics-only (Contract C4); (c) in both branches, appends a reason-bearing
-diagnostic string to `diagnostics: list[str]` — extend, don't replace, the existing format:
-`"Unresolved reference: {kind}/{id} ({cause}): {detail}"`; (d) in both branches, appends a
-structured `(kind, id, cause, detail)` record to the new structured-records sink (a new
-parameter/list this helper receives and populates), so a `MISSING_ARTIFACT`/`TYPO_SUSPECTED`
-miss is STILL machine-readable even without a placeholder row.
+helper — e.g. `_classify_and_placeholder_reference(kind, raw_id, repository)` — that: (a) calls
+the existing canonical gate `_diagnose_catalog_miss(raw_id, repository)` (import from
+`charter.activation.context_renderers.catalog_diagnosis` — it is in that module's `__all__`, so
+importing it is legitimate; do not rename it) to get a `CatalogMissDiagnosis`. The gate already
+implements the `scope_filtered_ids`-check-then-`classify_catalog_miss`-fallback sequence, already
+guards `scope_filtered_ids` access with `getattr(..., frozenset())` (so `_EmptyRepository` in
+`tests/charter/test_catalog_completeness_4785.py` never raises — closes analyze finding C1), and
+already sources its fuzzy-match corpus from `_available_catalog_ids(repository)` internally
+(closes analyze finding U1) — **do not re-implement any of that inline** (closes analyze finding
+D1); (b) if the returned diagnosis's `cause` is `CatalogMissCause.SCOPE_FILTERED`, ALWAYS builds
+and returns a placeholder `CharterReference` (decision 3's placeholder-text format from Context
+above); (c) otherwise (`TYPO_SUSPECTED`/`MISSING_ARTIFACT`) returns no placeholder — `references`
+stays `[]` for that id, diagnostics-only (Contract C4); (d) in both branches, appends a
+reason-bearing diagnostic string to `diagnostics: list[str]` — extend, don't replace, the
+existing format: `"Unresolved reference: {kind}/{id} ({cause}): {detail}"`, using the diagnosis's
+own `cause`/suggestion text; (e) in both branches, appends a structured `(kind, id, cause,
+detail)` record to the new structured-records sink (a new parameter/list this helper receives and
+populates), so a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` miss is STILL machine-readable even without a
+placeholder row.
 
 **Steps**:
 1. Add the private helper function (module-private, leading underscore — NOT added to
-   `__all__`; see the C-007 note below).
+   `__all__`; see the C-007 note below). It takes `(kind, raw_id, repository)` — no
+   `active_languages` parameter; the gate reads that off `repository` itself.
 2. Replace `_render_kind_references`'s existing unresolved-append call site with a call to this
    helper.
 3. This same helper is also the target for T009's `graph.unresolved` routing (do not write a
    second, parallel classify function).
 
-**Files**: `src/charter/activation/compiler.py` (~50-90 new lines for the helper, modifying the
-`_render_kind_references` call site).
+**Files**: `src/charter/activation/compiler.py` (~30-60 new lines for the thin helper — smaller
+than the original estimate since `_diagnose_catalog_miss` absorbs the classification logic;
+modifying the `_render_kind_references` call site; one new import line for
+`_diagnose_catalog_miss`).
 
 **Validation**: `tests/charter/test_charter_generate_scoped_reference_parity.py` should now
-resolve every fixture id via this path (though full GREEN also needs T008's `active_languages`
-threading and T010's whole-kind check to not spuriously trip). `tests/charter/test_catalog_completeness_4785.py`
-must stay green — add a targeted run after this subtask:
+resolve every fixture id via this path (full GREEN also needs T010's whole-kind check to not
+spuriously trip). `tests/charter/test_catalog_completeness_4785.py` must stay green — add a
+targeted run after this subtask:
 `.venv/bin/python -m pytest -q tests/charter/test_catalog_completeness_4785.py`.
 
-## Subtask T008: Thread `active_languages` across four call levels
+## Subtask T008: Confirm `_diagnose_catalog_miss` surfaces the real active-language suggestion (no threading)
 
-**Purpose**: So `classify_scope_filtered_miss` can produce its richer, language-set-naming
-suggestion text (`src/charter/activation/_catalog_miss.py:261-305`) instead of the generic
-fallback — required for NFR-002's "actionable diagnostic content" bar and for decision 2's
-placeholder-text-format test (T012) to have real content to assert against.
+**Purpose (round-8 fix — supersedes the original "thread `active_languages` across four call
+levels" task)**: Analyze findings D1/C1/U1 established that `_diagnose_catalog_miss` already
+reads `active_languages` directly off `getattr(repository, "_active_languages", None)` — the
+value each per-kind repository already carries from its own construction
+(`BaseDoctrineRepository.__init__`, `src/charter/offering/base.py:106`) — so there is no
+`active_languages` parameter to thread through `compile_charter` → `_build_references` →
+`_build_references_from_service` → `_render_kind_references`; none of those four signatures
+change for this reason, and none of the six per-kind call sites in
+`_build_references_from_service` gain a new argument. This subtask is now a verification step,
+not a plumbing change: confirm T007's helper passes the real `repository` object (not a stripped
+or partial view) into `_diagnose_catalog_miss`, so `classify_scope_filtered_miss`'s richer,
+language-set-naming suggestion text (`src/charter/activation/_catalog_miss.py:261-305`) reaches
+the emitted diagnostic/placeholder `summary` unmodified — required for NFR-002's "actionable
+diagnostic content" bar and for decision 2's placeholder-text-format test (T012) to have real
+content to assert against.
 
-**Steps** (re-verified against live `HEAD` source during planning — four hops, not three):
-1. `compile_charter` already computes `active_languages` — pass it to `_build_references`
-   (currently does not).
-2. `_build_references` accepts and forwards `active_languages` to `_build_references_from_service`.
-3. `_build_references_from_service` accepts and forwards `active_languages` to
-   `_render_kind_references` — called six times per kind (directive, tactic, styleguide,
-   toolguide, procedure, agent_profile) — forward it at each of the six call sites.
-4. `_render_kind_references` forwards `active_languages` to T007's classify-and-placeholder
-   helper, which passes it to `classify_scope_filtered_miss(artifact_id, active_languages=...)`.
+**Steps**:
+1. Do NOT add `active_languages` parameters anywhere in `compiler.py` — verify none of
+   `compile_charter`, `_build_references`, `_build_references_from_service`, or
+   `_render_kind_references` gained a new signature parameter for this purpose.
+2. Confirm T007's helper calls `_diagnose_catalog_miss(raw_id, repository)` with the same
+   `repository` object `_render_kind_references` already receives (the raw per-kind repository,
+   which already carries `_active_languages` from construction) — not a copy or a stripped view.
+3. Add the language-set-naming assertion (see Validation below) proving the suggestion text is
+   real, not the generic fallback.
 
-**Files**: `src/charter/activation/compiler.py` (signature changes at four functions/call
-levels — no new files).
+**Files**: `src/charter/activation/compiler.py` (no signature changes expected from this
+subtask — if a diff shows one, that is a regression against this ruling, not progress).
 
 **Validation**: Add one assertion to T012's new file, `tests/charter/test_compiler_scope_filtered_placeholder.py`
 (not WP01's `test_charter_generate_scoped_reference_parity.py`, which WP01 owns) asserting that
@@ -412,9 +464,19 @@ per-line reasons (same records, structured form) for a fixture with a mix of `SC
   the OLD format before changing it — `grep -rn "Unresolved reference:" tests/` — to avoid an
   unrelated test regression outside this mission's stated scope.
 - **Risk**: Contract C4 regression — a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` id falls through to
-  the placeholder branch by mistake. **Mitigation**: the `scope_filtered_ids` membership check
-  MUST run BEFORE any placeholder-construction code, not after; `test_catalog_completeness_4785.py`
-  is your regression oracle — run it after EVERY subtask, not just at the end.
+  the placeholder branch by mistake. **Mitigation**: the `_diagnose_catalog_miss(raw_id,
+  repository)` call MUST run BEFORE any placeholder-construction code, and its returned `cause`
+  MUST gate whether a placeholder is built — not a separate, hand-written
+  `scope_filtered_ids` membership check (the gate already does that defensively);
+  `test_catalog_completeness_4785.py` is your regression oracle — run it after EVERY subtask, not
+  just at the end.
+- **Risk**: Re-deriving the classify-then-placeholder logic inline in `compiler.py` instead of
+  calling `_diagnose_catalog_miss` — this would reintroduce analyze finding D1's duplication and
+  silently drop C1's/U1's defensive precedents (the gate's `getattr` guard and
+  `_available_catalog_ids` corpus). **Mitigation**: grep the diff for a hand-written
+  `scope_filtered_ids` membership check or a direct `classify_catalog_miss`/
+  `classify_scope_filtered_miss` call in `compiler.py` — either is a regression against this
+  round's ruling; only `_diagnose_catalog_miss` should be called directly.
 - **Risk**: Timing bug in the whole-kind check (evaluating per-source instead of per-kind-after-
   all-sources). **Mitigation**: I2 is unambiguous — evaluate once per kind, after ALL sources
   (all per-kind `_render_kind_references` calls AND the kind-mapped `graph.unresolved` pass)
@@ -474,11 +536,19 @@ per-line reasons (same records, structured form) for a fixture with a mix of `SC
 - Verify Contract C4 is genuinely undisturbed — don't just trust the test passing; read
   `test_catalog_completeness_4785.py`'s assertion and confirm the code path it exercises
   (`MISSING_ARTIFACT`/`TYPO_SUSPECTED`) truly never reaches placeholder-construction code.
-- Verify the `scope_filtered_ids` check precedes classification, not follows it (ordering bug
-  risk explicitly called out in Risks above).
+- Verify the `_diagnose_catalog_miss(raw_id, repository)` call precedes any placeholder
+  construction (ordering bug risk explicitly called out in Risks above) — the gate's own
+  `getattr(repository, "scope_filtered_ids", frozenset())` guard is what makes this safe against
+  `_EmptyRepository`, not a separate check in `compiler.py`.
 - Verify no `--force`-conditioned branch exists anywhere in the new logic.
 - Verify `ArtifactKind(kind_prefix).plural` is the ONLY kind-mapping mechanism used — grep for
   any second, hand-rolled mapping dict/if-chain and reject if found.
+- Verify the classify-and-placeholder helper calls `_diagnose_catalog_miss(raw_id, repository)`
+  (imported from `charter.activation.context_renderers.catalog_diagnosis`) rather than
+  re-deriving the `scope_filtered_ids`-check-then-classify sequence inline, and that `compiler.py`
+  gained NO `active_languages` parameter anywhere (`git diff -- src/charter/activation/compiler.py`
+  should show no new `active_languages` in any function signature) — round-8 fix, closes analyze
+  D1/C1/U1.
 - Verify the whole-kind check's evaluation point: read the code and confirm it runs once per
   kind, after every per-kind `_render_kind_references` call AND the `graph.unresolved` pass for
   that kind have both executed — not interleaved per-source.

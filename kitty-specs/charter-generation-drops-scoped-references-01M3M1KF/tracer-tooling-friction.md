@@ -46,3 +46,30 @@ Append entries during implementation; assess at close.
   hitting the identical condition — strengthens the plan-phase observation that this checker's
   flakiness budget is worth someone's attention outside this mission's scope. Not investigated or
   fixed here.
+
+## Analyze fix-round phase (post-analyze, round 8 — closes D1/C1/U1/L1)
+
+- **`lanes.json`'s stale `predicted_surfaces` for a tests-only WP cannot be corrected without
+  hand-editing generator state (analyze finding L1).** `lanes.json` tags lane-a (WP01, which owns
+  only two new test files under `tests/charter/`, no `src/` change) with
+  `predicted_surfaces: ["api", "artifact-rendering", "legacy-cleanup"]` — labels that plainly do
+  not describe a red-first test-authoring WP. Checked
+  `.venv/bin/spec-kitty agent mission finalize-tasks --help` for a sanctioned regenerate path: the
+  command's own docstring states it "post-processes the generated files to add dependency
+  information and **commits everything**" and lists an 8-field "Bootstrap Mutation Surface" it may
+  write to WP frontmatter — there is no flag that recomputes `lanes.json` metadata alone without
+  touching WP frontmatter/status, and `--validate-only` skips ALL writes (including any
+  `lanes.json` fix) rather than performing a narrower one. Since the only available path would
+  mutate more than `lanes.json`'s cosmetic `predicted_surfaces` field — and `lanes.json` is
+  CLI-generated state this fix round is instructed never to hand-edit — L1 is left uncorrected in
+  the artifact. Recorded here instead: for a tests-only WP, `predicted_surfaces` is generic
+  dashboard-classification output from the lane-computation step, not a considered per-WP
+  classification, and today there is no narrow tool to correct it in isolation. Worth a genuine
+  upstream fix (a `finalize-tasks --recompute-lanes-only` mode, or a smarter surface classifier for
+  test-only `write_scope` sets) rather than a per-mission workaround.
+- **No other tooling friction encountered in this fix round.** The plan.md/WP02 edits (reusing
+  `_diagnose_catalog_miss` instead of a parallel classify helper + `active_languages` threading)
+  were verified directly against live `HEAD` source (`catalog_diagnosis.py`, `_catalog_miss.py`,
+  `context_renderers/__init__.py` and siblings) via plain file reads and greps — no command
+  failures, no retries beyond the pre-existing "Global asset inventory changed" class already
+  logged above (not re-triggered this round).

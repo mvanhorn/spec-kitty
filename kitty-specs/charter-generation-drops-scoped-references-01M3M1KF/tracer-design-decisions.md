@@ -572,3 +572,58 @@ reference id" bullet already state, now applied uniformly across every genuine a
 found by the systematic grep. plan.md required no edits: every plan.md hit was either already carved
 (I1/I2, round 6) or is scoped to a mechanism (`SCOPE_FILTERED`-cause-specific, or historical/purpose
 prose) the carve-out does not implicate.
+
+## Decision: reuse the canonical `_diagnose_catalog_miss` gate instead of a parallel classify helper + `active_languages` threading (round-8 fix, closes analyze D1/C1/U1)
+
+**Context.** `/spec-kitty.analyze` against this mission's plan.md/tasks.md/WP02 prompt raised three
+findings (`analysis-report.md`, verdict `blocked`): **D1** (high, duplication) — WP02's IC-02 design
+built a brand-new classify-and-placeholder helper plus 4-level `active_languages` threading
+(`compile_charter` → `_build_references` → `_build_references_from_service` →
+`_render_kind_references`) that duplicates an already-built, already-used gate,
+`_diagnose_catalog_miss(missing_id, repository)`
+(`src/charter/activation/context_renderers/catalog_diagnosis.py`), which `selection_block.py` and
+`profile_sections.py` already call for the identical FR-013 never-existed-vs-filtered-by-scope
+classification, and which already reads `active_languages` straight off the repository's own
+`_active_languages` attribute with zero threading; **C1** (high, coverage) — the plan's own
+`raw_id in repository.scope_filtered_ids` design would raise `AttributeError` against the mandatory
+Contract-C4 baseline test's `_EmptyRepository` double, which exposes only `.get()`; the existing
+defensive `getattr(repository, "scope_filtered_ids", frozenset())` precedent (`catalog_diagnosis.py:51`)
+was never cited; **U1** (medium, underspecification) — the plan's `classify_catalog_miss(raw_id,
+available_ids)` fallback never stated where its `Iterable[str]` fuzzy-match corpus would come from;
+the existing `_available_catalog_ids(repository)` helper (used internally by the gate) solves this
+defensively but was never named.
+
+**Verification performed before ruling (not taken on faith from the finding text).** Read
+`catalog_diagnosis.py` in full: `_diagnose_catalog_miss` (`__all__`-exported — the ONLY export)
+checks `getattr(repository, "scope_filtered_ids", frozenset())` first, routes a scope-filtered id to
+`classify_scope_filtered_miss(missing_id, getattr(repository, "_active_languages", None))`, and
+otherwise falls through to `classify_catalog_miss(missing_id, _available_catalog_ids(repository))` —
+exactly the sequence D1/C1/U1 all point at. Read every import in `catalog_diagnosis.py`,
+`_catalog_miss.py`, and `context_renderers/__init__.py` (plus its sibling modules
+`authority_paths.py`, `fetch_stanza.py`, `section_bodies.py`, `token_budget.py`): none of them import
+`compiler` anywhere. `_catalog_miss.py` is confirmed a leaf (imports only `difflib`/`logging`/
+`warnings`/stdlib `collections.abc`/`dataclasses`/`enum`). So the new import direction
+`charter.activation.compiler` → `charter.activation.context_renderers.catalog_diagnosis` →
+`charter.activation._catalog_miss` is one-directional with **no import cycle**.
+
+**Decision: reuse, do not reinvent.** WP02's per-id classification now calls
+`_diagnose_catalog_miss(raw_id, repository)` directly from the new classify-and-placeholder helper in
+`compiler.py`, instead of building a parallel classify function and threading `active_languages`
+through four call levels. This applies the spec's own already-stated mandate (spec.md Key Entities
+"Existing catalog-miss classifier (reuse target)", DIRECTIVE_044 single-canonical-authority) more
+precisely than the original WP02 design did — it does not change any operator ruling from rounds 3–7:
+the whole-kind fail-closed check, the `graph.unresolved` URN-split/kind-mapping via
+`ArtifactKind(kind_prefix).plural`, the graph-load diagnostics/structured-records sink on
+`_resolve_transitive_reference_graph`, the plain-`str` typing of `cause` (never `CatalogMissCause`),
+and the `_raw_kind_repository` `getattr` fallback fix are all UNCHANGED — those mechanisms are
+orthogonal to per-id classification and are not touched by this decision. `_diagnose_catalog_miss`
+is in `catalog_diagnosis.py`'s `__all__`, so importing it across the `context_renderers` package
+boundary is a legitimate, sanctioned use of the module's public surface — it is not renamed.
+
+**Consequence for T007/T008.** T007's helper shrinks to a thin wrapper: call the gate, branch on the
+returned `CatalogMissDiagnosis.cause`, build a placeholder only for `SCOPE_FILTERED`, otherwise stay
+diagnostics-only (Contract C4 unchanged), and append the reason-bearing diagnostic string plus the
+structured record in both branches. T008 — originally "thread `active_languages` across four call
+levels" — is repurposed to a verification-only subtask (confirm no threading was added; confirm the
+gate receives the real repository object so its language-set-naming suggestion text surfaces
+end-to-end) rather than a plumbing change, since the plumbing no longer exists to write.
