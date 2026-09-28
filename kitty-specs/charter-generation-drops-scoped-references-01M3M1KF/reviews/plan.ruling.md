@@ -1,0 +1,114 @@
+# Operator rulings — plan phase, round 4
+
+Dated 2026-09-28. Both rulings below are quoted verbatim, attributed to **the operator**.
+
+## Round-3 ruling (standing — already reflected in plan.md; restated here for the record, not
+re-litigated in this round)
+
+On finding `PLAN-FRESH2-001` (widening the whole-kind fail-closed check to `graph.unresolved`, and
+what to do about total graph-load failure), the operator ruled:
+
+> "Widen, bounded: route `graph.unresolved` ids through the same classify-and-placeholder helper
+> so they count toward the whole-kind fail-closed check and get a reason; graph-load failure emits
+> a loud, structured diagnostic (also in `--json`) instead of vanishing, without attempting to
+> reconstruct the transitive closure. Stays in compiler.py, same defect class, keeps the plan's
+> 'one shared helper' campsite claim true."
+
+With an explicit constraint: **graph-load failure does NOT make `generate` fail closed** (the
+operator explicitly declined the stricter fail-closed-on-graph-load-failure option) — it must be
+loud and structured, not fail-closed.
+
+This ruling is implemented in plan.md's "WP-CORE reconciliation" → "Round-3 amendment to point 3"
+subsection (Design parts (a)/(b)/(c)) and in `tracer-design-decisions.md`'s "Decision: operator
+ruling on PLAN-FRESH2-001" entry.
+
+## Round-4 ruling — per finding, this round
+
+### 1. PLAN-FRESH2-001 / PLAN-FRESH3-001 (sev4, ONE defect filed twice across rounds)
+
+The plan must specify parsing each `graph.unresolved` entry's URN (`"<kind>:<id>"`, both tuple
+elements are the same URN per query.py) exactly as `resolve_transitive_refs`'s successful-lookup
+branch does — `urn.split(":", 1)` (see `src/charter/offering/drg/query.py:397-398`, the pattern
+`bare_id = urn.split(":", 1)[1] if ":" in urn else urn`), then mapping the singular DRG/NodeKind
+kind to the plural repository name `_raw_kind_repository` expects
+(`src/charter/activation/compiler.py:1073`) — USING AN EXISTING MAPPING IN THE CODEBASE IF ONE
+EXISTS. Search for one and cite it in the plan text (file:line), don't invent a new one if an
+existing one fits. A strong candidate to verify: `src/charter/offering/artifact_kinds.py` —
+`ArtifactKind` is a `StrEnum` whose singular values match `NodeKind`'s singular values for the 9
+gated kinds, and its `.plural` property (backed by the `_PLURALS` dict, `artifact_kinds.py:52-64`)
+returns exactly the plural strings `_raw_kind_repository` and the 9-kind gated set
+`_RAW_REPOSITORY_KINDS` (`src/charter/activation/resolver.py:98-108`) expect (`"directives"`,
+`"tactics"`, `"styleguides"`, `"toolguides"`, `"paradigms"`, `"procedures"`, `"agent_profiles"`,
+`"mission_step_contracts"`, `"glossary_packs"`). Verify this yourself against live code before
+citing it — check whether `ArtifactKind(kind_str)` construction from a bare NodeKind singular
+string round-trips correctly, and what it raises (`ValueError`) for a `NodeKind` value that is NOT
+an `ArtifactKind` member (`NodeKind` has `action`, `glossary_scope`, `glossary`, `mission_type`
+with no `ArtifactKind` counterpart — see `src/charter/offering/drg/models.py:43-77`), and
+separately what happens when `ArtifactKind.plural` resolves to a plural string (e.g.
+`"templates"`, `"assets"`, `"anti_patterns"`) that is valid but still outside
+`_RAW_REPOSITORY_KINDS`'s 9-member set (so `_raw_kind_repository`/`raw_repository` degrades to
+`None` for it, per resolver.py's documented degrade-silently-to-`None` behavior). The plan must
+state what happens for a URN whose kind maps to no repository (either case above) OR which has no
+":" in it: it must be preserved/reported as an unresolved reference with a reason string, NEVER
+crash (no unguarded `.get()`/`in ...` on a `None` repository) and NEVER be silently dropped from
+the count/placeholder output.
+
+### 2. PLAN-FRESH3-002 (sev3) — DIAGNOSTICS SINK
+
+Pass the existing diagnostics list into the private `_resolve_transitive_reference_graph`
+(`src/charter/activation/compiler.py`, currently ~lines 1296-1307, its `except Exception: return
+fallback` branch) and append the structured graph-load-failure record INSIDE that except branch,
+at the point the exception is caught — not by widening the function's return type. The return type
+stays a `ResolveTransitiveRefsResult` (unchanged) and the shared `ResolveTransitiveRefsResult`
+model (`charter.offering.drg.query`) stays UNCHANGED — do not propose a tuple/`NamedTuple`
+return-type widening or a marker exception; that option is explicitly declined by the operator.
+Add `_resolve_transitive_reference_graph` to IC-01's "Affected surfaces" list in plan.md.
+
+### 3. PLAN-FRESH3-003 (sev2)
+
+Add the dedicated red-first whole-kind-test commit (and the `graph.unresolved` / graph-load-failure
+red-first tests within it) as an explicit, numbered step in the "Phasing & Sequencing" list in
+plan.md, so that list agrees with what ATDD-First Discipline and PR Shape already say (both already
+updated in round 3). Do not just cross-reference the other sections in prose — the numbered list
+itself must show the step.
+
+### 4. PLAN-FRESH3-004 (sev2)
+
+State explicitly (in plan.md's round-3 amendment "Design, part (c)" area and/or the contract doc)
+that the new structured graph-load-failure record's `cause` field is a plain `str` (e.g.
+`"graph_load_failed"`), NOT the `CatalogMissCause` enum type. State explicitly that
+`CatalogMissCause` / `src/charter/activation/_catalog_miss.py` stay REUSED, NOT MODIFIED (no new
+enum member) — and that Project Structure's existing "`_catalog_miss.py` ... REUSED, not modified"
+line is correct and why (the new sentinel value never flows through `CatalogMissDiagnosis`, which
+stays strictly typed to the 4-member enum).
+
+---
+
+## Disposition — how round 4 applied each ruling
+
+- **Item 1** (PLAN-FRESH2-001/PLAN-FRESH3-001): implemented in plan.md's Round-3 amendment,
+  "Design, part (a)" (rewritten with an explicit 3-step URN-split/kind-mapping/classify sequence,
+  citing `query.py:391`/`:394`, `artifact_kinds.py:51-64`/`:125-148`, `resolver.py:100-112`/`:393-
+  424`, `drg/models.py:43-76`, `compiler.py:37,289-292,1073-1093`) and "Design, part (b)" (bounds
+  the per-kind aggregate count to ids the mapping could actually attribute to one of the six
+  tracked kinds). Also corrected in `tracer-design-decisions.md`'s ruling entry, point 1/2, and in
+  the Project Structure source tree comment for `compiler.py`. Verified line numbers differ
+  slightly from the finding's own citations (drift across rounds) — `query.py:391`/`:394` (not
+  `:397-398`), `artifact_kinds.py:51-64`/`:125-148` (not `:52-64`), `resolver.py:100-112`/`:393-
+  424` (not `:98-108`) — re-verified against live `HEAD` source in this round, not taken on faith
+  from the prior finding's citations.
+- **Item 2** (PLAN-FRESH3-002): implemented in plan.md's Round-3 amendment, "Design, part (c)"
+  (rewritten to specify two mutable-list sink parameters — `diagnostics: list[str]` and a new
+  structured-records list — passed into `_resolve_transitive_reference_graph`, appended to inside
+  its `except Exception:` branch at `compiler.py:1306`, immediately before `return fallback` at
+  `compiler.py:1307`; return type unchanged). `_resolve_transitive_reference_graph` added to IC-01's
+  "Affected surfaces" list.
+- **Item 3** (PLAN-FRESH3-003): implemented — "Phasing & Sequencing" now has an explicit numbered
+  step 2, "WP-CORE-TESTS", for the dedicated red-first whole-kind-unresolved test commit, between
+  WP-ATDD (step 1) and WP-CORE (renumbered step 3); WP-JSON/WP-AUTOREFRESH/WP-CLEANUP-VERIFY
+  renumbered 4/5/6 accordingly.
+- **Item 4** (PLAN-FRESH3-004): implemented — plan.md's Design part (c) and Project Structure's
+  `_catalog_miss.py` tree comment, plus `contracts/charter-generate-json-diagnostics.md`'s Round-3
+  addition section, all now state explicitly that the structured record's `cause` field is typed
+  `str`, not `CatalogMissCause`, and that `_catalog_miss.py` stays unmodified because of that typing
+  choice.

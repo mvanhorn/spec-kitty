@@ -127,11 +127,21 @@ src/
 ├── charter/
 │   └── activation/
 │       ├── compiler.py            # FR-001/FR-002/FR-003 fix: _render_kind_references,
-│       │                          #   _build_references_from_service, new
-│       │                          #   _classify_and_placeholder_reference() helper (private,
+│       │                          #   _build_references_from_service,
+│       │                          #   _resolve_transitive_reference_graph (gains diagnostics/
+│       │                          #   structured-records sink params, return type unchanged —
+│       │                          #   round-3 amendment Design part (c), closes PLAN-FRESH3-002),
+│       │                          #   new _classify_and_placeholder_reference() helper (private,
 │       │                          #   not added to __all__ — see C-007 section below)
 │       └── _catalog_miss.py       # REUSED, not modified: CatalogMissCause, classify_catalog_miss,
-│                                  #   classify_scope_filtered_miss (already built, already tested)
+│                                  #   classify_scope_filtered_miss (already built, already tested).
+│                                  #   Stays unmodified even after the round-3 graph-load-failure
+│                                  #   addition: that diagnostic's cause value ("graph_load_failed")
+│                                  #   is typed as a plain str on the new structured-records sink,
+│                                  #   never as CatalogMissCause, so no fifth enum member is ever
+│                                  #   added to this file (closes PLAN-FRESH3-004; see round-3
+│                                  #   amendment Design part (c) and the contract doc's round-3
+│                                  #   addition).
 ├── specify_cli/
 │   ├── cli/commands/charter/
 │   │   └── generate.py            # FR-004 fix: add `unresolved_references` to the --json payload
@@ -211,10 +221,11 @@ WP-AUTOREFRESH. See "PR Shape" below for how this changes the commit breakdown.
 ## Phasing & Sequencing
 
 1. **WP-ATDD — FR-005 regression test (failing-first, committed alone).** Author `tests/charter/test_charter_generate_scoped_reference_parity.py`: build a `tmp_path` git repo fixture whose `.kittify/config.yaml` activates the six #5257 ids (`styleguide/java-conventions`, `toolguide/maven-review-checks`, `toolguide/typescript-mutation-tools`, `agent-profile/frontend-freddy`, `agent-profile/java-jenny`, `agent-profile/node-norris`) plus at least one additional, differently language-scoped id (per C-002, proving the general mechanism, not six special cases — e.g. a language-filtered `tactic` or `procedure`, chosen at implementation time from an artifact under `packs/built-in/` whose `applies_to_languages` excludes whatever this fixture's `infer_repo_languages` detects). Drive the real `charter_app` `generate` CLI (`_invoke_generate` precedent), then feed the resulting repo through `ProjectContext.from_repo()` + `run_consistency_check` directly (spec's Acceptance Scenario 3 — NOT the hardcoded-`_REPO_ROOT` `test_this_project_charter_pack_is_coherent`, which cannot be conditioned on an arbitrary fixture path). Assert: (a) every fixture id is present in `catalog.references`; (b) `run_consistency_check` reports coherent; (c) pre-fix, this test is RED (verified by running it against `af847be71` before the compiler fix lands — the reviewer's own verification step). Commit alone.
-2. **WP-CORE — FR-001/FR-002/FR-003 compiler fix.** In `src/charter/activation/compiler.py`: replace the two duplicated `diagnostics.append(f"Unresolved reference: ...")` sites with a single shared classify-and-placeholder helper that (a) checks `raw_id in repository.scope_filtered_ids` (the raw per-kind repository already exposes this via `BaseDoctrineRepository.scope_filtered_ids`) to route to `classify_scope_filtered_miss` (`CatalogMissCause.SCOPE_FILTERED`) vs. falls through to `classify_catalog_miss(raw_id, available_ids)` (`TYPO_SUSPECTED`/`MISSING_ARTIFACT`) for the never-existed case; (b) **for the `SCOPE_FILTERED` cause only**, ALWAYS preserves the id as a placeholder `CharterReference` (uniform mechanism *within that cause*, per FR-001's cardinality-agnostic requirement — never a second fail-closed exit branch for scope-filtered misses); **for `MISSING_ARTIFACT`/`TYPO_SUSPECTED`, stays on the EXISTING Contract-C4-compatible diagnostics-only path — no placeholder row, `references` unchanged at `[]` for that id** (see "WP-CORE reconciliation: Contract C4 scope and placeholder text format" below — this scoping is a deliberate, reviewed decision, not an oversight); (c) records a reason-bearing diagnostic string (`"Unresolved reference: {kind}/{id} ({cause}): {detail}"` — extends, does not replace, the existing free-text format) into the existing `diagnostics: list[str]` **for both causes** (FR-002/NFR-002's reason-bearing requirement applies whether or not the id also gets a placeholder row); (d) additionally records a structured `(kind, id, cause, detail)` record for every cause that flows through to FR-004's `unresolved_references` JSON field, so a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` miss is still machine-readable even though it has no placeholder row; (e) **aggregate, cause-agnostic whole-kind check (closes PLAN-FRESH-001, this fix round)**: after all of a kind's ids are classified via (a)-(d), if that kind had at least one activated id and NONE of them produced a reference (no resolution, no `SCOPE_FILTERED` placeholder — i.e. every one fell through to the diagnostics-only branch), raise a fail-closed error naming the kind and its unresolved ids before `_build_references_from_service` returns, so `compile_charter` never completes for this case and `generate.py`'s existing `RuntimeError` handler (`generate.py:584`) exits non-zero before `write_compiled_charter` runs — satisfying FR-001's second stated mechanism for the whole-kind-unresolvable case (e.g. a misconfigured pack root) that (b)'s `SCOPE_FILTERED`-only placeholder scoping does not cover. This is a per-kind cardinality count, not a check on the six #5257 ids (C-002) — see "WP-CORE reconciliation" point 3 below for the full design and the test requirement it adds. `--force` (FR-003) touches nothing in this path — it already only gates catalog-file overwrite permission upstream of `_build_references`, never reference resolution, so FR-003 is verified by a paired same-fixture run with/without `--force` producing identical diagnostic/placeholder content (no code change required for FR-003 itself, only a test assertion). Verify the WP-ATDD test now passes GREEN, the new whole-kind-unresolved fail-closed test ("WP-CORE reconciliation" point 3's test requirement) passes GREEN, and the existing 56-test baseline (`test_activation_parity_guard.py` + `test_active_languages_idempotency.py` + `test_context_catalog_miss.py` + `test_catalog_completeness_4785.py`, per "The baseline" above) stays green (NFR-001, C-001, FR-006) — `test_catalog_completeness_4785.py` specifically proves Contract C4 (the `MISSING_ARTIFACT`/`TYPO_SUSPECTED` diagnostics-only path) is undisturbed by this change.
-3. **WP-JSON — FR-004 structured diagnostics.** In `src/specify_cli/cli/commands/charter/generate.py`'s `--json` emit block: thread the structured unresolved-reference records from `compiled` (via a new field on the compiler's own result type carrying the list WP-CORE built) into the new `unresolved_references` key, alongside the unchanged `diagnostics` list. Add/extend `contracts/charter-generate-json-diagnostics.md`. Test: Acceptance Scenario 2 (id + reason present machine-readably in `--json` output).
-4. **WP-AUTOREFRESH — preflight auto-refresh swallow fold-in.** Bounded fix to `references_refresh.py`/`runner.py`'s `_attempt_auto_refresh` (full design in tracer-design-decisions.md and restated below) — its own red-first test, its own commit, sequenced independently of WP-CORE/WP-JSON (touches a disjoint file set, no ordering dependency either direction).
-5. **WP-CLEANUP-VERIFY** (folded into WP-CORE/WP-JSON's own commits, not a separate step): re-run `make ci-parity` against the real `src/` diff once WP-CORE/WP-JSON/WP-AUTOREFRESH land, to confirm the actual module-shard/architectural-heavy/diff-cover selection (deferred — cannot be predicted at plan time, stated explicitly above).
+2. **WP-CORE-TESTS — dedicated red-first commit for the whole-kind-unresolved fail-closed tests (closes PLAN-FRESH3-003; per the ATDD-First Discipline section's round-3 addition above).** Author, in ONE commit, the three fixture-driven assertions the ATDD-First Discipline section requires as a single bundled red-first commit: (i) the whole-kind `MISSING_ARTIFACT`/`TYPO_SUSPECTED` fail-closed exit ("WP-CORE reconciliation" point 3's "Test requirement (new)" paragraph); (ii) the `graph.unresolved`-through-shared-helper routing case (round-3 amendment, Design part (a)/(b), "Test requirement" item 1 above); (iii) the total-graph-load-failure loud-structured-diagnostic case (round-3 amendment, Design part (c), "Test requirement" item 2 above). Verify RED against this mission's `planning_base_branch` (`af847be71d97c8a126e91c31a7d05629c69c93ba`). Lands strictly AFTER WP-ATDD and strictly BEFORE WP-CORE's implementation commit(s) below. Commit alone (no implementation changes in this commit).
+3. **WP-CORE — FR-001/FR-002/FR-003 compiler fix.** In `src/charter/activation/compiler.py`: replace the two duplicated `diagnostics.append(f"Unresolved reference: ...")` sites with a single shared classify-and-placeholder helper that (a) checks `raw_id in repository.scope_filtered_ids` (the raw per-kind repository already exposes this via `BaseDoctrineRepository.scope_filtered_ids`) to route to `classify_scope_filtered_miss` (`CatalogMissCause.SCOPE_FILTERED`) vs. falls through to `classify_catalog_miss(raw_id, available_ids)` (`TYPO_SUSPECTED`/`MISSING_ARTIFACT`) for the never-existed case; (b) **for the `SCOPE_FILTERED` cause only**, ALWAYS preserves the id as a placeholder `CharterReference` (uniform mechanism *within that cause*, per FR-001's cardinality-agnostic requirement — never a second fail-closed exit branch for scope-filtered misses); **for `MISSING_ARTIFACT`/`TYPO_SUSPECTED`, stays on the EXISTING Contract-C4-compatible diagnostics-only path — no placeholder row, `references` unchanged at `[]` for that id** (see "WP-CORE reconciliation: Contract C4 scope and placeholder text format" below — this scoping is a deliberate, reviewed decision, not an oversight); (c) records a reason-bearing diagnostic string (`"Unresolved reference: {kind}/{id} ({cause}): {detail}"` — extends, does not replace, the existing free-text format) into the existing `diagnostics: list[str]` **for both causes** (FR-002/NFR-002's reason-bearing requirement applies whether or not the id also gets a placeholder row); (d) additionally records a structured `(kind, id, cause, detail)` record for every cause that flows through to FR-004's `unresolved_references` JSON field, so a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` miss is still machine-readable even though it has no placeholder row; (e) **aggregate, cause-agnostic whole-kind check (closes PLAN-FRESH-001, this fix round)**: after all of a kind's ids are classified via (a)-(d), if that kind had at least one activated id and NONE of them produced a reference (no resolution, no `SCOPE_FILTERED` placeholder — i.e. every one fell through to the diagnostics-only branch), raise a fail-closed error naming the kind and its unresolved ids before `_build_references_from_service` returns, so `compile_charter` never completes for this case and `generate.py`'s existing `RuntimeError` handler (`generate.py:584`) exits non-zero before `write_compiled_charter` runs — satisfying FR-001's second stated mechanism for the whole-kind-unresolvable case (e.g. a misconfigured pack root) that (b)'s `SCOPE_FILTERED`-only placeholder scoping does not cover. This is a per-kind cardinality count, not a check on the six #5257 ids (C-002) — see "WP-CORE reconciliation" point 3 below for the full design and the test requirement it adds. `--force` (FR-003) touches nothing in this path — it already only gates catalog-file overwrite permission upstream of `_build_references`, never reference resolution, so FR-003 is verified by a paired same-fixture run with/without `--force` producing identical diagnostic/placeholder content (no code change required for FR-003 itself, only a test assertion). Verify the WP-ATDD test now passes GREEN, the new whole-kind-unresolved fail-closed test ("WP-CORE reconciliation" point 3's test requirement) passes GREEN, and the existing 56-test baseline (`test_activation_parity_guard.py` + `test_active_languages_idempotency.py` + `test_context_catalog_miss.py` + `test_catalog_completeness_4785.py`, per "The baseline" above) stays green (NFR-001, C-001, FR-006) — `test_catalog_completeness_4785.py` specifically proves Contract C4 (the `MISSING_ARTIFACT`/`TYPO_SUSPECTED` diagnostics-only path) is undisturbed by this change.
+4. **WP-JSON — FR-004 structured diagnostics.** In `src/specify_cli/cli/commands/charter/generate.py`'s `--json` emit block: thread the structured unresolved-reference records from `compiled` (via a new field on the compiler's own result type carrying the list WP-CORE built) into the new `unresolved_references` key, alongside the unchanged `diagnostics` list. Add/extend `contracts/charter-generate-json-diagnostics.md`. Test: Acceptance Scenario 2 (id + reason present machine-readably in `--json` output).
+5. **WP-AUTOREFRESH — preflight auto-refresh swallow fold-in.** Bounded fix to `references_refresh.py`/`runner.py`'s `_attempt_auto_refresh` (full design in tracer-design-decisions.md and restated below) — its own red-first test, its own commit, sequenced independently of WP-CORE/WP-JSON (touches a disjoint file set, no ordering dependency either direction).
+6. **WP-CLEANUP-VERIFY** (folded into WP-CORE/WP-JSON's own commits, not a separate step): re-run `make ci-parity` against the real `src/` diff once WP-CORE/WP-JSON/WP-AUTOREFRESH land, to confirm the actual module-shard/architectural-heavy/diff-cover selection (deferred — cannot be predicted at plan time, stated explicitly above).
 
 ## WP-CORE reconciliation: Contract C4 scope and placeholder text format
 
@@ -354,39 +365,157 @@ with an explicit constraint from the operator: **graph-load failure does NOT mak
 closed** (the operator explicitly declined the stricter fail-closed-on-graph-load-failure option)
 — it must be loud and structured, not fail-closed.
 
-**Design, part (a) — `graph.unresolved` routes through the shared helper.** The
-classify-and-placeholder helper decision 3's per-kind loop already uses (the one
-`_render_kind_references`'s per-id miss calls into) is now ALSO called from
-`_build_references_from_service`'s `graph.unresolved` loop, once per `(artifact_type,
-artifact_id)` pair it yields. The helper classifies via `raw_id in repository.scope_filtered_ids`
-exactly as it does for a `_render_kind_references` miss (using `_raw_kind_repository
-(doctrine_service, artifact_type)` to fetch the right raw repository for `graph.unresolved`'s
-`artifact_type` string) — `SCOPE_FILTERED` → placeholder `CharterReference` appended to that
-kind's `references` list; `MISSING_ARTIFACT`/`TYPO_SUSPECTED` → diagnostics-only, same as today,
-now reason-bearing. This is the literal fix to the Campsite-clean section's "one shared helper"
-claim above: both unresolved-tracking sites now call the one helper, not two independently
-formatted `diagnostics.append(...)` calls.
+**Design, part (a) — `graph.unresolved` routes through the shared helper via an explicit
+URN-parsing/kind-mapping step, matching `resolve_transitive_refs`'s own successful-lookup branch
+(closes PLAN-FRESH2-001/PLAN-FRESH3-001, one defect filed twice across rounds).** Each
+`graph.unresolved` entry is a `(urn, urn)` tuple — **BOTH elements are the SAME full,
+kind-prefixed URN string** (e.g. `"toolguide:my-id"`), never a bare `(kind, id)` pair. Verified
+against live code: `resolve_transitive_refs`'s `node is None` branch does
+`unresolved.append((urn, urn))` (`src/charter/offering/drg/query.py:391`), and the field's own
+docstring (`query.py:287-291`) confirms the stored shape is `(source_urn, target_urn)`, both the
+same URN for this branch. Before the shared classify-and-placeholder helper can run on a
+`graph.unresolved` entry, `_build_references_from_service`'s `graph.unresolved` loop
+(`compiler.py:1250-1251`) must first recover `(kind_prefix, bare_id)` from the URN — exactly as
+`resolve_transitive_refs`'s own successful-lookup branch already does one statement above:
+`bare_id = urn.split(":", 1)[1] if ":" in urn else urn` (`query.py:394`). The three steps below
+replace the old (incorrect) "call the helper with `artifact_type`/`artifact_id` straight from the
+tuple" design:
 
-**Design, part (b) — `graph.unresolved` ids count toward the per-kind aggregate check.** Because
-part (a) routes every `graph.unresolved` id through the same classify-and-placeholder helper and
-appends its outcome to the SAME per-kind `references` list `_render_kind_references` populates,
-the aggregate whole-kind check (decision 3's "Design" above, mechanism unchanged) automatically
-sees them — no separate counting logic is needed. A kind is still whole-kind-unresolved under the
-exact same rule as before: it had at least one activated id (now: at least one id sourced from
-either `_render_kind_references`'s per-kind `ids` OR `graph.unresolved`) and none of them produced
-a reference. This closes the DRG-node-absent gap PLAN-FRESH2-001's evidence identified.
+1. **Split the URN.** `kind_prefix, _, bare_id = urn.partition(":")` — the same
+   `urn.split(":", 1)` pattern `query.py:394` uses. **If `":"` is not in the URN**, there is no
+   kind to resolve: preserve/report the URN as an unresolved reference with a reason string (e.g.
+   `"malformed URN, no kind prefix"`). Never crash; never silently drop it from the count or the
+   placeholder/diagnostic output.
+2. **Map the singular `kind_prefix` to the plural repository key `_raw_kind_repository` expects,
+   using the EXISTING mapping already in the codebase — `ArtifactKind(kind_prefix).plural`.**
+   `ArtifactKind` (`src/charter/offering/artifact_kinds.py:125-148`, a `StrEnum`) is already
+   imported into `compiler.py` (`compiler.py:37`, via `charter.activation.kind_vocabulary`) and
+   already used the same way — constructing/stripping a `"kind:id"` URN prefix — in
+   `_bare_ids_for_kind` (`compiler.py:289-292`); this is not a new import or a new mapping.
+   `.plural` (`artifact_kinds.py:145-148`) is backed by the `_PLURALS` dict
+   (`artifact_kinds.py:51-64`) and, for the 9 gated kinds, returns exactly the plural strings
+   `_raw_kind_repository`/`_RAW_REPOSITORY_KINDS` expect (`"directives"`, `"tactics"`,
+   `"styleguides"`, `"toolguides"`, `"paradigms"`, `"procedures"`, `"agent_profiles"`,
+   `"mission_step_contracts"`, `"glossary_packs"` — `src/charter/activation/resolver.py:100-112`).
+   `ArtifactKind`'s singular values are identical to `NodeKind`'s singular values for those 9
+   kinds, so `ArtifactKind(kind_prefix)` round-trips correctly for any `graph.unresolved` URN whose
+   kind prefix is one of them. **Two verified-in-code failure modes, both handled — never crash,
+   always preserve/report:**
+   - **`ArtifactKind(kind_prefix)` raises `ValueError`** when `kind_prefix` is a `NodeKind` value
+     with NO `ArtifactKind` counterpart — `action`, `glossary_scope`, `glossary`, `mission_type`
+     (`src/charter/offering/drg/models.py:43-76`, specifically lines 59, 65, 66, 72). Catch this
+     `ValueError`; preserve/report the URN as an unresolved reference with a reason string (e.g.
+     `"unrecognized artifact kind: {kind_prefix}"`). Never construct a placeholder from it; never
+     crash.
+   - **`ArtifactKind(kind_prefix).plural` succeeds but resolves to a plural string OUTSIDE
+     `_raw_kind_repository`'s 9-member gated set** — `"templates"` (`ArtifactKind.TEMPLATE`),
+     `"assets"` (`ArtifactKind.ASSET`), and `"anti_patterns"` (`ArtifactKind.ANTI_PATTERN`) are
+     valid `ArtifactKind` members whose `.plural` is not one of the 9 keys
+     `_RAW_REPOSITORY_KINDS` recognizes. For any of these (or any other out-of-set plural),
+     `DoctrineService.raw_repository(kind)` returns `None` by design — documented
+     degrade-silently-to-`None` behavior, not an exception (`resolver.py:393-424`, the
+     `if kind not in _RAW_REPOSITORY_KINDS: return None` guard at lines 421-422) — and
+     `_raw_kind_repository` (`compiler.py:1073-1093`) passes that `None` straight through. The
+     shared helper MUST check for a `None` repository BEFORE attempting
+     `raw_id in repository.scope_filtered_ids` or `repository.get(raw_id)` — an unguarded
+     membership/attribute access on `None` raises `AttributeError`. When the repository is
+     `None`, preserve/report the URN as an unresolved reference with a reason string (e.g.
+     `"no repository for kind: {kind_prefix}"`). Never crash.
+   - A `graph.unresolved` kind that DOES map to a real, non-`None` repository but is not one of
+     the six kinds `_render_kind_references`'s per-kind aggregate lists track (directive/tactic/
+     styleguide/toolguide/procedure/agent_profile) — i.e. `paradigm`, `mission_step_contract`, or
+     `glossary_pack` — still gets a reason-bearing diagnostic/structured record via the shared
+     helper (never crashes, never silently dropped) but has no per-kind aggregate bucket to feed;
+     see part (b) below for how this bounds the aggregate check's attribution, mirroring part (c)'s
+     graph-load-failure exemption for the identical "no per-kind attribution possible" reason.
+3. **Only once step 2 yields a real, non-`None` repository for one of the six tracked kinds** does
+   the helper classify via `raw_id in repository.scope_filtered_ids` exactly as it does for a
+   `_render_kind_references` miss — `SCOPE_FILTERED` → placeholder `CharterReference` appended to
+   that kind's `references` list; `MISSING_ARTIFACT`/`TYPO_SUSPECTED` → diagnostics-only, same as
+   today, now reason-bearing.
 
-**Design, part (c) — total graph-load failure gets a loud, structured diagnostic, explicitly
-exempt from the aggregate fail-closed check.** When `_resolve_transitive_reference_graph`'s
-`except Exception: return fallback` branch fires (the whole DRG graph — built-in or project —
-fails to load), `_build_references_from_service` now appends ONE unconditional, structured
-diagnostic recording the graph-load failure — kind/id-agnostic, because at this point no per-kind
-breakdown exists to attribute the failure to — to BOTH the plain `diagnostics: list[str]` (a
+This is the literal fix to the Campsite-clean section's "one shared helper" claim above: both
+unresolved-tracking sites now call the one helper — fed, for the `graph.unresolved` site
+specifically, by the URN-split/kind-mapping steps above; `_render_kind_references`'s own per-id
+loop already receives bare ids and a known `kind` string directly, per kind, so it needs no
+equivalent parsing step — not two independently formatted `diagnostics.append(...)` calls.
+
+**Design, part (b) — `graph.unresolved` ids count toward the per-kind aggregate check, bounded to
+ids the shared helper could actually attribute to one of the six tracked kinds.** Because part (a)
+routes every `graph.unresolved` URN whose `kind_prefix` maps (via step 2) to one of the six
+DRG-backed kinds `_render_kind_references` covers (directive/tactic/styleguide/toolguide/
+procedure/agent_profile) through the same classify-and-placeholder helper, and appends its outcome
+to the SAME per-kind `references` list `_render_kind_references` populates, the aggregate
+whole-kind check (decision 3's "Design" above, mechanism unchanged) automatically sees them — no
+separate counting logic is needed. A kind is still whole-kind-unresolved under the exact same rule
+as before: it had at least one activated id (now: at least one id sourced from either
+`_render_kind_references`'s per-kind `ids` OR `graph.unresolved`) and none of them produced a
+reference. This closes the DRG-node-absent gap PLAN-FRESH2-001's evidence identified. A
+`graph.unresolved` URN that part (a) could NOT attribute to one of the six tracked kinds — no `":"`
+in the URN, `kind_prefix` not an `ArtifactKind` member, or a valid `ArtifactKind` whose repository
+is `None` or which is not one of the six tracked kinds (`paradigm`/`mission_step_contract`/
+`glossary_pack`, step 2's third bullet above) — still gets a reason-bearing diagnostic and
+structured record (never silently dropped), but does NOT participate in the per-kind aggregate
+count, for the same reason part (c) below exempts total graph-load failure: there is no per-kind
+bucket to honestly attribute it to.
+
+**Design, part (c) — total graph-load failure gets a loud, structured diagnostic, appended
+directly inside `_resolve_transitive_reference_graph`'s own `except` branch via a sink parameter —
+NOT by widening its return type (operator ruling on PLAN-FRESH3-002, sev3).** A round-3 fresh-eyes
+finding noted the round-2 design's "`_build_references_from_service` appends ONE unconditional,
+structured diagnostic when the fallback branch fires" was not actually implementable as stated: the
+`try`/`except Exception: return fallback` lives entirely inside `_resolve_transitive_reference_graph`
+(`compiler.py:1298-1307` — `try` at line 1298, `except Exception:` at line 1306, `return fallback`
+at line 1307), which returns the SAME `ResolveTransitiveRefsResult` type on both the success and
+failure paths; nothing crosses back to its one caller, `_build_references_from_service`
+(the call site, `compiler.py:1175-1180`), that distinguishes "graph loaded fine" from "graph load
+threw and this is the fallback" — so the caller has no signal to act on. **Operator ruling:**
+"DIAGNOSTICS SINK: pass the existing diagnostics list into the private
+`_resolve_transitive_reference_graph` ... and append the structured graph-load-failure record
+INSIDE that except branch, at the point the exception is caught — not by widening the function's
+return type." The return type stays `ResolveTransitiveRefsResult` (unchanged) and the shared
+`ResolveTransitiveRefsResult` model (`charter.offering.drg.query`) stays UNCHANGED — no
+tuple/`NamedTuple` return-type widening and no marker exception (both explicitly declined by the
+operator).
+
+**Mechanism: two mutable-list sink parameters, following the SAME convention this file already
+uses for `diagnostics`.** `_render_kind_references` (`compiler.py:1096-1104`) and
+`_build_references_from_service` itself (`compiler.py:1144-1152`) already accept
+`diagnostics: list[str]` as a parameter and append directly into it — this is an established
+in-module pattern, not a new one. `_resolve_transitive_reference_graph` (`compiler.py:1258-1265`
+for its signature) gains two new parameters in the same style:
+
+- `diagnostics: list[str]` — the SAME list `_build_references_from_service` already owns and
+  passes to `_render_kind_references`'s six call sites (`compiler.py:1182-1247`);
+  `_build_references_from_service` now also forwards it into its own
+  `_resolve_transitive_reference_graph(...)` call (`compiler.py:1175-1180`).
+- a new structured-records sink list (the same list IC-03's new compiler-result field carries
+  through to the CLI layer's `--json` `unresolved_references` output — see IC-03 below);
+  `_build_references_from_service` owns/creates this list once per call, alongside `diagnostics`,
+  and forwards it the same way.
+
+When the `except Exception:` branch fires (`compiler.py:1306`, immediately before `return fallback`
+at `compiler.py:1307`), `_resolve_transitive_reference_graph` appends ONE unconditional record into
+EACH sink, at the point the exception is caught — kind/id-agnostic, because at this point no
+per-kind breakdown exists to attribute the failure to: a plain-string entry into `diagnostics` (a
 distinct message shape from the per-id format, e.g. `"Graph load failed: <exception summary>.
-Transitive closure not resolved; direct-root ids only."`) and, per FR-004's contract, the `--json`
-`unresolved_references` structured field (see the round-3 addition to
-`contracts/charter-generate-json-diagnostics.md` below) — instead of silently vanishing as it does
-today. This diagnostic does **not** attempt to reconstruct the transitive closure (the fallback's
+Transitive closure not resolved; direct-root ids only."`) and the matching structured entry
+(`kind: "_graph"`, `id: "_load_failure"`, `cause: "graph_load_failed"`, `detail: <exception
+summary>` — see the round-3 addition to `contracts/charter-generate-json-diagnostics.md` below)
+into the structured-records sink — instead of silently vanishing as it does today. **The
+`cause` value `"graph_load_failed"` is a plain `str`, NOT the `CatalogMissCause` enum type**
+(closes PLAN-FRESH3-004, sev2): it never flows through `CatalogMissDiagnosis`
+(`src/charter/activation/_catalog_miss.py:164-174`), whose `cause` field is strictly typed
+`CatalogMissCause` (the closed 4-member `str, Enum` at `_catalog_miss.py:129-161` — `TYPO_SUSPECTED`
+/ `MISSING_ARTIFACT`/`SCHEMA_VALIDATION_SUSPECTED`/`SCOPE_FILTERED`, no fifth member). The new
+structured-records sink's element type carries `cause` as a plain `str` wide enough to hold both
+`CatalogMissCause.value` strings (from parts (a)/(b)'s per-id classification) and this new sentinel
+value side by side; `CatalogMissCause`/`_catalog_miss.py` stay REUSED, NOT MODIFIED — no new enum
+member is added, and Project Structure's existing "`_catalog_miss.py` ... REUSED, not modified"
+line is correct as written, precisely because this sentinel never touches that file (see Project
+Structure below for the restated rationale).
+
+This diagnostic does **not** attempt to reconstruct the transitive closure (the fallback's
 existing behavior — direct `config.activated_*` roots only, via `_bare_ids_for_kind` — is
 unchanged; nothing about the resolution logic itself changes, only that the failure is now
 recorded) and does **not** trip the whole-kind aggregate fail-closed check itself: the aggregate
@@ -463,7 +592,7 @@ writes/modifies a catalog file.
 
 - **Purpose**: Close the silent-drop defect (FR-001) by making every activated-but-unresolvable id whose cause is `SCOPE_FILTERED` a placeholder `CharterReference` instead of a dropped one, uniformly regardless of cardinality (one scope-filtered id or every scope-filtered id of a kind). `MISSING_ARTIFACT`/`TYPO_SUSPECTED` misses stay on the existing Contract-C4-compatible diagnostics-only path (never a placeholder row) — see "WP-CORE reconciliation: Contract C4 scope and placeholder text format" above; this is a deliberate cause-conditioned scoping, not an unconditional "every unresolved id" rule. **IC-01 additionally closes FR-001's aggregate whole-kind sub-clause (PLAN-FRESH-001, this fix round):** after per-id classification, `_build_references_from_service` checks whether an entire kind's activated ids produced zero references (no resolution, no `SCOPE_FILTERED` placeholder) and, if so, fails closed with a non-zero exit naming the kind — a cause-agnostic, per-kind cardinality check layered on top of the per-id `SCOPE_FILTERED` vs. `MISSING_ARTIFACT`/`TYPO_SUSPECTED` distinction above, not a replacement for it. See "WP-CORE reconciliation" point 3 for the full design and its test requirement.
 - **Relevant requirements (split by mechanism, closes PLAN-FRESH2-003)**: FR-001, FR-003, NFR-001, NFR-002, C-001, C-002, SC-001, SC-004 back IC-01 as a whole. **SC-005** backs, specifically, the `SCOPE_FILTERED` per-id placeholder mechanism (Acceptance Scenario 4's `SCOPE_FILTERED` whole-kind fixture — see decision 1/tracer-design-decisions.md) — it does NOT exercise, and does not back, the whole-kind `MISSING_ARTIFACT`/`TYPO_SUSPECTED` fail-closed mechanism (decision 3 above and its round-3 amendment: the `graph.unresolved`-through-shared-helper and graph-load-failure widenings). That whole-kind fail-closed mechanism is backed only by **FR-001's own Edge Case text** ("All activated references of a kind... are unresolvable") — spec.md has no dedicated Success Criterion for it; the plan's own "Test requirement (new)" paragraph and its round-3 amendment above are the only acceptance-level statement of that mechanism's bar. (Minimal fix per PLAN-FRESH2-003's remediation option (a) — split the citation rather than add a new spec.md SC, since spec.md is otherwise untouched by this mission.)
-- **Affected surfaces**: `src/charter/activation/compiler.py` (`_render_kind_references`, `_build_references_from_service`, new private classify-and-placeholder helper, new private whole-kind fail-closed check/exception in `_build_references_from_service`).
+- **Affected surfaces**: `src/charter/activation/compiler.py` (`_render_kind_references`, `_build_references_from_service`, `_resolve_transitive_reference_graph` — gains `diagnostics`/structured-records sink parameters per the round-3 amendment's Design part (c), closes PLAN-FRESH3-002 — its return type is unchanged, still `ResolveTransitiveRefsResult` — new private classify-and-placeholder helper, new private whole-kind fail-closed check/exception in `_build_references_from_service`).
 - **Sequencing/depends-on**: Follows WP-ATDD (the FR-005 test must exist and be RED first).
 - **Risks**: (1) The existing diagnostic string format (`"Unresolved reference: <kind>/<id>"`) is extended, not replaced — implementation must grep the test suite for any exact-string assertion on the OLD format before changing it, to avoid an unrelated test regression outside this mission's stated scope. (2) Regression risk against **Contract C4**: `tests/charter/test_catalog_completeness_4785.py` (added to the baseline command above) must stay green — a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` id must never fall through to the placeholder branch; the `scope_filtered_ids` cause-check must run BEFORE any placeholder-construction code, not after. (3) The aggregate whole-kind check must run strictly AFTER all per-id classification for that kind completes (it inspects the per-kind reference list's final emptiness, not any single id in isolation) and must trip only when a kind produced NEITHER a resolution NOR a `SCOPE_FILTERED` placeholder for ANY of its activated ids — a kind with even one `SCOPE_FILTERED` id among otherwise-`MISSING_ARTIFACT` ids must NOT trip the fail-closed path, since that kind's reference list is non-empty. Implementation must add the fixture test proving a whole-kind-unresolvable `MISSING_ARTIFACT` case (e.g. a misconfigured pack root) actually exits non-zero before any catalog write — see "WP-CORE reconciliation" point 3.
 

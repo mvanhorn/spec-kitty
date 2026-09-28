@@ -283,9 +283,24 @@ not fail-closed. This is a deliberate, bounded widening, not a reopening of deci
 1. Route `_build_references_from_service`'s `graph.unresolved` loop through the SAME
    classify-and-placeholder helper decision 3's per-kind loop already uses, so both unresolved-
    tracking sites genuinely share one helper (making the Campsite-clean section's claim true).
+   **Correction (round 4, closes PLAN-FRESH3-001 — the same root cause PLAN-FRESH2-001 above
+   named, filed again against a fresh-eyes pass of the resulting text):** each `graph.unresolved`
+   entry is a `(urn, urn)` tuple — both elements the SAME full `"kind:id"` URN string
+   (`src/charter/offering/drg/query.py:391`), never a bare `(kind, id)` pair. Routing it through
+   the shared helper first requires splitting the URN (`urn.split(":", 1)`, matching
+   `resolve_transitive_refs`'s own successful-lookup branch, `query.py:394`) and mapping the
+   singular kind to the plural repository key via the existing `ArtifactKind(kind_str).plural`
+   mapping (`src/charter/offering/artifact_kinds.py:125-148`/`51-64`) — guarding against a
+   URN with no `":"`, a kind string with no `ArtifactKind` member, and a valid `ArtifactKind`
+   whose repository resolves to `None` (all three preserved/reported, never crashed). The
+   implementable design (all three guarded cases) is in plan.md's "Round-3 amendment", Design
+   part (a).
 2. Because `graph.unresolved` ids now flow into the same per-kind `references` list
    `_render_kind_references` populates, the existing aggregate whole-kind check (decision 3, above)
-   automatically counts them — no separate counting logic needed.
+   automatically counts them — no separate counting logic needed. (Bounded to the ids point 1's
+   correction can actually attribute to one of the six tracked kinds — see plan.md's Design
+   part (b) for the same "no attribution, no aggregate count" exemption point 3 below already
+   applies to graph-load failure.)
 3. A total graph-load failure (`_resolve_transitive_reference_graph`'s `except Exception` branch)
    gets ONE unconditional, structured diagnostic — present in both the plain `diagnostics: list[str]`
    and the `--json` `unresolved_references` field — instead of vanishing. It does NOT attempt to
@@ -294,7 +309,12 @@ not fail-closed. This is a deliberate, bounded widening, not a reopening of deci
    per-kind ids that were actually classified (`SCOPE_FILTERED` vs. `MISSING_ARTIFACT`/
    `TYPO_SUSPECTED`, each attributable to one kind); a total graph-load failure has no per-kind
    breakdown to classify, so it gets its own unconditional loud diagnostic instead of being folded
-   into a count it cannot honestly populate.
+   into a count it cannot honestly populate. **Correction (round 4, closes PLAN-FRESH3-002):** this
+   diagnostic is appended INSIDE `_resolve_transitive_reference_graph`'s own `except` branch, via
+   `diagnostics`/structured-records sink parameters passed into it by its caller — not by widening
+   its return type and not via a marker exception (both explicitly declined by the operator); see
+   plan.md's Design part (c). Its `cause` value (`"graph_load_failed"`) is a plain `str`, never the
+   `CatalogMissCause` enum type, so `_catalog_miss.py` stays unmodified (closes PLAN-FRESH3-004).
 
 Full design (the exact helper call sites, the diagnostic message shape, the `--json` entry shape,
 and the extended test requirement) lives in plan.md's "WP-CORE reconciliation" point 3, "Round-3

@@ -100,6 +100,16 @@ pair:
   `CatalogMissCause` values documented above (`missing_artifact`, `typo_suspected`,
   `scope_filtered`) — this entry is not per-id classified via `classify_catalog_miss`/
   `classify_scope_filtered_miss` at all.
+- **Type: `cause` is a plain `str` on the compiler-internal structured record, NOT the
+  `CatalogMissCause` enum type** (closes PLAN-FRESH3-004). `CatalogMissCause`
+  (`src/charter/activation/_catalog_miss.py:129-161`) is a closed 4-member `str, Enum` with no
+  `"graph_load_failed"` member, and `CatalogMissDiagnosis.cause`
+  (`_catalog_miss.py:164-174`) is strictly typed `CatalogMissCause`, not `str`. Typing the new
+  structured-records sink's `cause` field as `str` lets the three real `CatalogMissCause.value`
+  strings (produced for the per-artifact-miss entries above) and this new sentinel value coexist
+  in the same JSON field without adding a member to `CatalogMissCause` — `_catalog_miss.py` stays
+  REUSED, NOT MODIFIED (see plan.md's Project Structure section and the round-3 amendment's
+  Design part (c)).
 - `detail` is a short summary of the underlying exception (not a `_catalog_miss` classifier
   suggestion — there is no id to classify).
 - **This entry does NOT cause `generate` to exit non-zero.** The operator's explicit ruling on
