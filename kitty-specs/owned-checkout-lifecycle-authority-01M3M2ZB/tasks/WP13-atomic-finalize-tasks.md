@@ -1,0 +1,347 @@
+---
+work_package_id: "WP13"
+subtasks:
+  - "T070"
+  - "T071"
+  - "T072"
+  - "T073"
+  - "T074"
+title: "Atomic finalize-tasks"
+task_type: "implement"
+phase: "Phase 3 - Commands and runtime"
+execution_mode: "code_change"
+owned_files:
+  - "src/specify_cli/cli/commands/agent/mission_finalize.py"
+  - "src/specify_cli/cli/commands/agent/tasks_finalize_validation.py"
+  - "tests/integration/test_owned_lifecycle_acceptance_finalize.py"
+  - "tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py"
+authoritative_surface: "src/specify_cli/cli/commands/agent/mission_finalize.py"
+create_intent:
+  - "tests/integration/test_owned_lifecycle_acceptance_finalize.py"
+  - "tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py"
+dependencies:
+  - "WP07"
+  - "WP08"
+requirement_refs:
+  - "FR-007"
+  - "FR-013"
+  - "FR-015"
+agent_profile: "python-pedro"
+role: "implementer"
+agent: "claude"
+model: "claude-sonnet-5"
+assignee: ""
+shell_pid: ""
+history:
+  - at: "2026-09-28T15:00:00Z"
+    actor: "system"
+    action: "Prompt generated via /spec-kitty.tasks"
+---
+
+# Work Package Prompt: WP13 – Atomic finalize-tasks
+
+## ⚡ Do This First: Load Agent Profile
+
+Use the `/ad-hoc-profile-load` skill to load the agent profile named in the frontmatter. Follow its guidance before you read the rest of this prompt.
+
+- **Profile**: `python-pedro`
+- **Role**: `implementer`
+- **Agent/tool**: `claude`
+
+Then load the charter (`.kittify/charter/charter.md`) and the action context: `spec-kitty charter context --action implement --json`.
+
+---
+
+## ⚠️ IMPORTANT: Review Feedback
+
+- **Is there review feedback?** Check `review_ref` in the event log (`spec-kitty agent tasks status --mission owned-checkout-lifecycle-authority-01M3M2ZB`) or the Activity Log below.
+- **Address every item** before you move this WP back to `for_review`. Log each fix in the Activity Log.
+
+---
+
+## Review Feedback
+
+*[Empty until this WP is returned from review.]*
+
+---
+
+## Markdown Formatting
+
+Wrap HTML/XML tags in backticks: `` `<div>` ``, `` `<script>` ``
+Use language identifiers in code blocks: ````python`, ````bash`
+
+---
+
+## Objectives & Success Criteria
+
+`agent mission finalize-tasks` must validate everything before its first write. A refusal must leave the checkout exactly as it was. An owned checkout under `.worktrees/` must finalize.
+
+1. **FR-015 / US4-AS3 (red on base).** A **lane dependency cycle** refusal leaves `git status --porcelain` in the finalized checkout identical to before. The fixture is WP01→WP02→WP03, with WP01 and WP03 sharing an owned file.
+   - The oracle includes ignored files, so it covers `.kittify/derived/`.
+   - The oracle also includes `HEAD` and the index.
+   - Today, this refusal fires only after WP frontmatter, `tasks.md`, the issue matrix, `meta.json` and status events have been written (R-07).
+   - Same-fixture control: a successful finalize does append events and rewrite WP files.
+2. **FR-015, every post-write refusal.** The ownership-manifest refusal (`mission_finalize.py:3489`), the stale-canceled refusal (`:3501`), the lane cycle and planning-commit pin refusals (`:2992`), and the lane glob re-validation all fire before the first write. They move into an in-memory **plan phase** that reuses the `--validate-only` path (INV-6).
+3. **FR-013 / O6 / US4-AS1.** For a valid owned single_branch P at `R/.worktrees/owned-a`, `finalize-tasks --owned-checkout P` exits 0 and appends the new events to P's `status.events.jsonl`. WP06 (surface resolver) and WP07 (`TransitionRequest.owned`, bootstrap) supply the enabling seams. This WP proves the behaviour end to end, and the refusal is not preceded by a partial write.
+4. **FR-007.** The finalize `--json` payload (success, validate-only and refusal) carries the top-level `stale_repository_root_copy: {"path", "mission_id"} | null`. With a stale copy of M in R, no path in the payload is under R.
+5. **Single authority.** The `--owned-checkout` option moves onto WP08's `OwnedCheckoutOption`. Validation goes through `resolve_owned_or_adopt(…, LIFECYCLE_OWNED_TOPOLOGIES)`. This removes the direct `resolve_owned_mission` call at `:3327`, which is a G2 floor offender.
+
+**Done when:**
+- every row above has a red-first test committed before its fix;
+- `finalize_tasks` and `_commit_finalize_artifacts` are ≤ 15 with no `noqa: C901`;
+- the existing finalize suites pass unchanged;
+- ruff, format and mypy are clean on the touched files;
+- `make test-fast` is green.
+
+## Context & Constraints
+
+- **Read first:**
+  - `spec.md`: US4, O6, FR-013/014/015, NFR-001.
+  - `plan.md`: Staging Strategy, IC-07 and the campsite list.
+  - `research.md`: R-07 (write order and refusals), R-10, R-12, R-16.
+  - `data-model.md`: the payload field.
+  - `contracts/cli-owned-checkout-surface.md`: the `finalize-tasks` row.
+- **Write order on the planning base** (`mission_finalize.py`, R-07, verified on HEAD):
+
+  | # | Write | Line |
+  |---|---|---|
+  | 1 | `meta.json` branch contract | `:3381` |
+  | 2 | issue-matrix scaffold | `:3417` |
+  | 3 | WP frontmatter flush | `:3472` |
+  | 4 | `tasks.md` regeneration | `:3478` |
+  | 5 | `TasksStarted` event | `:3506` |
+  | 6 | canonical events and bootstrap | `_run_commit_pipeline` `:2980`, `:2982` |
+  | 7 | `lanes.json` | `:2992` |
+  | 8 | acceptance matrix | `:3009` |
+  | 9 | commit | `:3020` |
+
+  Dependency-graph cycles (`_validate_dependency_graph`, `:3431`) and invalid refs are **already** refused before any write, so do not use them as the red fixture.
+- **INV-6 already exists.** `--validate-only` runs the bootstrap loop in memory (`_run_bootstrap_loop`, `:1480`). It reports `tasks.md` staleness instead of regenerating (`:1820-1860`). It computes lanes dry and seeds bootstrap dry (`_emit_validate_only_report`, `:1862-1956`). `_assert_no_write_in_validate_only` (`:1613`) guards it. The existing test `tests/specify_cli/cli/commands/agent/test_finalize_lane_dependency_cycle.py::test_validate_only_cycle_preserves_complete_mission_inventory` (`:261`) already proves the dry path detects the lane cycle with zero writes. **Reuse that path as the plan phase.** Do not build a second validator.
+- **Dependencies provide:**
+  - WP07: `bootstrap_canonical_state(..., owned=)`.
+  - WP06: `EventLogReadContract.owned`, so the `.worktrees/` owned read is accepted.
+  - WP08: `OwnedCheckoutOption`, `resolve_owned_or_adopt`, `emit_owned_refusal` and the stale-copy reporter.
+  - WP02: `LIFECYCLE_OWNED_TOPOLOGIES` and the `owned_checkouts`, `r_snapshot` and `stale_root_copy` fixtures.
+
+  Read their merged signatures before you start.
+- **Staging (top-down).**
+  - `finalize_tasks` holds the fact, and every helper in `mission_finalize.py` takes `owned: OwnedCheckout | None`. The six shared seams get `owned=` and keep their dual keyword until WP18.
+  - **Do not change** the signature of `tasks_finalize_validation._read_transactional_wp_lane(..., effective_root=)` (`tasks_finalize_validation.py:95-110`). Its only caller is `tasks_move_task.py:568`, which WP16 owns and converts in parallel with this WP. Changing the callee before its caller breaks the top-down rule. Record it in the Activity Log for WP18's closure sweep (T097).
+- **Campsite first.** Extract these before any behaviour change, as the first commit after T070's tests: `finalize_tasks` (`:3217`, complexity 15 behind `# noqa: C901`), `_commit_finalize_artifacts` (`:2673`, 15) and `_run_bootstrap_loop` (`:1480`, 12). tasks.md lists `_run_bootstrap_loop` under WP11's T058, but the function lives here, so WP13 owns its extraction.
+- **Preserve the revert machinery.** The `SK3466` `meta.json` revert (`_revert_unpersisted_target_branch_override`, `:3097`; `_MetaBranchOverrideProgress`, `:3077`) still guards **apply-time** failures such as the git commit. Keep it, and keep its tests green.
+- **Terminology.** In new messages and tests use "repository root checkout" and "owned checkout". Rename the `primary`/`primary_dir` locals you touch only where the name refers to a checkout. `primary_dir` in this file means the PRIMARY-partition read dir (a placement kind, not a checkout), so leave those names alone and follow the glossary sense.
+
+## Branch Strategy
+
+- **Strategy**: planning artifacts were generated on `claude/sleepy-hamilton-5lelee`, and completed changes merge back into `claude/sleepy-hamilton-5lelee`.
+- **Planning base branch**: `claude/sleepy-hamilton-5lelee`
+- **Merge target branch**: `claude/sleepy-hamilton-5lelee`
+- **Execution lane**: `finalize-tasks` assigns it in `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/lanes.json`. Run `spec-kitty implement WP13` and use the workspace it resolves.
+
+> `spec-kitty agent mission finalize-tasks` populates these fields automatically.
+
+## Subtasks & Detailed Guidance
+
+### Subtask T070 – Red-first: lane-cycle post-write refusal; O6 end to end
+
+- **Purpose**: C-007. Reproduce the half-applied refusal (O6, US4-AS3) and the owned `.worktrees/` refusal through the real `agent mission finalize-tasks` command before any fix.
+- **Steps**:
+  1. **Non-owned atomicity.** Create `tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py` with markers `integration`, `git_repo` and `non_sandbox`, matching its neighbours.
+     - Build a real repository-root mission whose WP graph is acyclic but whose collapsed lane graph is cyclic: WP01→WP02→WP03, with WP01 and WP03 sharing an owned file.
+     - You can model the fixture on `_write_cyclic_mission` in `test_finalize_lane_dependency_cycle.py:41`, but that helper patches internals through `_common_patches`. This test must run the **unpatched** command through `CliRunner` against the `mission` app (`specify_cli.cli.commands.agent.mission.app`).
+     - Commit the fixture.
+     - Record the oracle before and after: `git status --porcelain=v1 --ignored --untracked-files=all`, plus `git rev-parse HEAD` and `git write-tree`. `.kittify/derived/` is **gitignored** (`m_3_2_4_derived_views_gitignore_backfill.py`), so plain `--porcelain` would miss it. The spec's oracle must include it.
+     - Run `finalize-tasks --mission H --json`. Assert exit ≠ 0, the lane-cycle error in the JSON (the existing contract keys from `test_finalize_lane_dependency_cycle.py:199`), and **identical** oracles.
+     - On the base this is red: WP frontmatter, `tasks.md` and events were already written.
+  2. **Same-fixture control.** Break the cycle by removing the shared file from WP03. Finalize succeeds, the oracle **changes** (events appended, WP files rewritten), and `lanes.json` exists.
+  3. **Every post-write refusal.** Add a parametrised case per refusal, each with a porcelain-identical assertion:
+     - an ownership-manifest overlap (`_validate_ownership_manifests`);
+     - a stale-canceled dependency (`_raise_stale_canceled_dependencies_if_any`);
+     - a planning-commit pin refusal (`_preserve_or_capture_planning_commit_sha` → `_refuse_planning_sha_refresh`, `:2109`): re-finalize after execution has begun, with an orphaned recorded SHA and without `--allow-orphaned`;
+     - a lane glob re-validation failure (`LaneGlobValidationError`).
+
+     Each case must be red on the base, or record that it was already atomic.
+  4. **Owned (integration).** Create `tests/integration/test_owned_lifecycle_acceptance_finalize.py` (`integration`, `git_repo`) using `owned_checkouts`, `r_snapshot` and `stale_root_copy`:
+     - **US4-AS1 / O6.** Use `make_owned_checkouts(placement="under_worktrees")`. It places P at `R/.worktrees/owned-a` as a single_branch owned mission with un-finalized WPs. Take R snapshots with `r_snapshot.take()` / `r_snapshot.assert_unchanged(before, after)`. Run `finalize-tasks --owned-checkout P --mission H --json`. Expect exit 0, new events in `P/kitty-specs/<slug>/status.events.jsonl`, and an unchanged R snapshot, excluding exactly P's subtree (never all of `.worktrees/`). On the base, this is refused as "must not target coordination worktree paths" **after** a partial write.
+     - **US4-AS3 owned.** Same lane-cycle fixture inside P. Assert that P's porcelain oracle is unchanged and R is unchanged.
+     - **FR-007.** With `stale_root_copy`, assert that `json["stale_repository_root_copy"]["path"]` names R's copy, and that `lanes.json` and events are written only in P.
+     - **FR-022 control.** Existing owned finalize outside `.worktrees/` still passes. See `tests/integration/test_explicit_checkout_commands.py::test_finalize_seeds_owned_status_only` (`:176`) and run it unchanged.
+  5. Commit both files before any `src/` change: `test(finalize): red-first atomic finalize and owned .worktrees finalize (FR-013, FR-015)`.
+- **Files**: `tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py` (new), `tests/integration/test_owned_lifecycle_acceptance_finalize.py` (new).
+- **Validation checklist**:
+  - [ ] Each refusal row is red on the planning base. Record the reason, and the first diverging porcelain line, in the Activity Log.
+  - [ ] The oracle includes ignored files (`--ignored`), `HEAD` and the index.
+  - [ ] Each negative is paired with the successful control on the same fixture.
+- **Edge cases**:
+  - Set `SPEC_KITTY_ENABLE_SAAS_SYNC=0`. Hosted fan-out must not create files.
+  - The ownership-manifest overlap and the lane cycle can both be triggered by one shared file. Build the fixtures so each case trips exactly one gate, and assert the specific error code or message key.
+
+### Subtask T071 – Campsite: `finalize_tasks`, `_commit_finalize_artifacts` and `_run_bootstrap_loop`
+
+- **Purpose**: Standing Order 2. T072 and T073 restructure these functions, so extract them first, with no behaviour change, and drop the `# noqa: C901` on `finalize_tasks` (`:3217`).
+- **Steps**:
+  1. `finalize_tasks` (`:3217-3574`, complexity 15). Extract:
+     - `_resolve_finalize_context(...)`: identity, repo root, owned resolution and slug (`:3320-3355`);
+     - `_run_finalize_validation_gates(...)`: occurrence map, target branch, pr-bound preflight, spec requirement ids, dependency resolution and graph, requirement mapping, dependency conflicts and warnings (`:3358-3452`);
+     - `_run_finalize_ownership_gates(...)`: the bootstrap loop, owned-files check, ownership manifests, lane-input projection and stale-canceled check (`:3455-3501`).
+
+     The `try/except typer.Exit / except Exception` revert shell stays in `finalize_tasks`.
+  2. `_commit_finalize_artifacts` (`:2673-2786`, 15). Split artifact collection from the commit call, and keep `_CommitOutcome` unchanged.
+  3. `_run_bootstrap_loop` (`:1480-1582`, 12). Extract the per-WP body into `_bootstrap_one_wp(...)`.
+  4. Remove `# noqa: C901` from `finalize_tasks`.
+  5. Commit: `refactor(finalize): campsite extractions before atomic plan/apply (C901)`.
+- **Files**: `src/specify_cli/cli/commands/agent/mission_finalize.py`.
+- **Validation checklist**:
+  - [ ] `.venv/bin/ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=11' src/specify_cli/cli/commands/agent/mission_finalize.py` no longer reports these three functions.
+  - [ ] Every existing finalize suite is green and unmodified (list under Test Strategy). Many tests patch `mission_finalize.<name>` (`test_mission_finalize_phases.py`, `test_feature_finalize_bootstrap.py::_common_patches`), so grep for patch targets first and keep those names stable.
+- **Edge cases**: `_bootstrap_canonical_state_via_mission` is a documented **patch seam** (`:182`). Do not inline it.
+
+### Subtask T072 – Finalize plan phase in memory
+
+- **Purpose**: FR-015 / IC-07 step 1. Build the whole finalize plan in memory, running every gate that can refuse, before any write. The code path is the existing `--validate-only` one (INV-6).
+- **Steps**:
+  1. Define a frozen `_FinalizePlan` dataclass in `mission_finalize.py`. It holds everything the apply phase needs:
+     - resolved slug, `planning_dir`, `tasks_dir`, `target_branch`, `merge_target_branch`;
+     - the `meta.json` branch-contract **decision** (what to write, not a written file);
+     - the issue-matrix scaffold decision;
+     - `state` (the in-memory bootstrap and frontmatter results), `dep_resolution`;
+     - the regenerated `tasks.md` **content**;
+     - `wp_manifests`, `lane_wp_dependencies`, `wp_frontmatters`, `wp_bodies`, `eligibility`;
+     - the **dry-computed** `LanesManifest`;
+     - the planning-commit SHA decision;
+     - the acceptance-matrix plan;
+     - `preexisting_primary_files`;
+     - `owned`.
+  2. Implement `_plan_finalize(..., owned) -> _FinalizePlan`. It calls the gate helpers from T071 with **`validate_only=True` semantics**: no frontmatter flush, no `tasks.md` write, no `meta.json` persist, no issue-matrix scaffold.
+     - It then computes lanes dry. Share the dry compute with `_emit_validate_only_report` (`:1893-1909`, `compute_lanes`), so both modes run identical code. `LaneDependencyCycleError` and `LaneGlobValidationError` surface here.
+     - It resolves the planning-commit SHA decision (`_preserve_or_capture_planning_commit_sha`, `:2215`, read-only git queries) and runs `_raise_lane_computation_empty_input_if_needed`.
+     - It runs the dry bootstrap (`_bootstrap_canonical_state_via_mission(dry_run=True, owned=…)`). That exercises the owned status read contract, so O6's surface refusal, if any regression reintroduced it, fires here.
+  3. Pure helpers that need no CLI context, such as the dry lane computation wrapper and the plan-level validation summaries, belong in `tasks_finalize_validation.py`. That module's declared role is "the validation core of `finalize_tasks` exposed as pure functions". Honour its one-way import rule (INV-2, `tasks_finalize_validation.py:16-18`: never import from `tasks.py`).
+  4. `--validate-only` becomes `_plan_finalize` followed by `_emit_validate_only_report(plan)`. Keep `_assert_no_write_in_validate_only`, and keep the report JSON key set byte-identical apart from the additive `stale_repository_root_copy` (T074).
+- **Files**: `src/specify_cli/cli/commands/agent/mission_finalize.py`, `src/specify_cli/cli/commands/agent/tasks_finalize_validation.py`.
+- **Validation checklist**:
+  - [ ] T070's refusal rows now fail **inside** `_plan_finalize`. Add a unit assertion that `_plan_finalize` performs zero writes on the cycle fixture: run it and compare the oracle.
+  - [ ] `test_finalize_lane_dependency_cycle.py` passes unchanged, including its JSON-schema contract (`:335`) and human diagnostic (`:352`) tests.
+  - [ ] `test_mission_finalize_tasks.py`, `test_issue_3466_finalize_target_branch_override.py` and `test_issue_3311_finalize_rewrites_active_lanes.py` pass unchanged.
+- **Edge cases**:
+  - `_preflight_recovered_pr_bound_contract` (`:574`) already runs before writes. Keep it in the plan phase.
+  - `preexisting_primary_files` (`:3415`) must be snapshotted in the plan phase, **before** any apply write, or residue cleanup scoping breaks (WP02/FR-006, A-r1).
+  - Lane computation needs `planning_commit_sha` for the manifest. Compute the SHA decision once in the plan phase, and have the apply phase write exactly that manifest. Never recompute it.
+
+### Subtask T073 – Finalize apply phase; owned status read
+
+- **Purpose**: FR-015 / IC-07 step 2 and FR-013. Apply every write in one phase from the plan. Only apply-time failures remain possible: I/O, the git commit, hosted fan-out.
+- **Steps**:
+  1. `_apply_finalize(plan, *, json_output, ...)` performs the writes in today's order:
+     1. `meta.json` branch contract, with `meta_json_persisted` and `meta_commit_progress` tracking;
+     2. the issue-matrix scaffold;
+     3. the frontmatter flush;
+     4. `tasks.md`;
+     5. `TasksStarted`;
+     6. `_run_commit_pipeline`: canonical events, bootstrap, `lanes.json` from the **planned** manifest, the acceptance matrix, the commit and the success report.
+  2. `_compute_and_write_lanes` (`:2439`) takes the planned manifest and writes it (`compute_and_write_lanes` in `specify_cli/lanes/compute_and_persist.py`). If the core API cannot accept a precomputed manifest, add a thin write-only path in this file that calls the core's persistence helper. Do not edit `specify_cli/lanes/` (not in this WP's map). The glob re-validation already ran in the plan phase.
+  3. **Owned status read (FR-013).** The events, bootstrap and `TasksStarted` writes go through WP07's `bootstrap_canonical_state(..., owned=owned)` and the owned transition pipeline. Status reads under `.worktrees/` are decided by WP06's `surface_resolver.primary_read_targets_coord_worktree(path, *, owned)` from the fact, never by path shape. Replace the transitional call at `_bootstrap_canonical_state_via_mission` (`:182-207`: `repo_root=owned.primary, effective_root=owned.root, owned_mission=owned`) with WP07's final `owned=` keyword.
+  4. Keep the `SK3466` revert shell around the apply phase. A failure *inside* apply (the commit) still reverts an uncommitted `meta.json` override, so the existing `test_issue_3466_*` tests stay green.
+  5. `finalize_tasks` becomes: resolve context → `_plan_finalize` → `--validate-only`? report : `_apply_finalize`.
+- **Files**: `src/specify_cli/cli/commands/agent/mission_finalize.py`.
+- **Validation checklist**:
+  - [ ] Every T070 row is green: refusals are porcelain-identical, and the owned `.worktrees/` finalize exits 0 with events in P.
+  - [ ] The control finalize produces the same commit contents as the planning base on the same fixture. Diff `git show --stat HEAD` against a base run and record the result.
+  - [ ] `tests/integration/test_explicit_checkout_commands.py::test_finalize_seeds_owned_status_only` and `::test_finalize_issue_matrix_uses_owned_writer` are green unchanged (FR-022).
+- **Edge cases**:
+  - **Registered coordination worktree control (FR-014, WP06's test).** A repository-root-labelled read of a registered coordination worktree at the same `.worktrees/<name>` shape must still be refused. Run WP06's `tests/specify_cli/coordination/test_status_surface_owned.py` as part of the blast radius.
+  - Hosted fan-out failures after the commit keep today's behaviour. They are outside the atomicity contract, which covers writes before the commit.
+
+### Subtask T074 – Option migration, owned-root conversions and the stale-copy field
+
+- **Purpose**: single authority (G2), terminology and the bulk-edit conversion for the finalize file, plus FR-007.
+- **Steps**:
+  1. Replace the inline option (`:3237`, `owned_checkout: Annotated[Path | None, typer.Option("--owned-checkout", …)]`) with WP08's `OwnedCheckoutOption`.
+  2. Replace the direct `resolve_owned_mission(repo_root, owned_checkout, feature or "", target_override=…)` (`:3326-3334`) with `resolve_owned_or_adopt(...)`, passing `allowed_topologies=LIFECYCLE_OWNED_TOPOLOGIES` and the `--target-branch` override. Use `emit_owned_refusal` for refusals, keeping finalize's existing error envelope keys and always emitting `error_code`. Keep `require_unstaged_index(owned)` for non-validate-only runs, or WP08's equivalent.
+     - Flagless adoption (FR-021) applies here too: running from inside a valid P without the flag adopts P, while a lane or coordination worktree keeps today's behaviour.
+  3. Convert the carrier and its attribute reads (occurrence map, `code_symbols`/`import_paths`):
+     - `from specify_cli.core.owned_mission import OwnedMission, require_unstaged_index, resolve_owned_mission` (`:60`) becomes `from mission_runtime import OwnedCheckout` plus the WP08 helper imports.
+     - Rename every `OwnedMission` annotation (29 occurrences on HEAD, for example `:188`, `:905`, `:1875`, `:2014`, `:2222`, `:2452`, `:2578`, `:2610`, `:2684`, `:2939`) to `OwnedCheckout`.
+     - Rename the legacy attribute reads: `owned.root` → `owned.owned_root`, `owned.primary` → `owned.repository_root`, `owned.slug` → `owned.mission_slug`, `owned.directory` → `owned.mission_dir`, `owned.target` → `owned.target_branch`.
+     - Convert the `"effective_root"` dict-key splats to `owned=owned` on the dual-keyword seams: `:929` (issue matrix), `:2056`, `:2593` (`placement_seam(owned.primary, owned.slug, effective_root=owned.root)` → `placement_seam(owned.repository_root, owned.mission_slug, owned=owned)`), `:2636`, `:2752`, `:3352`.
+     - Where a callee is not yet owned-aware and lives outside this WP, use the bridging expression `effective_root=owned.owned_root if owned else None`, and comment which WP converts it.
+  4. **Stale-copy field (FR-007 / R-12).** When `owned` is set, call WP08's stale-copy reporter once after resolution. It detects without git calls by comparing the repository-root placement with `owned.mission_dir`. Add a top-level `stale_repository_root_copy` to the JSON of the success report (`_emit_success_report`, `:2788`), the validate-only report (`:1920-1934`) and the refusal envelope. In human mode, print the warning on stderr. The key is additive, and no existing key changes (serialized keys are `do_not_change`).
+  5. `tasks_finalize_validation.py`: leave `_read_transactional_wp_lane`'s `effective_root` keyword and its `effective_root_kwargs` import in place (see Context). Add an Activity Log line for WP18.
+- **Files**: `src/specify_cli/cli/commands/agent/mission_finalize.py`, `src/specify_cli/cli/commands/agent/tasks_finalize_validation.py` (no signature change; comment only if needed).
+- **Validation checklist**:
+  - [ ] `grep -n "OwnedMission\|owned\.root\b\|owned\.primary\|owned\.slug\|resolve_owned_mission(" src/specify_cli/cli/commands/agent/mission_finalize.py` returns nothing.
+  - [ ] `grep -n "effective_root" src/specify_cli/cli/commands/agent/mission_finalize.py` shows only commented bridging into not-yet-converted callees.
+  - [ ] The golden and JSON contract tests for finalize pass. The additive key is accepted, or the contract fixtures are updated additively; if those fixtures belong to another WP, declare the edit.
+  - [ ] T070's FR-007 row is green.
+- **Edge cases**:
+  - `--target-branch` with an owned checkout: today's `target_override` check (`owned_mission.py:113`) must still refuse a mismatch with `OWNED_BRANCH_REFUSED`. Pin it in the integration file.
+  - The FR-003 validation count for finalize is exactly 1. Patch-count `checkout_ownership.resolve_ownership_claim` after clearing the workspace caches, and assert it in the integration file.
+
+## Test Strategy
+
+Red-first order:
+1. T070 (red), committed first.
+2. T071 campsite (green).
+3. T072 plan phase.
+4. T073 apply phase (the reds turn green).
+5. T074 conversion.
+
+Record the exact commands and counts under *Tests run*:
+
+```bash
+PWHEADLESS=1 .venv/bin/python -m pytest -q \
+  tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py \
+  tests/integration/test_owned_lifecycle_acceptance_finalize.py \
+  tests/specify_cli/cli/commands/agent/test_finalize_lane_dependency_cycle.py \
+  tests/specify_cli/cli/commands/agent/test_mission_finalize_tasks.py \
+  tests/specify_cli/cli/commands/agent/test_mission_finalize_phases.py \
+  tests/specify_cli/cli/commands/agent/test_feature_finalize_bootstrap.py \
+  tests/specify_cli/cli/commands/agent/test_finalization_eligibility.py \
+  tests/specify_cli/cli/commands/agent/test_finalize_clobber_e2e.py \
+  tests/specify_cli/cli/commands/agent/test_finalize_coord_staging.py \
+  tests/specify_cli/cli/commands/agent/test_finalize_provenance_guard.py \
+  tests/specify_cli/cli/commands/agent/test_finalize_tasks_commit_surface.py \
+  tests/specify_cli/cli/commands/agent/test_issue_3311_finalize_rewrites_active_lanes.py \
+  tests/specify_cli/cli/commands/agent/test_issue_3466_finalize_target_branch_override.py \
+  tests/specify_cli/cli/commands/agent/test_tasks_finalize_seam.py \
+  tests/specify_cli/cli/commands/agent/test_tasks_finalize_validation.py \
+  tests/integration/test_explicit_checkout_commands.py \
+  tests/specify_cli/coordination/test_status_surface_owned.py
+grep -rl "mission_finalize\|tasks_finalize_validation\|finalize-tasks\|finalize_tasks" tests/ --include="*.py"   # run each remaining hit (skip e2e/slow)
+make test-fast
+.venv/bin/ruff check src/specify_cli/cli/commands/agent/mission_finalize.py src/specify_cli/cli/commands/agent/tasks_finalize_validation.py tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py tests/integration/test_owned_lifecycle_acceptance_finalize.py
+.venv/bin/ruff format --check src/specify_cli/cli/commands/agent/mission_finalize.py src/specify_cli/cli/commands/agent/tasks_finalize_validation.py tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py tests/integration/test_owned_lifecycle_acceptance_finalize.py
+.venv/bin/mypy src/specify_cli/cli/commands/agent/mission_finalize.py src/specify_cli/cli/commands/agent/tasks_finalize_validation.py
+```
+
+- `test_finalize_clobber_e2e.py` is marked `integration` + `git_repo` only (not `slow`/`e2e`), so run it locally.
+- Do **not** run `make test-full` or the bare `tests/architectural/` directory. New test files may need registration in the `pyproject.toml` ruff-format exclude list only if they are formatter-excluded. New files should instead be formatted, so no registration is expected.
+
+## Risks & Mitigations
+
+- **Plan/apply divergence.** If the apply phase recomputes anything (lanes, the planning SHA, `tasks.md`), it can refuse after writes again. Mitigation: the apply phase takes only plan values, and a unit test asserts `_apply_finalize` never calls `compute_lanes` (patch it to raise).
+- **Patch-seam churn.** Many suites patch `mission_finalize` internals (`_common_patches`). Keep existing helper names, and add new ones beside them.
+- **`.kittify/derived/` is gitignored.** An oracle without `--ignored` is vacuous for FR-015. The T070 non-vacuity check: a deliberately injected write into `.kittify/derived/` before the refusal must turn the assertion red. Do it once locally and record it.
+- **Cross-WP signature timing.** WP16 converts `tasks_move_task.py` in parallel. Do not change `_read_transactional_wp_lane`. WP18 converts it after both WPs land.
+
+## Review Guidance
+
+- Verify that T070 precedes all `src/` commits, and that each refusal row was red on the base, or is recorded as already atomic.
+- Verify that every refusing gate lives in `_plan_finalize`, and that `_apply_finalize` contains no validation that can refuse (only apply-time I/O and git failures).
+- Verify that the oracle uses `--ignored` and compares `HEAD` and the index.
+- Verify that `noqa: C901` is gone from `finalize_tasks`, and that the three functions are ≤ 15.
+- Verify the absence of the direct `resolve_owned_mission` call, and the use of `OwnedCheckoutOption` / `resolve_owned_or_adopt(LIFECYCLE_OWNED_TOPOLOGIES)`.
+- Verify the additive `stale_repository_root_copy` key in all three finalize payloads.
+- Verify that mypy ran on both source files.
+
+## Activity Log
+
+> Append entries at the END in chronological order: `- YYYY-MM-DDTHH:MM:SSZ – <agent_id> – <action>`.
+
+- 2026-09-28T15:00:00Z – system – Prompt created.
+
+---
+
+### Updating Status
+
+Use `spec-kitty agent tasks move-task WP13 --to <status> --mission owned-checkout-lifecycle-authority-01M3M2ZB` and `spec-kitty agent tasks mark-status T070 … --status done`.
