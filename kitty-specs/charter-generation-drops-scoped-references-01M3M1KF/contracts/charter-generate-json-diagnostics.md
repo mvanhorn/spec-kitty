@@ -74,6 +74,43 @@ would be a breaking shape change for every such consumer, with no compile-time s
 dynamically-typed JSON contract to catch the break. A new, always-present key is additive and
 detectable (`"unresolved_references" in payload`) without touching the existing key's shape at all.
 
+## Round-3 addition — graph-load-failure diagnostic entry (operator ruling on PLAN-FRESH2-001)
+
+`unresolved_references` gains one additional, distinct entry shape for the case where the WHOLE DRG
+graph fails to load (`charter.activation.compiler._resolve_transitive_reference_graph`'s `except
+Exception: return fallback` branch — see plan.md's "WP-CORE reconciliation" point 3, round-3
+amendment, part (c)). This is not a per-artifact miss — no per-kind breakdown exists to attribute
+it to a specific kind or id — so it uses reserved sentinel values instead of a real `kind`/`id`
+pair:
+
+```json
+{
+  "kind": "_graph",
+  "id": "_load_failure",
+  "cause": "graph_load_failed",
+  "detail": "<short exception summary>"
+}
+```
+
+- `kind: "_graph"` / `id: "_load_failure"` are reserved sentinel values (leading underscore,
+  distinct from any real DRG-backed `kind`/`id` — no built-in kind or activated id is ever
+  literally named `_graph`/`_load_failure`), so a consumer can specifically detect this entry (or
+  filter it out) without confusing it for a per-artifact miss.
+- `cause: "graph_load_failed"` is a new value in this field, distinct from the three
+  `CatalogMissCause` values documented above (`missing_artifact`, `typo_suspected`,
+  `scope_filtered`) — this entry is not per-id classified via `classify_catalog_miss`/
+  `classify_scope_filtered_miss` at all.
+- `detail` is a short summary of the underlying exception (not a `_catalog_miss` classifier
+  suggestion — there is no id to classify).
+- **This entry does NOT cause `generate` to exit non-zero.** The operator's explicit ruling on
+  PLAN-FRESH2-001 is that a total graph-load failure is loud and structured, not fail-closed; it
+  also does NOT participate in the whole-kind aggregate fail-closed count (plan.md's round-3
+  amendment, part (c), explains why: the aggregate check counts per-kind ids that were actually
+  classified, and a total graph-load failure has no per-kind breakdown to classify).
+- The same diagnostic text appears as a plain-string entry in `diagnostics: list[str]` too
+  (FR-002's reason-bearing convention applies to this diagnostic as well, e.g. `"Graph load failed:
+  <exception summary>. Transitive closure not resolved; direct-root ids only."`).
+
 ## Relationship to `CharterPreflightResult`
 
 Not related. This contract governs `charter generate --json`'s own stdout payload. The preflight

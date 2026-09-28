@@ -246,3 +246,64 @@ This is a genuinely different axis from the decision above, not a widening of it
    gap PLAN-FRESH-001 identified: SC-005/Acceptance Scenario 4 and this new test together now cover
    both whole-kind-unresolvable causes (SCOPE_FILTERED via the existing placeholder path, and
    MISSING_ARTIFACT/TYPO_SUSPECTED via this new fail-closed path).
+
+## Decision: operator ruling on PLAN-FRESH2-001 — widen the whole-kind check to `graph.unresolved`, and make graph-load failure loud+structured (not fail-closed)
+
+**Context (round 3 of the plan-phase adversarial squad, `reviews/plan-fresh-2.yaml`, finding
+`PLAN-FRESH2-001`, severity 4).** A further fresh-eyes review of the decision immediately above
+(the per-kind aggregate whole-kind check) found it inspects only the per-kind list
+`_render_kind_references` returns. Two verified-in-code gaps fall entirely outside its field of
+view: (1) `_build_references_from_service`'s OWN separate `graph.unresolved` loop
+(`compiler.py:1250-1251`) — populated by `resolve_transitive_refs`
+(`charter/offering/drg/query.py`) when a visited URN's DRG node is absent from an
+otherwise-successfully-loaded graph — never reaches `_render_kind_references` and so never
+contributes to the aggregate check; (2) `_resolve_transitive_reference_graph`'s
+`except Exception: return fallback` branch (`compiler.py:1298-1307`), hit when the WHOLE DRG graph
+fails to load, drops anything reachable only via directive-transitive closure with zero trace —
+not even a diagnostic. This also left the "Campsite-clean scope" section's claim ("both call sites
+end up calling one new shared classify-and-placeholder helper") false as written, since the
+`graph.unresolved` site was never mentioned in the WP-CORE reconciliation design.
+
+**The operator ruled on this finding directly (binding — replaces the finding's own remediation
+options (a)/(b)):**
+
+> "Widen, bounded: route `graph.unresolved` ids through the same classify-and-placeholder helper
+> so they count toward the whole-kind fail-closed check and get a reason; graph-load failure emits
+> a loud, structured diagnostic (also in `--json`) instead of vanishing, without attempting to
+> reconstruct the transitive closure. Stays in compiler.py, same defect class, keeps the plan's
+> 'one shared helper' campsite claim true."
+
+**Explicit constraint from the operator:** graph-load failure does **NOT** make `generate` fail
+closed (the operator explicitly declined the stricter option) — it must be loud and structured,
+not fail-closed. This is a deliberate, bounded widening, not a reopening of decision 1 above (the
+`SCOPE_FILTERED`-only placeholder scoping) or a general "make everything fail closed" reversal.
+
+**Decision: implement exactly this ruling, nothing broader.**
+
+1. Route `_build_references_from_service`'s `graph.unresolved` loop through the SAME
+   classify-and-placeholder helper decision 3's per-kind loop already uses, so both unresolved-
+   tracking sites genuinely share one helper (making the Campsite-clean section's claim true).
+2. Because `graph.unresolved` ids now flow into the same per-kind `references` list
+   `_render_kind_references` populates, the existing aggregate whole-kind check (decision 3, above)
+   automatically counts them — no separate counting logic needed.
+3. A total graph-load failure (`_resolve_transitive_reference_graph`'s `except Exception` branch)
+   gets ONE unconditional, structured diagnostic — present in both the plain `diagnostics: list[str]`
+   and the `--json` `unresolved_references` field — instead of vanishing. It does NOT attempt to
+   reconstruct the transitive closure (the existing fallback's direct-root-only behavior is
+   unchanged) and does NOT trip the whole-kind aggregate fail-closed check: that check counts
+   per-kind ids that were actually classified (`SCOPE_FILTERED` vs. `MISSING_ARTIFACT`/
+   `TYPO_SUSPECTED`, each attributable to one kind); a total graph-load failure has no per-kind
+   breakdown to classify, so it gets its own unconditional loud diagnostic instead of being folded
+   into a count it cannot honestly populate.
+
+Full design (the exact helper call sites, the diagnostic message shape, the `--json` entry shape,
+and the extended test requirement) lives in plan.md's "WP-CORE reconciliation" point 3, "Round-3
+amendment" subsection, and in `contracts/charter-generate-json-diagnostics.md`'s "Round-3 addition"
+section — this tracer entry records the ruling and the reasoning; those files record the
+implementable design. This also closes PLAN-FRESH2-004 (idempotency): the whole-kind aggregate
+check's fail-closed branch (now widened to include `graph.unresolved`) writes no catalog on either
+invocation, so NFR-001's literal byte-identical-catalog guarantee does not apply to it — the
+relevant property is that the same unresolved-kind repo fails the same way (same exit code, same
+kind named) on a second invocation, with any pre-existing catalog left untouched. The graph-load-
+failure diagnostic path (not fail-closed, still writes a catalog) remains subject to ordinary
+NFR-001 unchanged.

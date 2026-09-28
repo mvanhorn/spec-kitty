@@ -97,6 +97,8 @@ No pre-existing red in the relevant shards — nothing needs a Pre-existing Fail
 
 `_render_kind_references`'s unresolved-append (`diagnostics.append(f"Unresolved reference: {kind}/{raw_id}")`, compiler.py ~line 1140) and `_build_references_from_service`'s `graph.unresolved` loop (`diagnostics.append(f"Unresolved reference: {artifact_type}/{artifact_id}")`, ~line 1251) duplicate the same literal format string at two call sites. **Decision: no separate preceding campsite-clean commit.** FR-001/FR-002's own fix necessarily rewrites BOTH sites' unresolved-handling logic (turning "append a diagnostic string and drop the reference" into "classify the cause, build a placeholder reference, append a reason-bearing diagnostic AND a structured record") — a distinct prior commit that only extracted a shared "record unresolved" helper with unchanged behavior would be immediately overwritten by the functional commit that follows it, making the two-commit split circular rather than a genuine tidy-first enabler. The unification happens naturally as part of the functional change itself (both call sites end up calling one new shared classify-and-placeholder helper). This is a considered decision under Standing Order #2, not a silently skipped bullet.
 
+**Round-3 note (closes the "both call sites" gap PLAN-FRESH2-001 identified).** Prior to the operator ruling captured in "WP-CORE reconciliation" point 3's round-3 amendment below, this "both call sites end up calling one new shared classify-and-placeholder helper" claim was true only for `_render_kind_references`'s per-id miss loop — `_build_references_from_service`'s own `graph.unresolved` loop (`compiler.py:1250-1251`) was a second, unmentioned unresolved-tracking site that never called the shared helper and never contributed to the whole-kind aggregate check. The round-3 amendment routes `graph.unresolved` through the SAME shared helper too, so this claim is now accurate for both call sites — see that amendment for the design.
+
 ### Tracer files
 
 Seeded now at `kitty-specs/charter-generation-drops-scoped-references-01M3M1KF/tracer-tooling-friction.md`, `tracer-approach.md`, `tracer-design-decisions.md` (see repo for full content — summarized in this plan's Phasing section below).
@@ -183,6 +185,28 @@ tests/
 The FR-005 generator-to-parity regression test — `tests/charter/test_charter_generate_scoped_reference_parity.py`, extending `tests/charter/test_active_languages_idempotency.py`'s `_git_init`/`_invoke_generate`/`_read_catalog` helper precedent (that module was read in full during this planning phase; its helpers already build a real `tmp_path` git repo and drive the real `charter_app` `generate` CLI via `typer.testing.CliRunner`, which is exactly what User Story 2's Acceptance Scenario 1 requires) — lands as a **separate, committed, failing-first commit BEFORE any implementation commit** touches `compiler.py`. The reviewer verifies RED on this mission's `planning_base_branch` (`af847be71d97c8a126e91c31a7d05629c69c93ba`) and GREEN on the lane's final commit. This is stated here in the phasing section, not merely mentioned in passing, per the charter's ATDD-First Discipline section.
 
 The auto-refresh fold-in (below) gets its OWN separate red-first test (an extension to `tests/specify_cli/charter_runtime/test_references_parity_refresh.py` — the real, existing test module for `preflight.references_refresh`; NOT a new `preflight/` subdirectory, which does not exist in the current test tree) — it is a distinct defect class from FR-001–FR-005 and must not be conflated into the same red/green pair; conflating them would make it impossible for a reviewer to verify each fix independently caused its own test to flip.
+
+**The whole-kind-unresolved fail-closed tests ALSO get this treatment (closes PLAN-FRESH2-002).**
+"WP-CORE reconciliation" point 3's "Test requirement (new)" paragraph and its round-3 amendment
+above introduce genuinely new, user-observable behavior that neither WP-ATDD's FR-005 fixture
+(`SCOPE_FILTERED`-only, per decision 1 above) nor the pre-round-2/pre-round-3 implementation
+exercises: (i) the whole-kind `MISSING_ARTIFACT`/`TYPO_SUSPECTED` fail-closed exit (round-2
+addition); (ii) the `graph.unresolved`-through-shared-helper routing (round-3 addition, part (a)
+above); (iii) the total-graph-load-failure loud-structured-diagnostic behavior (round-3 addition,
+part (c) above). Per C-011 (binding), each pins user-observable behavior a WP cannot start coding
+against until a failing-first test exists. **These three assertions are authored and committed as
+ONE dedicated red-first commit** — bundled together (rather than three separate commits) because
+all three pin different entry points into the SAME aggregate whole-kind mechanism this round's
+amendment unifies (one shared classify-and-placeholder helper, one aggregate per-kind count, one
+fixture family), so authoring and verifying them together is more reviewable than splitting a
+single cohesive mechanism's test coverage across three commits — mirroring how WP-ATDD's own FR-005
+commit already bundles multiple acceptance-scenario assertions (ids-present, coherence-check,
+`--json` shape) into one red-first commit rather than one commit per scenario. This dedicated
+commit MUST be verified RED against the pre-round-2/pre-round-3 implementation (this mission's
+`planning_base_branch`, `af847be71d97c8a126e91c31a7d05629c69c93ba`) and MUST land strictly BEFORE
+the WP-CORE implementation commit(s) that touch `compiler.py` to make it pass — the reviewer
+verifies RED on the base and GREEN on the lane's final commit, exactly as for WP-ATDD and
+WP-AUTOREFRESH. See "PR Shape" below for how this changes the commit breakdown.
 
 ## Phasing & Sequencing
 
@@ -300,6 +324,123 @@ kind. Placed alongside `tests/charter/test_charter_generate_scoped_reference_par
 test module) or as a narrower `compiler.py`-level unit test — implementer's choice, mirroring the
 "either satisfies IC-01/IC-04" precedent decision 2 above already sets.
 
+### Round-3 amendment to point 3 — operator ruling on PLAN-FRESH2-001: widen the whole-kind check to `graph.unresolved`, and make total graph-load failure loud + structured (not fail-closed)
+
+A third planning-phase adversarial-review round (fresh-eyes, `reviews/plan-fresh-2.yaml`, finding
+`PLAN-FRESH2-001`, severity 4) found that decision 3's aggregate whole-kind check above only
+inspects the per-kind list `_render_kind_references` returns — it never sees an id that reaches
+`_build_references_from_service`'s OWN separate unresolved-tracking site, the `graph.unresolved`
+loop (`compiler.py:1250-1251`: `for artifact_type, artifact_id in graph.unresolved:
+diagnostics.append(f"Unresolved reference: {artifact_type}/{artifact_id}")`). `resolve_transitive_refs`
+(`charter/offering/drg/query.py`) buckets a visited URN into `graph.unresolved` — not
+`graph.<kind>` — when the URN's DRG node is absent from an otherwise-successfully-loaded graph
+(e.g. an id deleted from the doctrine pack's graph fragment while its config activation entry
+remains); such an id never reaches `_render_kind_references` at all, so the whole-kind check
+cannot count it. Separately, `_resolve_transitive_reference_graph`'s `except Exception: return
+fallback` branch (`compiler.py:1298-1307`) — hit when the WHOLE DRG graph fails to load — drops
+anything reachable only via directive-transitive closure (not a direct `config.activated_*` root)
+with zero trace: no diagnostic, no structured record, nothing.
+
+The operator ruled on this finding directly (binding — this REPLACES the finding's own
+remediation options (a)/(b)):
+
+> "Widen, bounded: route `graph.unresolved` ids through the same classify-and-placeholder helper
+> so they count toward the whole-kind fail-closed check and get a reason; graph-load failure emits
+> a loud, structured diagnostic (also in `--json`) instead of vanishing, without attempting to
+> reconstruct the transitive closure. Stays in compiler.py, same defect class, keeps the plan's
+> 'one shared helper' campsite claim true."
+
+with an explicit constraint from the operator: **graph-load failure does NOT make `generate` fail
+closed** (the operator explicitly declined the stricter fail-closed-on-graph-load-failure option)
+— it must be loud and structured, not fail-closed.
+
+**Design, part (a) — `graph.unresolved` routes through the shared helper.** The
+classify-and-placeholder helper decision 3's per-kind loop already uses (the one
+`_render_kind_references`'s per-id miss calls into) is now ALSO called from
+`_build_references_from_service`'s `graph.unresolved` loop, once per `(artifact_type,
+artifact_id)` pair it yields. The helper classifies via `raw_id in repository.scope_filtered_ids`
+exactly as it does for a `_render_kind_references` miss (using `_raw_kind_repository
+(doctrine_service, artifact_type)` to fetch the right raw repository for `graph.unresolved`'s
+`artifact_type` string) — `SCOPE_FILTERED` → placeholder `CharterReference` appended to that
+kind's `references` list; `MISSING_ARTIFACT`/`TYPO_SUSPECTED` → diagnostics-only, same as today,
+now reason-bearing. This is the literal fix to the Campsite-clean section's "one shared helper"
+claim above: both unresolved-tracking sites now call the one helper, not two independently
+formatted `diagnostics.append(...)` calls.
+
+**Design, part (b) — `graph.unresolved` ids count toward the per-kind aggregate check.** Because
+part (a) routes every `graph.unresolved` id through the same classify-and-placeholder helper and
+appends its outcome to the SAME per-kind `references` list `_render_kind_references` populates,
+the aggregate whole-kind check (decision 3's "Design" above, mechanism unchanged) automatically
+sees them — no separate counting logic is needed. A kind is still whole-kind-unresolved under the
+exact same rule as before: it had at least one activated id (now: at least one id sourced from
+either `_render_kind_references`'s per-kind `ids` OR `graph.unresolved`) and none of them produced
+a reference. This closes the DRG-node-absent gap PLAN-FRESH2-001's evidence identified.
+
+**Design, part (c) — total graph-load failure gets a loud, structured diagnostic, explicitly
+exempt from the aggregate fail-closed check.** When `_resolve_transitive_reference_graph`'s
+`except Exception: return fallback` branch fires (the whole DRG graph — built-in or project —
+fails to load), `_build_references_from_service` now appends ONE unconditional, structured
+diagnostic recording the graph-load failure — kind/id-agnostic, because at this point no per-kind
+breakdown exists to attribute the failure to — to BOTH the plain `diagnostics: list[str]` (a
+distinct message shape from the per-id format, e.g. `"Graph load failed: <exception summary>.
+Transitive closure not resolved; direct-root ids only."`) and, per FR-004's contract, the `--json`
+`unresolved_references` structured field (see the round-3 addition to
+`contracts/charter-generate-json-diagnostics.md` below) — instead of silently vanishing as it does
+today. This diagnostic does **not** attempt to reconstruct the transitive closure (the fallback's
+existing behavior — direct `config.activated_*` roots only, via `_bare_ids_for_kind` — is
+unchanged; nothing about the resolution logic itself changes, only that the failure is now
+recorded) and does **not** trip the whole-kind aggregate fail-closed check itself: the aggregate
+check (parts (a)/(b) above) counts per-kind ids that were actually classified (`SCOPE_FILTERED` vs.
+`MISSING_ARTIFACT`/`TYPO_SUSPECTED`, each attributable to one kind); a total graph-load failure has
+no per-kind breakdown to classify — the fallback returns only bare direct-root ids per kind with no
+signal distinguishing "unresolved because the graph failed" from "legitimately has no other
+transitive members" — so folding it into the same per-kind cardinality count would either (i)
+require inventing a per-kind attribution the fallback data does not support, or (ii) trip the
+fail-closed check for every kind on every graph-load failure regardless of whether that kind's
+direct roots resolved fine, which is not what FR-001's aggregate clause is for. The graph-load
+failure instead gets its own unconditional loud diagnostic, matching the operator's explicit
+ruling that this case stays loud-but-not-fail-closed.
+
+**Test requirement (round-3 addition — extends the "Test requirement (new)" paragraph above with
+two further, separate assertions, per PLAN-FRESH2-001's remediation):**
+
+1. A fixture-driven test asserting a `graph.unresolved` id (an id whose DRG node is absent from an
+   otherwise-successfully-loaded graph, while its config activation entry remains) is routed
+   through the shared classify-and-placeholder helper: assert it is classified (`SCOPE_FILTERED` or
+   `MISSING_ARTIFACT`/`TYPO_SUSPECTED` per the fixture's construction), gets a reason-bearing
+   diagnostic, and — when it is the SOLE activated id of its kind and classifies as
+   `MISSING_ARTIFACT`/`TYPO_SUSPECTED` — trips the whole-kind aggregate fail-closed check exactly
+   as a `_render_kind_references`-sourced miss would.
+2. A fixture-driven test asserting total graph-load failure (e.g. a corrupted/unparseable DRG
+   fragment forcing `_resolve_transitive_reference_graph`'s `except Exception` branch): assert (i)
+   `generate` still exits 0 (NOT fail-closed — the operator's explicit constraint) when the
+   fallback's direct-root ids otherwise resolve; (ii) a graph-load-failure diagnostic is present in
+   the plain `diagnostics` list; (iii) the same diagnostic appears in the `--json`
+   `unresolved_references` field; (iv) the transitive closure is not reconstructed (only
+   direct-root/bare ids appear in the affected kinds' `references`, matching the existing
+   fallback's `_bare_ids_for_kind` behavior, unchanged by this fix).
+
+These two assertions are IN ADDITION TO the whole-kind `MISSING_ARTIFACT` test the "Test
+requirement (new)" paragraph above already requires — see the ATDD-First Discipline section below
+for how the three are sequenced as red-first commit(s).
+
+**Idempotency note (closes PLAN-FRESH2-004).** NFR-001's literal text ("byte-identical
+`catalog.references`") presumes a catalog is produced each run; it does **not** literally apply to
+the whole-kind aggregate fail-closed branch (point 3's "Design" above, now widened by parts
+(a)/(b) above to also cover `graph.unresolved` ids) — no catalog is written on either invocation
+(the `_WholeKindUnresolvedError` propagates before `write_compiled_charter` runs, exactly as point
+3's "Design" states), so there is no `catalog.references` to compare byte-for-byte. The
+idempotency property that actually applies here instead is: **the same unresolved-kind repo fails
+the same way on a second invocation, with any pre-existing catalog file left untouched.** This does
+NOT apply to part (c)'s graph-load-failure diagnostic, since that path is not fail-closed and still
+writes a catalog — for that path, ordinary NFR-001 (byte-identical `catalog.references`, including
+the same direct-root-only content for the affected kinds and the same diagnostic content) applies
+unchanged. Add this as an explicit assertion to the whole-kind-unresolved test requirement (the
+"Test requirement (new)" paragraph above, unchanged mechanism, now also exercised via the
+`graph.unresolved` path per parts (a)/(b) above): run the fixture's `generate --force` twice,
+assert both invocations exit non-zero identically (same exit code, same kind named) and neither
+writes/modifies a catalog file.
+
 ## Auto-refresh fail-closed swallow — decision: FOLD IN (bounded)
 
 **Verified against the actual current code** (read `src/specify_cli/charter_runtime/preflight/references_refresh.py` lines 145–189 and `runner.py` lines 553–773 in full at plan time, not restated from a prompt sketch on faith):
@@ -321,7 +462,7 @@ test module) or as a narrower `compiler.py`-level unit test — implementer's ch
 ### IC-01 — Placeholder-preservation for `SCOPE_FILTERED` unresolved DRG-backed references
 
 - **Purpose**: Close the silent-drop defect (FR-001) by making every activated-but-unresolvable id whose cause is `SCOPE_FILTERED` a placeholder `CharterReference` instead of a dropped one, uniformly regardless of cardinality (one scope-filtered id or every scope-filtered id of a kind). `MISSING_ARTIFACT`/`TYPO_SUSPECTED` misses stay on the existing Contract-C4-compatible diagnostics-only path (never a placeholder row) — see "WP-CORE reconciliation: Contract C4 scope and placeholder text format" above; this is a deliberate cause-conditioned scoping, not an unconditional "every unresolved id" rule. **IC-01 additionally closes FR-001's aggregate whole-kind sub-clause (PLAN-FRESH-001, this fix round):** after per-id classification, `_build_references_from_service` checks whether an entire kind's activated ids produced zero references (no resolution, no `SCOPE_FILTERED` placeholder) and, if so, fails closed with a non-zero exit naming the kind — a cause-agnostic, per-kind cardinality check layered on top of the per-id `SCOPE_FILTERED` vs. `MISSING_ARTIFACT`/`TYPO_SUSPECTED` distinction above, not a replacement for it. See "WP-CORE reconciliation" point 3 for the full design and its test requirement.
-- **Relevant requirements**: FR-001, FR-003, NFR-001, NFR-002, C-001, C-002, SC-001, SC-004, SC-005.
+- **Relevant requirements (split by mechanism, closes PLAN-FRESH2-003)**: FR-001, FR-003, NFR-001, NFR-002, C-001, C-002, SC-001, SC-004 back IC-01 as a whole. **SC-005** backs, specifically, the `SCOPE_FILTERED` per-id placeholder mechanism (Acceptance Scenario 4's `SCOPE_FILTERED` whole-kind fixture — see decision 1/tracer-design-decisions.md) — it does NOT exercise, and does not back, the whole-kind `MISSING_ARTIFACT`/`TYPO_SUSPECTED` fail-closed mechanism (decision 3 above and its round-3 amendment: the `graph.unresolved`-through-shared-helper and graph-load-failure widenings). That whole-kind fail-closed mechanism is backed only by **FR-001's own Edge Case text** ("All activated references of a kind... are unresolvable") — spec.md has no dedicated Success Criterion for it; the plan's own "Test requirement (new)" paragraph and its round-3 amendment above are the only acceptance-level statement of that mechanism's bar. (Minimal fix per PLAN-FRESH2-003's remediation option (a) — split the citation rather than add a new spec.md SC, since spec.md is otherwise untouched by this mission.)
 - **Affected surfaces**: `src/charter/activation/compiler.py` (`_render_kind_references`, `_build_references_from_service`, new private classify-and-placeholder helper, new private whole-kind fail-closed check/exception in `_build_references_from_service`).
 - **Sequencing/depends-on**: Follows WP-ATDD (the FR-005 test must exist and be RED first).
 - **Risks**: (1) The existing diagnostic string format (`"Unresolved reference: <kind>/<id>"`) is extended, not replaced — implementation must grep the test suite for any exact-string assertion on the OLD format before changing it, to avoid an unrelated test regression outside this mission's stated scope. (2) Regression risk against **Contract C4**: `tests/charter/test_catalog_completeness_4785.py` (added to the baseline command above) must stay green — a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` id must never fall through to the placeholder branch; the `scope_filtered_ids` cause-check must run BEFORE any placeholder-construction code, not after. (3) The aggregate whole-kind check must run strictly AFTER all per-id classification for that kind completes (it inspects the per-kind reference list's final emptiness, not any single id in isolation) and must trip only when a kind produced NEITHER a resolution NOR a `SCOPE_FILTERED` placeholder for ANY of its activated ids — a kind with even one `SCOPE_FILTERED` id among otherwise-`MISSING_ARTIFACT` ids must NOT trip the fail-closed path, since that kind's reference list is non-empty. Implementation must add the fixture test proving a whole-kind-unresolvable `MISSING_ARTIFACT` case (e.g. a misconfigured pack root) actually exits non-zero before any catalog write — see "WP-CORE reconciliation" point 3.
@@ -360,4 +501,4 @@ test module) or as a narrower `compiler.py`-level unit test — implementer's ch
 
 ## PR Shape
 
-**One PR for this whole mission** (the default per charter: spec-kitty carries no per-WP-PR mandate, and `spec-kitty accept` → `spec-kitty merge` assumes one mission branch / one PR). The combined compiler.py + preflight fix is not judged too large for one reviewable PR: it is five small, independently-testable, mostly-disjoint changes (IC-01/02 as one commit pair, IC-03 as one commit, IC-04 as the leading ATDD commit, IC-05 as one self-contained commit) totalling well under the scale that would warrant a split, and splitting the preflight fold-in into a separate PR would require re-litigating the "fold vs. defer" operator decision as a second review cycle for no material review-burden reduction. Default (one PR) applies; no split recommended.
+**One PR for this whole mission** (the default per charter: spec-kitty carries no per-WP-PR mandate, and `spec-kitty accept` → `spec-kitty merge` assumes one mission branch / one PR). The combined compiler.py + preflight fix is not judged too large for one reviewable PR: it is now six small, independently-testable, mostly-disjoint changes (IC-04 as the leading FR-005 ATDD commit; a second, dedicated red-first commit for the whole-kind-unresolved fail-closed tests per the ATDD-First Discipline section's round-3 addition above — the `MISSING_ARTIFACT` whole-kind case, the `graph.unresolved`-through-shared-helper case, and the graph-load-failure loud-diagnostic case, bundled together and justified there; IC-01/02 as one implementation commit pair that turns that second red commit green; IC-03 as one commit; IC-05 as one self-contained commit) totalling well under the scale that would warrant a split, and splitting the preflight fold-in into a separate PR would require re-litigating the "fold vs. defer" operator decision as a second review cycle for no material review-burden reduction. Default (one PR) applies; no split recommended.
