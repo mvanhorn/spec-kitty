@@ -7,6 +7,8 @@
 
 ## Summary
 
+**Bulk edit (DIRECTIVE_035).** This mission renames the owned-mission value object `OwnedMission` to `OwnedCheckout`, and moves it from the CLI application layer into the mission-runtime layer with canonical field names. It also replaces every bare `effective_root: Path` owned-root parameter with the validated fact. Per-category rules are in `occurrence_map.yaml`.
+
 An operator can give a mission its own linked checkout, the **owned checkout**, with `--owned-checkout <path>` (ADR 2026-08-12-1). Mission creation already writes there. Most later lifecycle reads still resolve against the **repository root checkout**, so an owned mission cannot be taken from planning through review. Commands either fail, or report success while acting on repository-root state.
 
 This mission makes the owned checkout the single authority for every lifecycle read of an owned mission:
@@ -74,7 +76,7 @@ After an owned create and a substantive spec commit, the operator checks status 
 3. **Given** each invalid `--owned-checkout` value, **When** each of `agent tasks status`, `setup-plan` or `context resolve` runs with it, **Then** it exits non-zero with the listed code and writes nothing to P or R. The invalid values and codes are:
    - a missing path;
    - a non-worktree directory;
-   - R itself;
+   - R itself (`OWNED_CHECKOUT_IS_REPOSITORY_ROOT`);
    - a lane or coordination worktree;
    - a mismatched or detached branch (`OWNED_BRANCH_REFUSED`);
    - a protected target (`OWNED_BRANCH_REFUSED`);
@@ -143,7 +145,7 @@ The supported owned path (decision `01M3M4GZHZVB3A248J266Y9WMX`) works like this
 
 1. **Given** a valid owned single_branch P at `R/.worktrees/owned-a`, **When** `finalize-tasks --owned-checkout P` runs, **Then** it exits 0 and the new events are appended to P's status log.
 2. **Given** the same `.worktrees/<name>` path shape registered as a real coordination worktree, **When** a read that claims the repository root checkout targets it, **Then** the existing refusal still fires.
-3. **Given** a finalize that is refused for a reason other than location, **When** it returns, **Then** `git status` in P is clean and P's status log is byte-identical to before. The refusal used is a dependency cycle or an invalid WP reference, detected after WP files are parsed. The same-fixture control is a successful finalize, which does append events and rewrite WP files.
+3. **Given** a finalize that is refused for a reason other than location, **When** it returns, **Then** `git status` in P is clean and P's status log is byte-identical to before. The refusal used is a **lane dependency cycle**: WP01→WP02→WP03, where WP01 and WP03 share an owned file. Today this refusal fires only after WP files and events are written (plan research R-07). Dependency-graph cycles and invalid WP references are not used, because they are already refused before any write on the planning base. The same-fixture control is a successful finalize, which does append events and rewrite WP files.
 
 ---
 
@@ -199,7 +201,7 @@ Decision `01M3M4GTA4ENB73A0HDS65WZ1P`: a flagless command run from **inside a li
 
 | ID | Title | User Story | Priority | Status | Delivery | No-op passable? |
 |----|-------|------------|----------|--------|----------|-----------------|
-| FR-001 | One ownership validator | As a maintainer, I want the canonical owned-mission validator to be the only code that turns an ownership claim into a validated ownership fact, so that ownership has one authority. An architectural check fails if the ownership-claim primitive is called anywhere else outside that validator, and if any new reader parameter carries an owned root as a bare path. | High | Open | [build] | no — red on main: `next` calls the claim primitive directly (O9), and context resolution adopts cwd (O10) |
+| FR-001 | One ownership validator | As a maintainer, I want the canonical owned-mission validator to be the only code that turns an ownership claim into a validated ownership fact, so that ownership has one authority. An architectural check fails if the ownership-claim primitive is called anywhere else outside that validator, and if any parameter or field anywhere in `src/` carries an owned root as a bare path. The allowlist is empty (operator decision `01M3M65D…`: all 92 bare-path parameters are converted in this mission, with no ratchet ledger). | High | Open | [build] | no — red on main: `next` calls the claim primitive directly (O9), and context resolution adopts cwd (O10) |
 | FR-002 | `next` uses the validator | As an operator, I want `next --owned-checkout` to go through the canonical validator, including its branch and protection checks, so that it enforces the same ownership rules as every other owned command. | High | Open | [build] | no — red on main: `next --owned-checkout` with a protected target is accepted today |
 | FR-003 | Validated once per command | As an operator, I want ownership validated exactly once per owned command invocation and the fact handed to every downstream read, so that reads are consistent and cheap (NFR-002). | High | Open | [build] | no — the check asserts exactly 1 validation through the CLI; 0 or ≥2 fails |
 | FR-004 | Owned status listing | As an operator, I want `agent tasks status --owned-checkout` to list the owned mission's WPs by any handle (US1-AS1, #3449). | High | Open | [build] | no — red on main (MISSION_NOT_FOUND) |
@@ -213,7 +215,7 @@ Decision `01M3M4GTA4ENB73A0HDS65WZ1P`: a flagless command run from **inside a li
 | FR-012 | Coordination probe hardening | As an operator, I want owned coordination-topology `next` to handle a failing coordination-workspace probe with `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`, never a `commondir: Success` fatal (#4867). This is reproduced red-first with deterministic fault injection (a corrupt or missing `commondir`). | Medium | Open | [build] | no — red on main via injected fault |
 | FR-013 | Owned status source under `.worktrees/` | As an operator, I want status reads for a validated owned single_branch P under `.worktrees/` to be accepted, with the decision taken by the canonical coordination surface resolver from the validated fact and the registered-worktree facts, not from path shape (US4-AS1). | High | Open | [build] | no — red on main ("…must not target coordination worktree paths") |
 | FR-014 | Coordination protections unchanged | As a maintainer, I want a repository-root-labelled read of the **same** `.worktrees/<name>` path to still be refused when that path is a registered coordination worktree (US4-AS2). | High | Open | [ratchet] | yes — paired with FR-013 on the same path |
-| FR-015 | Atomic finalize | As an operator, I want `finalize-tasks` to validate everything before its first write, so that a post-parse refusal (dependency cycle or invalid WP reference) leaves P's `git status` clean and the status log unchanged (US4-AS3). | High | Open | [build] | no — red on main via the post-parse refusal; control: a successful finalize writes |
+| FR-015 | Atomic finalize | As an operator, I want `finalize-tasks` to validate everything before its first write, so that a post-write refusal (lane dependency cycle or ownership-manifest overlap) leaves P's `git status` clean and the status log unchanged (US4-AS3). | High | Open | [build] | no — red on main via the lane-cycle refusal; control: a successful finalize writes |
 | FR-016 | Governance reads at owned create | As an operator, I want owned create to read charter activation, mission-type context and the spec template from P (US5-AS1..AS3). | Medium | Open | [build] | no — red on main in all three directions |
 | FR-017 | Charter authoring stays at root | As a maintainer, I want charter authoring against P to stay refused (US5-AS4, #4785). | High | Open | [ratchet] | yes — paired with FR-016 on the same fixture |
 | FR-018 | Typed refusal for unsupported actions | As an operator, I want `agent action implement` and `agent action review` to accept `--owned-checkout` only to refuse with `OWNED_ACTION_UNSUPPORTED` and guidance naming `next --owned-checkout` and `move-task --owned-checkout`, writing nothing (US6). | Low | Open | [build] | no — the flag does not exist on main |
@@ -231,7 +233,7 @@ Decision `01M3M4GTA4ENB73A0HDS65WZ1P`: a flagless command run from **inside a li
 | NFR-001 | Repository root checkout untouched | In every owned acceptance scenario, the R snapshot (working tree incl. ignored files, `HEAD`, index; shared git dir excluded) shows 0 differences. | Reliability | High | Open |
 | NFR-002 | Validation count | Exactly 1 ownership validation per owned command invocation, and 0 additional per-read git subprocess calls for owned status reads compared with the non-owned path. Both are measured by counting calls in an integration test through the CLI entry point. | Performance | Medium | Open |
 | NFR-003 | Command latency | On the acceptance fixture, run through pytest on the Linux CI module shard, the median of 5 runs of owned `agent tasks status`, `setup-plan` and `context resolve` is < 2 s each (charter budget). | Performance | Medium | Open |
-| NFR-004 | Typed errors | Every owned refusal introduced or touched here returns a code from one registered set, the existing `OWNED_*` codes plus `OWNED_ACTION_UNSUPPORTED`, `OWNED_REVIEW_BASE_UNAVAILABLE` and `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`, in `--json` output. 0 surface as an uncaught exception, asserted per refusal scenario. | Reliability | High | Open |
+| NFR-004 | Typed errors | Every owned refusal introduced or touched here returns a code from one registered set, the existing `OWNED_*` codes plus `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, `OWNED_ACTION_UNSUPPORTED`, `OWNED_REVIEW_BASE_UNAVAILABLE` and `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`, in `--json` output. 0 surface as an uncaught exception, asserted per refusal scenario. | Reliability | High | Open |
 | NFR-005 | Quality gates | New and changed code: ruff check and format clean, mypy 0 new findings, complexity ≤ 15, diff coverage ≥ 90% (CI gate). | Maintainability | High | Open |
 | NFR-006 | Cross-platform identity | Owned-checkout identity is correct for one symlinked path case (macOS-style `/private` temp dir) and one case-variant path case. The case-variant test runs on the Windows CI workflow (`ci-windows.yml`). | Reliability | Medium | Open |
 
