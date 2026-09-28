@@ -332,6 +332,76 @@ NFR-001 unchanged.
 (not appended to) by an invariant restatement — see the decision entry below. This entry's ruling
 and reasoning still stand; only the location of the implementable design text changed.
 
+## Decision: operator ruling round 6 — I1/I2 graph-load-failure carve-out, citation repoints, contract-item split, and fold-in of the verify-4 residual
+
+**Context.** `reviews/plan-fresh-5.yaml` (the fifth fresh-eyes adversarial round) found three surviving
+findings against the round-5 invariant restatement: PLAN-FRESH5-002 (severity 4) — I1/I2 do not
+account for ids reachable only via DRG-transitive closure when the whole graph fails to load, an
+internal inconsistency with I4's own retained graph-load-failure mechanism; PLAN-FRESH5-001
+(severity 3) — three citations to "WP-CORE reconciliation point 3's test requirement" point at a
+subsection round 5 deleted; PLAN-FRESH5-003 (severity 3) — the contract doc's round-5 item 3 gives a
+factually inaccurate "no repository for kind" detail for kinds (`paradigm`, `mission_step_contract`,
+`glossary_pack`) that DO have a repository. Separately, the operator directed a reversal of round 5's
+disposition on the `reviews/plan-verify-4.yaml` residual (`_raw_kind_repository`'s `getattr` fallback
+raising `AttributeError` instead of degrading to `None`), which round 5 had ruled out of scope with a
+"flagged for a follow-up" note.
+
+**Operator ruling (round 6, quoted in full in `reviews/plan.ruling.md`'s "Round-6 ruling" section):**
+apply all three PLAN-FRESH5 remedies, AND fold in the verify-4 residual as an in-mission fix rather
+than a deferred follow-up.
+
+**Decision: implement exactly this ruling.**
+
+1. **PLAN-FRESH5-002 (I1/I2 carve-out).** plan.md's "WP-CORE reconciliation" → "Round-5 restatement"
+   subsection: I1 gained an explicit "Carve-out (total graph-load failure)" paragraph stating that
+   ids reachable ONLY via DRG-transitive closure are covered collectively — never individually — by
+   the single `_graph`/`_load_failure` sentinel diagnostic when the whole graph fails to load, framed
+   as a direct, explicit consequence of the round-3 ruling declining to reconstruct the transitive
+   closure (this file's "operator ruling on PLAN-FRESH2-001" entry, above). I2 gained the matching
+   restatement for its OR condition: under total graph-load failure, `graph.unresolved` is never
+   populated and `graph.<kind>` reflects only direct config roots, so a kind whose ids are ALL
+   transitively-reachable never satisfies I2's OR condition in that failure mode — by design, not by
+   omission. `spec.md`'s FR-001 requirements-table cell and the Key Entities "Activated reference id"
+   bullet each gained a minimal, style-preserving carve-out clause. The ATDD-First Discipline
+   invariant → red-first fixture table gained one new row pinning the transitive-only-reachable-id +
+   total-graph-load-failure fixture: sentinel present, `generate` exits 0, deterministic across repeat
+   invocations.
+2. **PLAN-FRESH5-001 (dangling citations).** The two Phasing & Sequencing step 3 (WP-CORE) citations
+   and IC-01's Purpose-bullet citation, all three previously reading "see 'WP-CORE reconciliation'
+   point 3... for the test requirement" (a subsection round 5's invariant restatement had already
+   replaced), were repointed to "the ATDD-First Discipline section's invariant → red-first fixture
+   mapping table" (keeping "WP-CORE reconciliation" point 3 alongside, for the design rationale) —
+   matching the phrasing IC-01's own Risk (3) bullet already used correctly.
+3. **PLAN-FRESH5-003 (contract item split).** `contracts/charter-generate-json-diagnostics.md`'s
+   "Round-5 addition" section: the merged item 3 (which claimed "no repository for kind: <kind_prefix>"
+   for both genuinely-`None`-repository kinds AND valid-but-untracked kinds with a real repository)
+   was split into item 3 (genuinely-`None`-repository kinds only: `template`/`asset`/`anti_pattern`)
+   and a new item 4 (valid-but-untracked kinds with a real, non-`None` repository outside the six
+   tracked kinds: `paradigm`/`mission_step_contract`/`glossary_pack`), with item 4's detail text
+   corrected to "kind '<kind_prefix>' is not one of the six DRG-backed kinds tracked for reference
+   resolution" instead of the factually wrong "no repository" claim. Both items keep the shared
+   `cause: "unattributed_kind"` value, per the operator's explicit allowance. plan.md's I3 fixture-table
+   row and the "Binding mechanism decisions retained" I3 bullet were updated from three to four
+   unattributable classes to match.
+4. **Fold in the verify-4 residual (reverses round 5's out-of-scope ruling).** plan.md's IC-01
+   "Affected surfaces" bullet now names `_raw_kind_repository`'s fallback-branch change
+   (`compiler.py:1093`: `return getattr(doctrine_service, kind)` → `getattr(doctrine_service, kind,
+   None)`) as part of this mission's implementation scope, not a deferred item. The former "Residual
+   ... ruled OUT OF SCOPE ... flagged for a follow-up" bullet was rewritten to "FOLDED IN this round"
+   — it states the fix lands in this mission, and the "flagged for a follow-up" wording was removed
+   (verified: no other occurrence of that phrase existed anywhere in plan.md, spec.md, or the contract
+   doc before this round). The ATDD-First Discipline fixture table gained a dedicated row for this
+   fix's own small red-first test (pre-fix `AttributeError`, post-fix `None`-degrade).
+
+**Why this does not reopen any standing round-3/round-4/round-5 ruling.** The I1/I2 carve-out states
+an explicit consequence of the round-3 "graph-load failure does not fail closed, does not reconstruct
+the closure" ruling — it does not change that ruling, only makes a gap in its own restatement (I1/I2)
+visible and pinned. The citation repoints and contract-item split are wording/documentation-accuracy
+fixes with no behavioral change. The verify-4 fold-in is the one substantive reversal, and it is
+explicit, operator-directed, and scoped exactly as the fold-in bar the auto-refresh decision (above)
+already established: one call site, one one-line fallback-default change, testable red-first in
+isolation, no contract change.
+
 ## Decision: operator ruling on round-5 invariant restatement (closes PLAN-FRESH4-001..004)
 
 **Context.** Four rounds of adversarial review (`reviews/plan-fresh-2.yaml` through

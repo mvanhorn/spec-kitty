@@ -123,7 +123,7 @@ pair:
 
 ## Round-5 addition — unattributable `graph.unresolved` entries (closes PLAN-FRESH4-003, invariant I3)
 
-`unresolved_references` gains three further entry shapes for `graph.unresolved` URNs that cannot be
+`unresolved_references` gains four further entry shapes for `graph.unresolved` URNs that cannot be
 attributed to one of the six DRG-backed kinds `_render_kind_references` tracks (directive/tactic/
 styleguide/toolguide/procedure/agent_profile). Per plan.md's invariant I3 ("every structured
 diagnostic record carries a defined `kind`, `id` and `cause`"), each of these still gets a real
@@ -143,21 +143,31 @@ entry — never silently dropped:
    {"kind": "<the raw kind_prefix, verbatim>", "id": "<the bare id after the \":\" split>", "cause": "unattributed_kind", "detail": "unrecognized artifact kind: <kind_prefix>"}
    ```
 
-3. **`kind_prefix` is a valid `ArtifactKind` whose repository resolves to `None`, or whose plural is
-   outside the six tracked kinds** (e.g. `template`, `asset`, `anti_pattern` — whose repository is
-   `None` by design — or a valid-but-untracked kind such as `paradigm`, `mission_step_contract`,
-   `glossary_pack`).
+3. **`kind_prefix` is a valid `ArtifactKind` whose repository genuinely resolves to `None`** (`template`,
+   `asset`, `anti_pattern` — whose repository is `None` by design, per
+   `DoctrineService.raw_repository(kind)`'s documented behavior for kinds outside the nine gated
+   raw-repository kinds).
    ```json
    {"kind": "<the ArtifactKind's singular value, verbatim>", "id": "<the bare id>", "cause": "unattributed_kind", "detail": "no repository for kind: <kind_prefix>"}
    ```
 
+4. **`kind_prefix` is a valid `ArtifactKind` that DOES resolve to a real, non-`None` repository, but
+   whose plural is outside the six kinds `_render_kind_references` tracks** (a valid-but-untracked
+   kind such as `paradigm`, `mission_step_contract`, `glossary_pack` — round-6 split, closes
+   PLAN-FRESH5-003: the detail text must not claim "no repository" for a kind that has one).
+   ```json
+   {"kind": "<the ArtifactKind's singular value, verbatim>", "id": "<the bare id>", "cause": "unattributed_kind", "detail": "kind '<kind_prefix>' is not one of the six DRG-backed kinds tracked for reference resolution"}
+   ```
+
 Both new `cause` values are plain `str`, distinct from the four `CatalogMissCause` values and from
 `"graph_load_failed"` — same typing rule as the round-3 addition above (`_catalog_miss.py` stays
-REUSED, NOT MODIFIED). `detail` in all three cases is a short human-readable string explaining why
+REUSED, NOT MODIFIED). `detail` in all four cases is a short human-readable string explaining why
 the entry could not be attributed (not a `_catalog_miss` classifier suggestion — there is nothing to
-classify). **None of these three entries participates in the six-kind whole-kind aggregate
-fail-closed count** (plan.md's I2) — same exemption reasoning as the graph-load-failure entry: there
-is no per-kind bucket among the six tracked kinds to honestly attribute them to.
+classify); items 3 and 4 share the `cause` value `"unattributed_kind"` but carry distinct, accurate
+`detail` text for their distinct root causes. **None of these four entries participates in the
+six-kind whole-kind aggregate fail-closed count** (plan.md's I2) — same exemption reasoning as the
+graph-load-failure entry: there is no per-kind bucket among the six tracked kinds to honestly
+attribute them to.
 
 ## Relationship to `CharterPreflightResult`
 

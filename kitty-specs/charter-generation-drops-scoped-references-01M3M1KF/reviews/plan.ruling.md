@@ -161,3 +161,70 @@ stays strictly typed to the 4-member enum).
   SCOPE for this mission — noted in IC-01's Risks as unreachable via `generate`'s default production
   path and unexercised by this mission's own fixtures, flagged for a follow-up rather than silently
   dropped.
+
+## Round-6 ruling
+
+Dated 2026-09-28, issued after review round 6 (fix round R4) against `reviews/plan-fresh-5.yaml`'s
+three surviving findings (PLAN-FRESH5-001, -002, -003). Quoted verbatim, attributed to **the
+operator**:
+
+> "(1) PLAN-FRESH5-002 — Explicit carve-out + pin it: under total graph-load failure, ids reachable
+> only via transitive closure are covered by the single loud `_graph/_load_failure` sentinel
+> diagnostic — no per-id records and no fail-closed (consequence of the round-3 ruling not to
+> reconstruct the closure). State this explicitly as a carve-out in I1 and I2; narrow spec.md
+> FR-001's 'at any cardinality' wording and the Key Entities 'Activated reference id' definition to
+> match (minimal edits, keep spec style); add a red-first fixture to the ATDD invariant table pinning
+> it: transitive-only kind + graph-load failure → sentinel present, exit 0, deterministic across
+> repeat runs. (2) PLAN-FRESH5-001 — repoint all three dangling 'WP-CORE reconciliation point 3's
+> test requirement' citations to the ATDD-First Discipline invariant → red-first fixture table,
+> matching IC-01 Risk (3)'s phrasing. (3) PLAN-FRESH5-003 — split contract item 3 into two entries
+> with accurate detail templates: genuinely-None-repository kinds ('no repository for kind:
+> <kind_prefix>') vs valid-but-untracked kinds with a real repository outside the six tracked kinds
+> (a detail saying it is not one of the six DRG-backed kinds tracked for reference resolution);
+> `cause` may stay 'unattributed_kind' for both. (4) FOLD IN the verify-4 residual (reversing round
+> 5's out-of-scope ruling): `_raw_kind_repository`'s raw-service fallback becomes
+> `getattr(doctrine_service, kind, None)` so it degrades to a reported miss rather than
+> AttributeError, covered by a small red-first test; remove the 'flagged for a follow-up' wording —
+> no follow-up issue. (5) Close-out: verify-only — no further fresh sweep this phase; residual
+> mechanism risk is carried by the tasks squad, analyze, and the red-first tests."
+
+### Disposition — how round 6 applied the ruling
+
+- **Item (1)** (PLAN-FRESH5-002): implemented in plan.md's "WP-CORE reconciliation" → "Round-5
+  restatement" subsection — I1 and I2 each gained an explicit "Carve-out (total graph-load failure)"
+  paragraph stating that transitively-only-reachable ids are covered collectively, never
+  individually, by the `_graph`/`_load_failure` sentinel, as a direct consequence of the round-3
+  ruling. `spec.md`'s FR-001 requirements-table row (Functional Requirements) and the Key Entities
+  "Activated reference id" bullet were each given a minimal, style-preserving carve-out clause
+  cross-referencing Edge Cases/FR-001. The ATDD-First Discipline section's invariant → red-first
+  fixture mapping table gained a new row, "I1/I2 carve-out (transitive-only-reachable id + total
+  graph-load failure)", pinning the sentinel-present / exit-0 / deterministic-across-repeat-runs
+  fixture.
+- **Item (2)** (PLAN-FRESH5-001): implemented — the two Phasing & Sequencing step 3 (WP-CORE)
+  citations and IC-01's Purpose-bullet citation were each repointed from "WP-CORE reconciliation
+  point 3's test requirement" to "the ATDD-First Discipline section's invariant → red-first fixture
+  mapping table" (with "WP-CORE reconciliation" point 3 kept alongside, for the design rationale),
+  matching IC-01's Risk (3) bullet's existing correct phrasing.
+- **Item (3)** (PLAN-FRESH5-003): implemented in `contracts/charter-generate-json-diagnostics.md`'s
+  "Round-5 addition" section — the merged item 3 was split into item 3 (genuinely-`None`-repository
+  kinds: `template`/`asset`/`anti_pattern`, detail "no repository for kind: <kind_prefix>") and a new
+  item 4 (valid-but-untracked kinds with a real, non-`None` repository outside the six tracked kinds:
+  `paradigm`/`mission_step_contract`/`glossary_pack`, detail "kind '<kind_prefix>' is not one of the
+  six DRG-backed kinds tracked for reference resolution"); both keep `cause: "unattributed_kind"`.
+  plan.md's I3 row in the ATDD fixture table and the "Binding mechanism decisions retained" I3 bullet
+  were updated from "three unattributable classes"/"valid-but-untracked or no-repository kind" (one
+  merged case) to four classes, matching the contract doc's new item count.
+- **Item (4)** (verify-4 residual fold-in, reverses round 5's out-of-scope ruling): implemented —
+  plan.md's IC-01 "Affected surfaces" bullet now names `_raw_kind_repository`'s fallback-branch
+  change (`compiler.py:1093`, `getattr(doctrine_service, kind)` → `getattr(doctrine_service, kind,
+  None)`); the former "Residual ... ruled OUT OF SCOPE" bullet was rewritten to "FOLDED IN this
+  round", states the fix is landing in this mission (not deferred), and the "flagged for a follow-up"
+  wording was removed (no other occurrence of that phrase existed in plan.md, spec.md, or the
+  contract doc). The ATDD-First Discipline fixture table gained a dedicated row,
+  "`_raw_kind_repository` raw-service degrade", pinning the pre-fix `AttributeError` / post-fix
+  `None`-degrade red-first test.
+- **Item (5)** (close-out, verify-only): this round made no further fresh-sweep findings of its own —
+  it is a direct, targeted remediation of `reviews/plan-fresh-5.yaml`'s three surviving findings plus
+  the operator-directed reversal of the verify-4 residual's disposition. No new adversarial round was
+  run against the resulting text this round, per the operator's own instruction that residual
+  mechanism risk is carried forward to the tasks squad, analyze, and the red-first tests themselves.
