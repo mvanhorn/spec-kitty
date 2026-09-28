@@ -176,9 +176,11 @@ def test_references_parity_drift_recompiles_the_catalog(
         subprocess, "run", _make_generate_subprocess_fake(tmp_path, seen_calls)
     )
 
-    ran = references_refresh.refresh_references_if_needed(tmp_path, cause="synthesized_drg")
+    outcome = references_refresh.refresh_references_if_needed(tmp_path, cause="synthesized_drg")
 
-    assert ran is True
+    assert outcome.attempted is True
+    assert outcome.succeeded is True
+    assert outcome.detail is None
     assert any(
         tuple(c[:3]) == _GENERATE_CMD_PREFIX for c in seen_calls
     ), seen_calls
@@ -263,9 +265,13 @@ def test_non_references_parity_cause_is_a_true_noop(
         subprocess, "run", _make_generate_subprocess_fake(tmp_path, seen_calls)
     )
 
-    ran = references_refresh.refresh_references_if_needed(tmp_path, cause="charter_source,synced_bundle")
+    outcome = references_refresh.refresh_references_if_needed(
+        tmp_path, cause="charter_source,synced_bundle"
+    )
 
-    assert ran is False
+    assert outcome.attempted is False
+    assert outcome.succeeded is False
+    assert outcome.detail is None
     assert seen_calls == [], "a non-references-parity cause must never invoke generate"
     assert _load_yaml(charter_yaml_path)["catalog"]["references"] == [], (
         "no-op must leave the drifted content exactly as-is"
