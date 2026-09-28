@@ -211,3 +211,60 @@ def test_unresolved_reference_records_mirrors_diagnostics_for_a_mixed_fixture(
             f"no diagnostics line matches structured record {record!r}; diagnostics={diagnostics!r}"
         )
     assert len(diagnostics) == len(unresolved_records)
+
+
+def test_graph_unresolved_urn_with_scope_filtered_cause_gets_a_real_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T009 companion: a ``graph.unresolved`` URN that maps to one of the six
+    tracked kinds AND classifies ``SCOPE_FILTERED`` must get a real
+    placeholder ``CharterReference`` appended (not only a diagnostic) --
+    ``_route_unresolved_urn`` routes it through the exact same
+    ``_classify_and_placeholder_reference`` helper a direct per-kind miss
+    uses. This is distinct from
+    ``test_whole_kind_graph_unresolved_routing_fails_closed``, which only
+    exercises the ``MISSING_ARTIFACT`` (no-placeholder) branch of this same
+    routing path.
+    """
+    import charter.activation.compiler as compiler_module
+    from charter.activation.compiler import ConfigActivatedRoots
+    from charter.offering.drg.query import ResolveTransitiveRefsResult
+
+    class _StubDoctrineService:
+        def raw_repository(self, kind: str) -> Any:
+            if kind == "styleguides":
+                return _ScopeFilteredRepository(
+                    scope_filtered_ids=frozenset({"scope-filtered-only-id"}),
+                    _active_languages=["python"],
+                )
+            return _ScopeFilteredRepository(scope_filtered_ids=frozenset())
+
+    urn = "styleguide:scope-filtered-only-id"
+    graph = ResolveTransitiveRefsResult(unresolved=[(urn, urn)])
+    monkeypatch.setattr(compiler_module, "_resolve_transitive_reference_graph", lambda **_kwargs: graph)
+
+    config_roots = ConfigActivatedRoots(
+        directives=[],
+        paradigms=[],
+        tactics=[],
+        styleguides=[],
+        toolguides=[],
+        procedures=[],
+        agent_profiles=[],
+    )
+    diagnostics: list[str] = []
+
+    references = compiler_module._build_references_from_service(
+        mission="software-dev",
+        template_set="default",
+        config_roots=config_roots,
+        doctrine_root=compiler_module.resolve_doctrine_root(),
+        doctrine_service=_StubDoctrineService(),
+        repo_root=None,
+        diagnostics=diagnostics,
+    )
+
+    matching = [ref for ref in references if ref.id == "STYLEGUIDE:scope-filtered-only-id"]
+    assert len(matching) == 1, f"expected exactly one placeholder for the graph.unresolved SCOPE_FILTERED id, got references: {references!r}"
+    assert matching[0].summary.startswith("Definition unavailable in bundled doctrine."), matching[0].summary
+    assert "Reason: scope_filtered" in matching[0].summary, matching[0].summary
