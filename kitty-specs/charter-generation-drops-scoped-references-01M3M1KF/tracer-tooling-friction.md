@@ -73,3 +73,20 @@ Append entries during implementation; assess at close.
   `context_renderers/__init__.py` and siblings) via plain file reads and greps — no command
   failures, no retries beyond the pre-existing "Global asset inventory changed" class already
   logged above (not re-triggered this round).
+
+## Tasks re-finalize pass (post-analyze finding W1)
+
+- **Hand-editing `wps.yaml` after `finalize-tasks` has already run leaves `lanes.json` silently
+  stale — no later command warns.** Tasks-phase fix commit `e7d812e4f` added
+  `tests/specify_cli/cli/commands/test_charter_generate_autotrack.py` to WP03's `owned_files` and
+  reordered WP03/WP04 subtasks, but did not re-run `finalize-tasks`, so lane-c's `write_scope` in
+  `lanes.json` kept omitting that test file. Nothing downstream flagged the drift — not
+  `spec-kitty agent tasks status`, not any earlier `--validate-only` run, not analyze itself until
+  it was specifically checked (W1). Re-running `finalize-tasks --mission
+  charter-generation-drops-scoped-references-01M3M1KF --json` (no `--refresh-planning-commit`
+  needed since no WP had left `planned`) fixed it cleanly: only `lanes.json` changed (lane-c
+  `write_scope` gained the test file, `computed_at`/`planning_commit_sha` advanced to the current
+  tip); `wps.yaml`, `tasks.md`, and every WP frontmatter/body were byte-identical before and after.
+  The gap: any manifest edit to `owned_files` (or dependencies) after the first `finalize-tasks`
+  run needs a mandatory re-finalize reminder or a staleness check — today the two files can drift
+  indefinitely with no signal.
