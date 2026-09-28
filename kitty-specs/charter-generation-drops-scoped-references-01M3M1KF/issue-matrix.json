@@ -25,7 +25,7 @@
       "wp": null
     },
     "#5257": {
-      "evidence_ref": "<link or commit>",
+      "evidence_ref": "This mission's own issue; red-first tests in WP01, fix in WP02",
       "fr": null,
       "nfr": null,
       "repo": null,
@@ -33,8 +33,8 @@
       "scope": null,
       "source_file": "spec.md",
       "title": "<fill at WP-implementation time>",
-      "verdict": "unknown",
-      "wp": null
+      "verdict": "in-mission",
+      "wp": "WP02"
     }
   },
   "schema_version": 1
