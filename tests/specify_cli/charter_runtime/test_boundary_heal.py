@@ -411,9 +411,17 @@ def test_references_parity_hook_no_ops_for_a_non_references_parity_cause(
     filesystem, proving the "never unconditionally" gate holds even when
     invoked through ``runner.refresh_references_if_needed`` rather than the
     implementation module directly.
+
+    T017 (WP04 auto-refresh swallow fold-in, #5257) widened this call
+    site's return type from a bare ``bool`` to ``RefreshOutcome`` — assert
+    the full no-op contract (``attempted=False``, and the ``succeeded``/
+    ``detail`` values the no-op shape always carries), not just a weaker
+    truthiness check.
     """
     result = runner_module.refresh_references_if_needed(tmp_path, cause="charter_source")
-    assert result is False
+    assert result.attempted is False
+    assert result.succeeded is False
+    assert result.detail is None
     assert list(tmp_path.iterdir()) == []
 
 

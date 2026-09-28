@@ -57,6 +57,7 @@ import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NoReturn
 
 from charter.activation.charter_yaml_io import read_catalog_field
 
@@ -105,11 +106,22 @@ class RefreshOutcome:
         detail: A short excerpt naming why the targeted ``generate`` failed
             (see :func:`_extract_failure_detail`) when ``attempted and not
             succeeded``; ``None`` otherwise.
+
+    A plain object is always truthy, so a caller that wrote ``if
+    refresh_references_if_needed(...):`` instead of checking ``.attempted``/
+    ``.succeeded`` explicitly would silently read a not-attempted (or even a
+    failed) outcome as success -- precisely the silent-success defect class
+    this fold-in exists to close. ``__bool__`` refuses that coercion outright
+    rather than relying on every present and future caller remembering to
+    check the named fields.
     """
 
     attempted: bool
     succeeded: bool
     detail: str | None
+
+    def __bool__(self) -> NoReturn:
+        raise TypeError("RefreshOutcome has no truth value -- check .attempted/.succeeded explicitly")
 
 
 def is_references_parity_cause(cause: str) -> bool:
