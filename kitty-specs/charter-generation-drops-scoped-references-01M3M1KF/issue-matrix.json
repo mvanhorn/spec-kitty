@@ -12,6 +12,18 @@
       "verdict": "not-applicable",
       "wp": null
     },
+    "#4785": {
+      "evidence_ref": "Cited as the completed mission behind Contract C4 (test_catalog_completeness_4785 kept green); no work owed",
+      "fr": null,
+      "nfr": null,
+      "repo": null,
+      "sc": null,
+      "scope": null,
+      "source_file": null,
+      "title": null,
+      "verdict": "not-applicable",
+      "wp": null
+    },
     "#5253": {
       "evidence_ref": "Cited as the PR/issue context where the defect surfaced; no work owed in this mission",
       "fr": null,
