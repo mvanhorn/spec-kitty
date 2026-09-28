@@ -85,7 +85,7 @@ _GENERATE_CMD_PREFIX: tuple[str, ...] = ("spec-kitty", "charter", "generate")
 
 
 @dataclass(frozen=True)
-class RefreshOutcome:
+class ReferencesRefreshOutcome:
     """Outcome of one targeted ``generate`` invocation (T017, WP04 auto-refresh
     swallow fold-in, #5257).
 
@@ -121,7 +121,7 @@ class RefreshOutcome:
     detail: str | None
 
     def __bool__(self) -> NoReturn:
-        raise TypeError("RefreshOutcome has no truth value -- check .attempted/.succeeded explicitly")
+        raise TypeError("ReferencesRefreshOutcome has no truth value -- check .attempted/.succeeded explicitly")
 
 
 def is_references_parity_cause(cause: str) -> bool:
@@ -202,10 +202,10 @@ def _extract_failure_detail(completed: subprocess.CompletedProcess[str]) -> str:
     return f"generate exited {completed.returncode} with no captured output"
 
 
-def refresh_references_if_needed(repo_root: Path, cause: str) -> RefreshOutcome:
+def refresh_references_if_needed(repo_root: Path, cause: str) -> ReferencesRefreshOutcome:
     """Recompile ``charter.yaml``'s references catalog for references-parity drift.
 
-    True no-op (``RefreshOutcome(attempted=False, succeeded=False,
+    True no-op (``ReferencesRefreshOutcome(attempted=False, succeeded=False,
     detail=None)``, no subprocess spawned) unless
     :func:`is_references_parity_cause` accepts *cause*. When it does, runs a
     targeted ``spec-kitty charter generate`` against *repo_root* and reports
@@ -228,11 +228,11 @@ def refresh_references_if_needed(repo_root: Path, cause: str) -> RefreshOutcome:
         cause: Comma-joined freshness-check names that triggered the heal.
 
     Returns:
-        A :class:`RefreshOutcome` describing whether a targeted generate was
+        A :class:`ReferencesRefreshOutcome` describing whether a targeted generate was
         attempted and, if so, whether it succeeded.
     """
     if not is_references_parity_cause(cause):
-        return RefreshOutcome(attempted=False, succeeded=False, detail=None)
+        return ReferencesRefreshOutcome(attempted=False, succeeded=False, detail=None)
 
     cmd = _build_generate_command(repo_root)
     try:
@@ -250,15 +250,15 @@ def refresh_references_if_needed(repo_root: Path, cause: str) -> RefreshOutcome:
             " ".join(cmd),
             exc_info=True,
         )
-        return RefreshOutcome(
+        return ReferencesRefreshOutcome(
             attempted=True,
             succeeded=False,
             detail=f"`{' '.join(cmd)}` invocation failed: {exc}",
         )
 
     if completed.returncode == 0:
-        return RefreshOutcome(attempted=True, succeeded=True, detail=None)
-    return RefreshOutcome(
+        return ReferencesRefreshOutcome(attempted=True, succeeded=True, detail=None)
+    return ReferencesRefreshOutcome(
         attempted=True,
         succeeded=False,
         detail=_extract_failure_detail(completed),

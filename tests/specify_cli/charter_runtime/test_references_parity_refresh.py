@@ -429,3 +429,156 @@ def test_auto_refresh_reports_failure_when_generate_fails(tmp_path: Path, monkey
         "failed -- restamping over unregenerated content is exactly the "
         f"masking bug being fixed; saw {synthesize_calls!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# WP04 rejection-cycle-2 fold-in (#5257, wp-WP04.yaml WP04-C1-002): the
+# `except (OSError, subprocess.TimeoutExpired)` branch inside
+# `references_refresh.refresh_references_if_needed` (~lines 247-257) --
+# reached when the targeted `generate` subprocess cannot even be
+# spawned/completed, not merely exits non-zero -- had zero test coverage.
+# These tests pin BOTH exception types at the unit level (the outcome
+# `refresh_references_if_needed` itself returns) and at the integration
+# level (that the failure still reaches `_attempt_auto_refresh`'s
+# `passed=False`/`blocked_reason` contract, the same way a non-zero exit
+# already does above).
+# ---------------------------------------------------------------------------
+
+
+def _make_generate_invocation_error_subprocess_fake(seen_calls: list[list[str]], *, error: OSError | subprocess.TimeoutExpired) -> Any:
+    """Like :func:`_make_generate_failure_subprocess_fake`, but the faked
+    ``spec-kitty charter generate`` invocation never returns a
+    ``CompletedProcess`` at all -- it raises *error* instead, pinning the
+    ``except (OSError, subprocess.TimeoutExpired)`` branch
+    (``references_refresh.py`` ~247-257) rather than the non-zero-exit
+    branch :func:`_make_generate_failure_subprocess_fake` pins. Every other
+    ``spec-kitty charter`` subcommand still no-ops successfully.
+    """
+    real_run = subprocess.run
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:1] == ["git"]:
+            return real_run(cmd, **kwargs)
+        seen_calls.append(list(cmd))
+        if tuple(cmd[:3]) == _GENERATE_CMD_PREFIX:
+            raise error
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    return fake_run
+
+
+def _invocation_error_cases() -> list[Any]:
+    """The two exception types `refresh_references_if_needed` must convert
+    into a failed `ReferencesRefreshOutcome` instead of propagating (mirrors the
+    module's own ``except (OSError, subprocess.TimeoutExpired)`` tuple)."""
+    return [
+        pytest.param(OSError("no such file or directory"), id="oserror"),
+        pytest.param(
+            subprocess.TimeoutExpired(cmd=list(_GENERATE_CMD_PREFIX), timeout=30.0),
+            id="timeout_expired",
+        ),
+    ]
+
+
+@pytest.mark.parametrize("error", _invocation_error_cases())
+def test_generate_invocation_error_yields_failed_outcome(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError | subprocess.TimeoutExpired) -> None:
+    """Unit-level pin for WP04-C1-002: when the targeted `generate`
+    subprocess cannot even complete -- `subprocess.run` itself raises
+    *error* -- `refresh_references_if_needed` must report
+    `attempted=True, succeeded=False` with a non-empty, informative
+    `detail`, never propagate the exception and never report success.
+    """
+    _git_init(tmp_path)
+    seen_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _make_generate_invocation_error_subprocess_fake(seen_calls, error=error),
+    )
+
+    outcome = references_refresh.refresh_references_if_needed(tmp_path, cause="synthesized_drg")
+
+    assert any(tuple(c[:3]) == _GENERATE_CMD_PREFIX for c in seen_calls), seen_calls
+    assert outcome.attempted is True
+    assert outcome.succeeded is False
+    assert outcome.detail, "the invocation-error branch must not report an empty detail"
+    assert "invocation failed" in outcome.detail
+    assert str(error) in outcome.detail, f"detail must name the exception that was actually raised; got {outcome.detail!r}"
+
+
+@pytest.mark.parametrize("error", _invocation_error_cases())
+def test_auto_refresh_reports_failure_when_generate_invocation_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError | subprocess.TimeoutExpired
+) -> None:
+    """Integration-level pin for WP04-C1-002: an invocation-level failure
+    (``subprocess.run`` raising, not merely exiting non-zero) must reach
+    `_attempt_auto_refresh`'s `passed=False`/`blocked_reason` contract the
+    same way `test_auto_refresh_reports_failure_when_generate_fails` pins
+    for a non-zero exit -- and the manifest restamp must still be skipped.
+    """
+    _git_init(tmp_path)
+    seen_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _make_generate_invocation_error_subprocess_fake(seen_calls, error=error),
+    )
+
+    all_fresh = FreshnessSubState(state="fresh", last_change=None, remediation=None)
+    monkeypatch.setattr(
+        runner_module,
+        "compute_freshness",
+        lambda _repo_root: CharterFreshness(charter_source=all_fresh, synced_bundle=all_fresh, synthesized_drg=all_fresh),
+    )
+
+    fresh = FreshnessSubState(state="fresh", last_change=None, remediation=None)
+    stale_drg = FreshnessSubState(
+        state="stale",
+        last_change=None,
+        remediation="spec-kitty charter synthesize",
+    )
+    freshness = CharterFreshness(charter_source=fresh, synced_bundle=fresh, synthesized_drg=stale_drg)
+    initial_checks = [
+        CharterPreflightCheck(name="charter_source", state="fresh", detail="ok", remediation=None),
+        CharterPreflightCheck(name="synced_bundle", state="fresh", detail="ok", remediation=None),
+        CharterPreflightCheck(
+            name="synthesized_drg",
+            state="stale",
+            detail="synthesized DRG is stale",
+            remediation="spec-kitty charter synthesize",
+        ),
+    ]
+
+    result = runner_module._attempt_auto_refresh(tmp_path, freshness, initial_checks)
+
+    assert any(tuple(c[:3]) == _GENERATE_CMD_PREFIX for c in seen_calls), seen_calls
+    assert result.auto_refresh_applied is True
+    assert result.passed is False, (
+        "an invocation-level generate failure must not let the boundary heal report success -- it must fail closed exactly like a non-zero exit"
+    )
+    assert result.blocked_reason is not None
+    assert "invocation failed" in result.blocked_reason
+    assert str(error) in result.blocked_reason, result.blocked_reason
+
+    synthesize_calls = [c for c in seen_calls if tuple(c[:3]) == ("spec-kitty", "charter", "synthesize")]
+    assert len(synthesize_calls) == 1, f"the manifest restamp must be skipped when the targeted generate invocation itself failed; saw {synthesize_calls!r}"
+
+
+# ---------------------------------------------------------------------------
+# WP04 rejection-cycle-2 fold-in (#5257, wp-WP04.yaml WP04-C1-003):
+# `ReferencesRefreshOutcome.__bool__` deliberately raises `TypeError` rather than
+# coercing to a truthiness value -- pin the guard's own contract directly,
+# not only via the absence of any truthiness use at call sites.
+# ---------------------------------------------------------------------------
+
+
+def test_refresh_outcome_bool_raises_type_error() -> None:
+    """`ReferencesRefreshOutcome` refuses truthiness coercion outright: a caller that
+    writes ``if outcome:`` instead of checking ``.attempted``/``.succeeded``
+    explicitly must get a loud `TypeError`, never a silent (and wrong)
+    "always truthy" read.
+    """
+    outcome = references_refresh.ReferencesRefreshOutcome(attempted=True, succeeded=True, detail=None)
+
+    with pytest.raises(TypeError, match="no truth value"):
+        bool(outcome)

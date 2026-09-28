@@ -61,7 +61,7 @@ from .result import CharterPreflightCheck, CharterPreflightResult, CheckState
 
 if TYPE_CHECKING:  # pragma: no cover — used only for type hints.
     from specify_cli.charter_runtime.freshness import CharterFreshness
-    from specify_cli.charter_runtime.preflight.references_refresh import RefreshOutcome
+    from specify_cli.charter_runtime.preflight.references_refresh import ReferencesRefreshOutcome
 
 __all__ = ["SYNTHESIZED_DRG_LAYER", "run_charter_preflight"]
 
@@ -551,7 +551,7 @@ def _refresh_timeout_secs() -> float:
     return value
 
 
-def refresh_references_if_needed(repo_root: Path, cause: str) -> RefreshOutcome:
+def refresh_references_if_needed(repo_root: Path, cause: str) -> ReferencesRefreshOutcome:
     """References-parity extension point (T019 install / WP06 implement, #2777).
 
     Delegates to :func:`specify_cli.charter_runtime.preflight.
@@ -571,7 +571,7 @@ def refresh_references_if_needed(repo_root: Path, cause: str) -> RefreshOutcome:
 
     Returns:
         A :class:`~specify_cli.charter_runtime.preflight.references_refresh.
-        RefreshOutcome` (T017, WP04 auto-refresh swallow fold-in, #5257):
+        ReferencesRefreshOutcome` (T017, WP04 auto-refresh swallow fold-in, #5257):
         ``attempted`` iff *cause* named the references-parity layer;
         ``succeeded``/``detail`` report the targeted ``generate``
         subprocess's actual outcome — this widening is what lets

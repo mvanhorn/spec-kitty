@@ -413,7 +413,7 @@ def test_references_parity_hook_no_ops_for_a_non_references_parity_cause(
     implementation module directly.
 
     T017 (WP04 auto-refresh swallow fold-in, #5257) widened this call
-    site's return type from a bare ``bool`` to ``RefreshOutcome`` — assert
+    site's return type from a bare ``bool`` to ``ReferencesRefreshOutcome`` — assert
     the full no-op contract (``attempted=False``, and the ``succeeded``/
     ``detail`` values the no-op shape always carries), not just a weaker
     truthiness check.
