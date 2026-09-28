@@ -4,12 +4,12 @@ artifact_type: spec-kitty.analysis-report
 command: /spec-kitty.analyze
 mission_slug: owned-checkout-lifecycle-authority-01M3M2ZB
 mission_id: 01M3M2ZB5D4A33B8070F97DKW7
-generated_at: '2026-09-28T16:19:05.659071+00:00'
+generated_at: '2026-09-28T21:35:27.653367+00:00'
 analyzer_agent: unknown
 input_artifacts:
   spec.md:
     path: kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/spec.md
-    sha256: e3b1a8d6a327c97bb0311cfd15f0b8932e26566ff5f338801a9c61310342bdd4
+    sha256: 2fe924ad0e66ba0cb788a39451193eacce0505c2e702afd417b4d641052df386
   plan.md:
     path: kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/plan.md
     sha256: ce4663bf193ac75724fa76970f47e03930ddcb81dbad8413c741cca1df311325
@@ -21,10 +21,10 @@ input_artifacts:
     sha256: cae74c9f8d1895556c96391ed8d733a628ffd85fe6b57c9b5a1f05ab6c873539
 verdict: ready
 issue_counts:
-  high: 0
-  critical: 0
   low: 3
+  critical: 0
   medium: 2
+  high: 0
   info: 0
 findings:
 - id: C2
@@ -140,3 +140,9 @@ The following are intentional design choices and are not flagged: the temporary 
 - Fix C2 before WP19 is implemented. It is a one-step restore in T102, plus an FR-021 row and ref.
 - Tighten U3 and I5 together in WP19 T102 steps 8 and 10: use a guaranteed hook point, assert that the flip happened, and add a snapshot carve-out.
 - C3 and I4 are wording and matrix alignment: WP09 T049 (add the outside-repo row), plus the plan Summary and the WP03, WP04 and WP15 census wording.
+
+### Re-analysis delta (NFR-001 clarification, WP06 review cycle 1)
+
+The only input change since the previous report is a clarification of NFR-001 in spec.md. The shared lock root now names exactly one tolerated delta: the pre-existing per-mission status mutex (`status/locking.py::feature_status_lock_path`), which may appear as a single empty `<mission>.status.lock`. The git common dir is shared by P and R by construction, so no owned transactional write can avoid it.
+
+The tolerance is defined once in `tests/_owned_fixtures.py`, and every other lock-root delta still fails. No requirement, task or coverage mapping changed, and no new finding arises. WP19 T102 step 8 and all NFR-001 oracles pick up the named tolerance from the shared fixture.
