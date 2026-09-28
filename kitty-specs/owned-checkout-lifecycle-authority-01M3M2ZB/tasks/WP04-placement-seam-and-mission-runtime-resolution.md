@@ -109,7 +109,7 @@ Close the fall-back to the repository root checkout **at its source**, in the mi
 **Mission-wide DoD (post-tasks squad):**
 - `grep -rn "bridging: WP04 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
 - Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
-- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **9** markers: `src/mission_runtime/resolution.py` 8 (`placement_seam(effective_root=)`, `PlacementSeam.effective_root`, `mission_context_for`, `resolve_action_context`, `resolve_placement_only`, `resolve_artifact_surface`, `declared_read_surface`, `read_dir_for`) and `src/specify_cli/task_utils/support.py` 1 (`locate_work_package`). Check with `grep -c "TRANSITIONAL(WP18)"` per file.
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **17** markers (amended in review cycle 2: the private helpers keep a self-contained owned branch plus a separate marked legacy branch; WP18 deletes each marked parameter **and** its whole legacy-arm branch body): `src/mission_runtime/resolution.py` 16 (`_refuse_both`, `read_dir_for`, `_resolve_mission_slug`, `_resolve_wp_bearing_fields`, `_resolve_coordination_branch`, `_resolve_topology`, `mission_context_for`, `_resolve_mission_id`, `_resolve_status_surface_dir`, `_assemble_core_fragments`, `resolve_placement_only`, `PlacementSeam.effective_root`, `declared_read_surface`, `resolve_artifact_surface`, `placement_seam(effective_root=)`, `resolve_action_context`) and `src/specify_cli/task_utils/support.py` 1 (`locate_work_package`). Check with `grep -c "TRANSITIONAL(WP18)"` per file.
 - Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
 - Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
 
@@ -543,3 +543,101 @@ policy) is the actual owned-coordination-topology proof for `next`; F2's fix
 UNMATERIALIZED failing closed rather than returning a phantom path) is a
 strict improvement for that path, not a behaviour narrowing, so no new risk
 is introduced for it.
+- 2026-09-28T22:32:22Z – unknown – Review cycle 2 fix — Activity Log (correcting the cycle-1 Activity Log's false
+claim; R1-R5, F3-F5).
+
+CORRECTION to the cycle-1 Activity Log entry: it claimed "after WP18 deletes
+every marked line ... effective_root reaches zero occurrences" in
+resolution.py/support.py. That is FALSE as stated. The scanner
+(tests/architectural/_owned_checkout_scan.py) reports 112 raw G4/G5 hits
+across resolution.py (105) + support.py (7); only 17 of those are the marked
+legacy PARAMETER/FIELD declarations (16 in resolution.py, 1 in support.py --
+see the exact list below). The remaining ~95 hits are `effective_root`
+identifier/keyword uses INSIDE the legacy-arm BODIES of those same 17
+functions (the `if effective_root is not None: <legacy branch>` code each
+marked function keeps, per the orchestrator's accepted ruling that a
+self-contained owned arm next to a separate, mechanically-deletable legacy
+arm is the correct shape -- reversing course from the cycle-1 "fold to a bare
+Path" anti-pattern the operator rejected). The TRUTHFUL statement: WP18 T096
+deletes, per marked function, BOTH the marked parameter/field AND its
+entire legacy-arm branch body (not merely the one marked line) -- after
+which every `effective_root` reference those 95 unmarked-but-legacy-owned
+hits represent is deleted along with the branch that contained them, and
+the scanner then reports zero hits in both files. This is a mechanical,
+per-function deletion (delete the `effective_root` parameter, delete the
+`if owned is not None: ... else: <legacy branch>` conditional's `else`
+arm, un-indent the `if` body), not a textual "delete every marked line"
+operation.
+
+EXACT FINAL MARKER LIST (17 total; per the orchestrator's ruling, this agent
+is reporting the list for the orchestrator to amend into WP04's DoD and
+WP18 T096 step 9b -- this agent has NOT edited either):
+
+resolution.py (16):
+1. `_refuse_both` -- `effective_root` param (NEW this cycle, R5)
+2. `read_dir_for` -- `effective_root` param (positional)
+3. `_resolve_mission_slug` -- `effective_root` param
+4. `_resolve_wp_bearing_fields` -- `effective_root` param
+5. `_resolve_coordination_branch` -- `effective_root` param
+6. `_resolve_topology` -- `effective_root` param
+7. `mission_context_for` -- `effective_root` param
+8. `_resolve_mission_id` -- `effective_root` param
+9. `_resolve_status_surface_dir` -- `effective_root` param
+10. `_assemble_core_fragments` -- `effective_root` param
+11. `resolve_placement_only` -- `effective_root` param
+12. `PlacementSeam` -- `effective_root` field
+13. `declared_read_surface` -- `effective_root` param
+14. `resolve_artifact_surface` -- `effective_root` param
+15. `placement_seam` -- `effective_root` param
+16. `resolve_action_context` -- `effective_root` param
+
+support.py (1):
+17. `locate_work_package` -- `effective_root` param
+
+(Count history: 9 at the rejected cycle-1 fix commit c220d467d; 16 after
+cycle-1's re-fix commit 639b1defa, per the reviewer's accepted 9->16 ruling;
+17 now, after R5 adds `_refuse_both`'s own marker this cycle.)
+
+R2/F3 FIX SUMMARY: resolve_artifact_surface / resolve_placement_only's owned
+arms no longer route through the whole-context builder
+(_mission_context_for_owned) -- two new lean helpers,
+_owned_read_dir_for_kind / _owned_commit_target_for_kind, resolve ONLY the
+one requested MissionArtifactKind, so a PRIMARY kind (SPEC/PLAN) never
+probes the coordination surface at all (T019 row 3: it can never fail on an
+UNMATERIALIZED or EMPTY coordination window). _resolve_status_surface_dir_owned
+now fails closed on EVERY non-materialised coordination state for a
+COORD-partition kind (EMPTY / UNMATERIALIZED / NONE), not just
+UNMATERIALIZED -- closing the #1716 silent-PRIMARY-fallback regression on
+EMPTY specifically. The F3 stamp is now `COORD iff routes_through_coordination
+(owned.topology) and not is_primary_artifact_kind(kind) else PRIMARY` --
+purely topology+partition, never path equality.
+
+F4/R3 FIX SUMMARY: the ONE canonical handle matcher is now
+`mission_runtime.identity.handle_names_mission(handle, mission_slug)`,
+exported from the mission_runtime root and registered in
+tests/architectural/test_mission_runtime_surface.py. Both private
+`_owned_handle_matches` duplicates (resolution.py, support.py) are deleted.
+Tightened: the mission-id form requires an exact 26-character Crockford
+base32 match (not merely `len(handle) >= 8`); the mid8 form requires an
+exact 8-character match. `"<mid8>-something-else"` is now refused.
+
+F5 FIX SUMMARY: `mission_finalize.py:3353`'s literal-dict splat into
+`placement_seam` is now `owned=owned` (owned is already `OwnedCheckout |
+None` there). Declared out-of-map (WP13's file, verified against
+kitty-specs/.../tasks/WP13-atomic-finalize-tasks.md) in the commit body.
+The 3 mislabelled `# bridging: WP16 converts` markers on
+`tasks_move_task.py` sites that already pass `owned=st.owned` in final form
+are removed; the 4 genuine bridge sites (calling functions that still only
+accept `effective_root`) keep their markers.
+
+TESTS: tests/mission_runtime 470 passed, 1 skipped (was 467 passed at the
+reviewed cycle-1 tip -- 3 net new: the row-3/row-4/prefix-refusal pins, plus
+several more R1 pins that were already green). Combined blast-radius
+(all previously-listed validation files): 549 passed, 3 skipped.
+`ruff check` clean; C901 <= 11 on every touched function. `mypy --strict
+--explicit-package-bases` over the seams + their direct callers/callees (30
+files): 0 new errors versus the confirmed-pre-existing baseline (4
+`_EffectiveRootKwargs` assignment errors in accept.py/gates_core.py, plus 4
+unrelated `no-any-return` errors in files this WP's diff never touches --
+verified via `git diff --stat` showing 1 line changed in mission_finalize.py
+total).
