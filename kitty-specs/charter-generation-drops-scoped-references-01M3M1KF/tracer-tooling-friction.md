@@ -36,3 +36,13 @@ Append entries during implementation; assess at close.
   interactive planning cadence. Not investigated or fixed in this mission (out of scope — the fix
   target here is charter reference resolution, not the asset-inventory freshness checker); flagged
   here for whoever next touches that checker's flakiness budget.
+
+## Tasks phase
+
+- **Same "Global asset inventory changed" class recurred a THIRD time, on `spec-kitty agent
+  context resolve --action tasks_outline`.** Same transient `Global asset inventory changed: ...
+  re-run the command` condition; self-resolved on one bare retry, exactly like the spec- and
+  plan-phase occurrences. This is now three consecutive planning phases of the same mission
+  hitting the identical condition — strengthens the plan-phase observation that this checker's
+  flakiness budget is worth someone's attention outside this mission's scope. Not investigated or
+  fixed here.
