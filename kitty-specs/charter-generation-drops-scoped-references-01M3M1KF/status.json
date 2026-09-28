@@ -1,7 +1,7 @@
 {
-  "event_count": 17,
-  "last_event_id": "01M3MZGXPH1TJDA94CFSET7CH6",
-  "materialized_at": "2026-09-28T21:42:49.809948+00:00",
+  "event_count": 18,
+  "last_event_id": "01M3N0BKTKCS8DVQJJA3N57MHW",
+  "materialized_at": "2026-09-28T21:57:24.435593+00:00",
   "mission_number": "",
   "mission_slug": "charter-generation-drops-scoped-references-01M3M1KF",
   "mission_type": "software-dev",
@@ -12,9 +12,9 @@
     "canceled": 0,
     "claimed": 0,
     "done": 0,
-    "for_review": 1,
+    "for_review": 0,
     "in_progress": 1,
-    "in_review": 0,
+    "in_review": 1,
     "planned": 1
   },
   "work_packages": {
@@ -81,9 +81,9 @@
       "agent_profile_version": "__resolved_profile_version_absent__",
       "force_count": 0,
       "implementer_of_record": "claude",
-      "lane": "for_review",
-      "last_event_id": "01M3MZGXPH1TJDA94CFSET7CH6",
-      "last_transition_at": "2026-09-28T21:42:49.809948+00:00",
+      "lane": "in_review",
+      "last_event_id": "01M3N0BKTKCS8DVQJJA3N57MHW",
+      "last_transition_at": "2026-09-28T21:57:24.435593+00:00",
       "model": "__resolved_model_absent__",
       "notes": [
         "T017-T019 done: RefreshOutcome fold-in fixes the auto-refresh generate-failure swallow. Red-first proven (T019 commit 9615b51bc, fixed in 95d61ad09, re-verified red against a scratch pre-fix overlay). Gates green (whole-repo ruff check/format, targeted shard, baseline). test_boundary_heal.py::test_references_parity_hook_no_ops_for_a_non_references_parity_cause now fails (bool identity vs RefreshOutcome) -- out of WP04 write_scope, flagged not fixed."
@@ -95,7 +95,7 @@
         "reviewer": "reviewer-renata",
         "verdict": "changes_requested"
       },
-      "role": "implementer",
+      "role": "reviewer",
       "shell_pid": 945038,
       "shell_pid_created_at": "1790621345.6",
       "subtasks": {
