@@ -9,9 +9,9 @@ planning_base_branch: fix/charter-generation-drops-scoped-references-5257
 merge_target_branch: fix/charter-generation-drops-scoped-references-5257
 branch_strategy: Planning artifacts for this mission were generated on fix/charter-generation-drops-scoped-references-5257. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into fix/charter-generation-drops-scoped-references-5257 unless the human explicitly redirects the landing branch.
 subtasks:
+- T019
 - T017
 - T018
-- T019
 history: []
 agent_profile: implementer-ivan
 authoritative_surface: src/specify_cli/charter_runtime/preflight/
@@ -205,7 +205,10 @@ commit — and confirm T019's test is GREEN on this commit before considering th
   output/count in your WP completion note).
 - T017+T018's implementation is committed together in ONE commit (commit 2), strictly after
   T019's commit, turning T019's test GREEN on this WP's final commit — two separate commits,
-  verified RED then GREEN, matching WP01/WP02's pattern.
+  verified RED then GREEN, matching WP01's and WP03's two-commit red-first pattern. (WP02 has a
+  different, four-commit shape with no internal red-first commit of its own, since it turns
+  WP01's already-landed red tests green rather than authoring its own — it is not a comparable
+  match.)
 - `RefreshOutcome(attempted, succeeded, detail)` type exists in `references_refresh.py`, and
   `refresh_references_if_needed` returns it (not `bool`).
 - `runner.py::_attempt_auto_refresh` returns `passed=False` with a `blocked_reason` naming the

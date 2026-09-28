@@ -9,9 +9,9 @@ planning_base_branch: fix/charter-generation-drops-scoped-references-5257
 merge_target_branch: fix/charter-generation-drops-scoped-references-5257
 branch_strategy: Planning artifacts for this mission were generated on fix/charter-generation-drops-scoped-references-5257. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into fix/charter-generation-drops-scoped-references-5257 unless the human explicitly redirects the landing branch.
 subtasks:
+- T016
 - T014
 - T015
-- T016
 history: []
 agent_profile: implementer-ivan
 authoritative_surface: src/specify_cli/cli/commands/charter/
@@ -171,7 +171,9 @@ GREEN.
   pytest output/count in your WP completion note).
 - T014+T015 are committed together in ONE commit (commit 2), strictly after T016's commit,
   turning T016's assertion GREEN on this WP's final commit — two separate commits, verified RED
-  then GREEN, matching WP01/WP02/WP04's pattern.
+  then GREEN, matching WP01's and WP04's two-commit red-first pattern. (WP02 has a different,
+  four-commit shape with no internal red-first commit of its own, since it turns WP01's
+  already-landed red tests green rather than authoring its own — it is not a comparable match.)
 - `unresolved_references` key present in `charter generate --json` output, always (even `[]`),
   matching `contracts/charter-generate-json-diagnostics.md`'s documented shape exactly.
 - `diagnostics` field's shape (flat `list[str]`) is provably unchanged (T015's regression test).

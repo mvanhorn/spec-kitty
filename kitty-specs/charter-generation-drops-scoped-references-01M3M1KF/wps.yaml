@@ -62,9 +62,9 @@ work_packages:
     plan_concern_refs:
       - IC-03
     subtasks:
+      - T016
       - T014
       - T015
-      - T016
     prompt_file: "tasks/WP03-json-diagnostics.md"
 
   - id: WP04
@@ -80,7 +80,7 @@ work_packages:
     plan_concern_refs:
       - IC-05
     subtasks:
+      - T019
       - T017
       - T018
-      - T019
     prompt_file: "tasks/WP04-autorefresh-foldin.md"
