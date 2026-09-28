@@ -285,37 +285,66 @@ Planning-base counts: `tasks_move_task.py` 58 sites, `tasks_mark_status.py` 26, 
 
 ### Subtask T088 – FR-022 ratchet: existing owned `move-task` / `mark-status` / `spec-commit` tests
 
-- **Purpose**: FR-022 / SC-005 — the regression guard for the rewire. Behaviour must not change; the only allowed test edits are internal-shape re-points in the two test files this WP owns.
+- **Purpose**: FR-022 / SC-005 — the regression guard for the rewire. Behaviour must not change. The only allowed test edit is an internal-shape re-point in a test file this WP owns.
 - **Steps**:
-  1. Run the whole list in Test Strategy **before** changing any test. Anything red on the planning base too is baseline red (classify per CLAUDE.md; do not fix).
-  2. Re-point only this internal-shape usage in `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py`:
-     - `test_owned_ports_read_and_commit_only_selected_mission` (`:1001-1008`) constructs `MissionHandle(primary, SLUG, effective_root=owned)`. WP07 converts `MissionHandle`; if WP07 already re-pointed this line, leave it. Otherwise build the handle with `owned=<fact>`, minting the fact through the WP02 test helper (never `OwnedCheckout._mint`, gate G3). Record in the Activity Log which WP made the change.
-     - `test_owned_gate_baseline_reads_selected_mission_directory` (`:29-45`) uses `SimpleNamespace(owned=SimpleNamespace(root=tmp_path))`; `_mt_resolve_gate_baseline` never reads `.root`, so leave it unchanged unless your conversion makes the function read an attribute of the fact (it should not).
-  3. `tests/integration/test_owned_checkout_mark_status.py` should need **no** change (it drives the CLI and monkeypatches `transaction._reducer.materialize`). If it does, that is a behaviour change: stop and report.
-  4. Do not touch `tests/integration/test_explicit_checkout_commands.py` (WP11-owned); it must pass as is.
-- **Files**: `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py` (one internal-shape re-point at most).
+  1. Run the whole list in the Test Strategy **before** changing any test, and again after T084–T087. Anything red on the planning base too is baseline red: classify per CLAUDE.md "Test-run baseline-red gotcha", record it, do not fix it.
+  2. Re-point only this internal-shape usage in `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py`, and only if it is still red:
+     - `test_owned_ports_read_and_commit_only_selected_mission` (`:1001-1008`) constructs `MissionHandle(primary, SLUG, effective_root=owned)`. WP07 converts `MissionHandle`; if WP07 already re-pointed this line, leave it. Otherwise build the handle with `owned=<fact>`, minting the fact through the WP02 test helper (never `OwnedCheckout._mint`, gate G3). Keep every assertion identical. Record in the Activity Log which WP made the change.
+  3. Leave `test_owned_gate_baseline_reads_selected_mission_directory` (`:29-45`) unchanged: it builds `SimpleNamespace(owned=SimpleNamespace(root=tmp_path))`, and `_mt_resolve_gate_baseline` (`tasks_move_task.py:1818`) never reads `.root`. If your conversion makes that function read an attribute of the fact, you changed behaviour; revert that.
+  4. `tests/integration/test_owned_checkout_mark_status.py` should need **no** change: it drives the CLI and monkeypatches only `transaction._reducer.materialize` (`:208`) and seams by name (`:279, 340, 392`). If it does need a change, that is a behaviour change: stop and report.
+  5. Do not touch `tests/integration/test_explicit_checkout_commands.py` (WP11-owned); it must pass as is.
+  6. Run the two unowned alias-constructing files named in T085's edge cases and record their state.
+  7. Compare JSON envelopes before and after for the refusal scenarios: capture the `--json` output of one refusal per command on the planning base (for example a foreign repository, `test_foreign_repository_is_refused`) and assert key-for-key equality after the rewire. Keep this as a local check (not a committed test) unless an existing golden already covers it; note the result in the Activity Log.
+  8. Record the final command lines and pass counts in the Activity Log for the PR's *Tests run* section.
+- **Files**:
+  - `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py` (one internal-shape re-point at most).
 - **Parallel?**: No; after T084–T087.
 - **Validation checklist**:
-  - [ ] `git diff -- tests/` shows only the re-point above (if WP07 had not already made it) plus T089 additions.
+  - [ ] `git diff -- tests/` shows only the re-point above (if WP07 had not already made it) plus the T089 additions.
   - [ ] All 20 tests in `test_owned_checkout_move_task.py` and all 7 in `test_owned_checkout_mark_status.py` pass.
-- **Edge cases**: the move-task file's compensation tests monkeypatch `tasks_move_task._mt_execute` and `revert_committed_verdict_write` by name — do not rename those functions during extraction.
+  - [ ] The full Test Strategy list passes; exact command and counts are in the Activity Log.
+  - [ ] No test was skipped or xfailed to get green.
+  - [ ] `uv run --frozen pytest tests/integration/test_owned_checkout_mark_status.py -q` and `uv run --frozen pytest tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py -q` both pass on their own (fixture isolation) and in the combined run.
+  - [ ] The refusal envelopes compared in step 7 are identical key for key.
+- **Edge cases**:
+  - The move-task file's compensation tests monkeypatch `tasks_move_task._mt_execute` and `revert_committed_verdict_write` by name, and `status_transition.emit_inner_state_changed_transactional` (`:901, 965`); do not rename those functions during extraction.
+  - The refusal tests (`test_owned_preflight_refuses_before_effects`, `test_branch_refusal_has_no_side_effects`, `test_nested_checkout_refused_before_writes`, `test_staged_changes_are_never_stashed_or_committed`) are the tripwire for refusal-order drift caused by moving validation to the Typer edge.
+  - `test_multi_wp_failure_reports_committed_prefix` depends on per-WP event emission order in `mark-status`; keep the loop order in `_ms_emit_subtask_state`.
+  - `test_flagless_mark_status_preserves_primary_lookup` and `test_no_opt_in_keeps_primary_resolution` pin the flagless path from the repository root checkout; if the WP08 helper's adoption changes what they see, that is a WP08 contract issue — report it, do not adapt the test.
+  - `test_explicit_checkout_is_independent_of_cwd` runs the same command from R, P and elsewhere; the Typer-edge resolution must not start depending on cwd.
+  - If a baseline-red test blocks the ratchet, link the issue you filed (Pre-existing Failure Reporting Rule) in the Activity Log.
 
 ### Subtask T089 – Command-level exactly-one-validation assertions
 
 - **Purpose**: FR-003 / NFR-002: exactly one ownership validation per owned command invocation. WP07/T037 pins it for `move-task`'s transition path; this subtask pins it at the command level for all four commands, so a re-introduced local validator call (the #3866 class) goes red.
 - **Steps**:
-  1. Write a counting fixture: wrap the real `specify_cli.core.checkout_ownership.resolve_ownership_claim` (monkeypatch the module attribute; `owned_mission` imports it lazily inside `resolve_owned_mission`, so the module-attribute patch is observed) and call `specify_cli.workspace.context.clear_workspace_resolution_caches()` before each invocation.
-  2. Add to `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py`: `move-task WP01 --to claimed --owned-checkout P` and a `--to for_review` hop (the review path triggers the most readers) → count == 1 each.
-  3. Add to `tests/integration/test_owned_checkout_mark_status.py`, in a clearly headed section, the `mark-status`, `spec-commit` and `check-prerequisites` counts (that file already imports the `checkouts`, `invoke`, `git`, `snapshot` helpers from `tests/integration/test_explicit_checkout_commands.py`; reuse them rather than duplicating fixtures).
-  4. Parametrise each count over "flag given" and, for `mark-status`, "flagless from inside P" (FR-021 adoption goes through the same validator once).
-  5. Also assert the negative: a flagless run from the repository root checkout performs **zero** ownership validations.
-  6. Mark all of them `integration` + `git_repo`.
-- **Files**: `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py`, `tests/integration/test_owned_checkout_mark_status.py` (append).
+  1. Write a counting fixture:
+     - wrap the real `specify_cli.core.checkout_ownership.resolve_ownership_claim` with a counter (monkeypatch the module attribute; `owned_mission` imports it lazily inside `resolve_owned_mission`, so the module-attribute patch is observed);
+     - delegate to the real function and return its result unchanged;
+     - call `specify_cli.workspace.context.clear_workspace_resolution_caches()` before each counted invocation.
+  2. In `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py` (it already has the `checkouts` fixture via `__all__`):
+     - `move-task WP01 --to claimed --owned-checkout P` → count == 1;
+     - a `--to for_review` hop (the review path triggers the most readers) → count == 1.
+  3. In `tests/integration/test_owned_checkout_mark_status.py`, in a clearly headed section, reuse the `checkouts`, `invoke`, `git`, `snapshot` helpers it already imports from `tests/integration/test_explicit_checkout_commands.py`:
+     - `mark-status <a subtask id present in the fixture's tasks.md> --status done --owned-checkout P` → count == 1;
+     - `spec-commit --owned-checkout P ...` → count == 1;
+     - `check-prerequisites --owned-checkout P ...` → count == 1.
+  4. Parametrise `mark-status` over "flag given" and "flagless from inside P" (FR-021 adoption goes through the same validator once).
+  5. Negative: a flagless run from the repository root checkout performs **zero** ownership validations.
+  6. Refusal: `move-task` with an invalid owned checkout still validates once and refuses (count == 1, exit ≠ 0, `error_code` present in `--json` output).
+  7. Mark all of them `integration` + `git_repo`. Commit: `test(tasks): exactly-one ownership validation per owned task command (WP16/T089, NFR-002)`.
+- **Files**:
+  - `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py` (append).
+  - `tests/integration/test_owned_checkout_mark_status.py` (append).
 - **Parallel?**: No; last.
 - **Validation checklist**:
   - [ ] Each count test fails if you temporarily add a second `resolve_owned_mission` call in the command (mutation check; do not commit).
+  - [ ] Each count test fails if validation is bypassed (count 0).
   - [ ] The counting wrapper delegates to the real function, so the commands still succeed.
-- **Edge cases**: `move-task` with an invalid owned checkout must still validate once and refuse (count == 1, exit ≠ 0, `error_code` present). Do not count `get_main_repo_root` or other git probes here; NFR-002's subprocess count for status reads is WP18/T099's.
+- **Edge cases**:
+  - Do not count `get_main_repo_root` or other git probes here; NFR-002's subprocess count for status reads is WP18/T099's.
+  - Workspace-resolution caches are process-global; without clearing them a later test in the same worker can observe 0.
+  - `spec-commit` is not under `agent tasks`; invoke it through the app `test_explicit_checkout_commands.invoke` already uses for it.
 
 ## Test Strategy
 
