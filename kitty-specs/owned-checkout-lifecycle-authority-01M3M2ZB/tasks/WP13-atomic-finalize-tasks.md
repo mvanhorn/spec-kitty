@@ -1,41 +1,43 @@
 ---
-work_package_id: "WP13"
-subtasks:
-  - "T070"
-  - "T071"
-  - "T072"
-  - "T073"
-  - "T074"
-title: "Atomic finalize-tasks"
-task_type: "implement"
-phase: "Phase 3 - Commands and runtime"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/cli/commands/agent/mission_finalize.py"
-  - "src/specify_cli/cli/commands/agent/tasks_finalize_validation.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_finalize.py"
-  - "tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py"
-authoritative_surface: "src/specify_cli/cli/commands/agent/mission_finalize.py"
-create_intent:
-  - "tests/integration/test_owned_lifecycle_acceptance_finalize.py"
-  - "tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py"
+work_package_id: WP13
+title: Atomic finalize-tasks
 dependencies:
-  - "WP07"
-  - "WP08"
+- WP07
+- WP08
 requirement_refs:
-  - "FR-007"
-  - "FR-013"
-  - "FR-015"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-007
+- FR-013
+- FR-015
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T070
+- T071
+- T072
+- T073
+- T074
+phase: Phase 3 - Commands and runtime
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/cli/commands/agent/mission_finalize.py
+create_intent:
+- tests/integration/test_owned_lifecycle_acceptance_finalize.py
+- tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/cli/commands/agent/mission_finalize.py
+- src/specify_cli/cli/commands/agent/tasks_finalize_validation.py
+- tests/integration/test_owned_lifecycle_acceptance_finalize.py
+- tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP13 – Atomic finalize-tasks

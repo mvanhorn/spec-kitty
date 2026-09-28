@@ -1,47 +1,49 @@
 ---
-work_package_id: "WP08"
-subtasks:
-  - "T038"
-  - "T039"
-  - "T040"
-  - "T041"
-  - "T042"
-  - "T043"
-title: "CLI owned helper, context resolve and flagless adoption"
-task_type: "implement"
-phase: "Phase 3 - Commands and runtime"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/cli/commands/_owned_checkout.py"
-  - "src/specify_cli/missions/operation_context.py"
-  - "src/specify_cli/cli/commands/agent/context.py"
-  - "tests/specify_cli/missions/test_operation_context.py"
-  - "tests/specify_cli/cli/commands/test_owned_checkout_helper.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_context.py"
-authoritative_surface: "src/specify_cli/cli/commands/_owned_checkout.py"
-create_intent:
-  - "src/specify_cli/cli/commands/_owned_checkout.py"
-  - "tests/specify_cli/cli/commands/test_owned_checkout_helper.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_context.py"
+work_package_id: WP08
+title: CLI owned helper, context resolve and flagless adoption
 dependencies:
-  - "WP02"
-  - "WP05"
+- WP02
+- WP05
 requirement_refs:
-  - "FR-006"
-  - "FR-007"
-  - "FR-020"
-  - "FR-021"
-  - "NFR-004"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-006
+- FR-007
+- FR-020
+- FR-021
+- NFR-004
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T038
+- T039
+- T040
+- T041
+- T042
+- T043
+phase: Phase 3 - Commands and runtime
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/cli/commands/_owned_checkout.py
+create_intent:
+- src/specify_cli/cli/commands/_owned_checkout.py
+- tests/specify_cli/cli/commands/test_owned_checkout_helper.py
+- tests/integration/test_owned_lifecycle_acceptance_context.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/cli/commands/_owned_checkout.py
+- src/specify_cli/missions/operation_context.py
+- src/specify_cli/cli/commands/agent/context.py
+- tests/specify_cli/missions/test_operation_context.py
+- tests/specify_cli/cli/commands/test_owned_checkout_helper.py
+- tests/integration/test_owned_lifecycle_acceptance_context.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP08 – CLI owned helper, context resolve and flagless adoption

@@ -1,36 +1,38 @@
 ---
-work_package_id: "WP03"
-subtasks:
-  - "T012"
-  - "T013"
-  - "T014"
-  - "T015"
-title: "ADR amendments and glossary"
-task_type: "implement"
-phase: "Phase 1 - Foundation"
-execution_mode: "planning_artifact"
-owned_files:
-  - "docs/adr/3.x/2026-09-03-1-explicit-owned-checkout-single-branch-lifecycle.md"
-  - "docs/adr/3.x/2026-08-12-1-checkout-ownership-for-mission-create-and-next.md"
-  - "docs/adr/3.x/2026-06-07-1-execution-state-canonical-surface.md"
-  - "docs/context/execution.md"
-authoritative_surface: "docs/"
-create_intent: []
+work_package_id: WP03
+title: ADR amendments and glossary
 dependencies: []
 requirement_refs:
-  - "FR-024"
-  - "C-005"
-  - "C-008"
-agent_profile: "scribe-sally"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-024
+- C-005
+- C-008
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T012
+- T013
+- T014
+- T015
+phase: Phase 1 - Foundation
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: scribe-sally
+authoritative_surface: docs/
+create_intent: []
+execution_mode: planning_artifact
+model: claude-sonnet-5
+owned_files:
+- docs/adr/3.x/2026-09-03-1-explicit-owned-checkout-single-branch-lifecycle.md
+- docs/adr/3.x/2026-08-12-1-checkout-ownership-for-mission-create-and-next.md
+- docs/adr/3.x/2026-06-07-1-execution-state-canonical-surface.md
+- docs/context/execution.md
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP03 – ADR amendments and glossary

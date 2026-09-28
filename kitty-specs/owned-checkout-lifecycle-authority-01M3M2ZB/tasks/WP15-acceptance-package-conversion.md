@@ -1,40 +1,42 @@
 ---
-work_package_id: "WP15"
-subtasks:
-  - "T080"
-  - "T081"
-  - "T082"
-  - "T083"
-title: "Acceptance package conversion"
-task_type: "implement"
-phase: "Phase 4 - Conversion sweep"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/acceptance/__init__.py"
-  - "src/specify_cli/acceptance/execution_context.py"
-  - "src/specify_cli/acceptance/gates_core.py"
-  - "src/specify_cli/acceptance/matrix.py"
-  - "tests/acceptance/test_gate_execution_context.py"
-authoritative_surface: "src/specify_cli/acceptance/"
-create_intent: []
+work_package_id: WP15
+title: Acceptance package conversion
 dependencies:
-  - "WP04"
-  - "WP07"
-  - "WP13"
-  - "WP14"
+- WP04
+- WP07
+- WP13
+- WP14
 requirement_refs:
-  - "FR-001"
-  - "FR-022"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-001
+- FR-022
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T080
+- T081
+- T082
+- T083
+phase: Phase 4 - Conversion sweep
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/acceptance/
+create_intent: []
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/acceptance/__init__.py
+- src/specify_cli/acceptance/execution_context.py
+- src/specify_cli/acceptance/gates_core.py
+- src/specify_cli/acceptance/matrix.py
+- tests/acceptance/test_gate_execution_context.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP15 – Acceptance package conversion

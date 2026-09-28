@@ -1,42 +1,44 @@
 ---
-work_package_id: "WP05"
-subtasks:
-  - "T022"
-  - "T023"
-  - "T024"
-  - "T025"
-  - "T026"
-title: "Workspace resolution owned arm"
-task_type: "implement"
-phase: "Phase 2 - Seams"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/workspace/context.py"
-  - "src/mission_runtime/checkout_identity.py"
-  - "tests/runtime/test_workspace_context_unit.py"
-  - "tests/specify_cli/workspace/test_owned_workspace_resolution.py"
-  - "src/specify_cli/core/stale_detection.py"
-  - "src/specify_cli/lanes/implement_support.py"
-  - "src/specify_cli/cli/commands/implement.py"
-authoritative_surface: "src/specify_cli/workspace/"
-create_intent:
-  - "tests/specify_cli/workspace/test_owned_workspace_resolution.py"
+work_package_id: WP05
+title: Workspace resolution owned arm
 dependencies:
-  - "WP04"
+- WP04
 requirement_refs:
-  - "FR-006"
-  - "FR-011"
-  - "FR-019"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-006
+- FR-011
+- FR-019
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T022
+- T023
+- T024
+- T025
+- T026
+phase: Phase 2 - Seams
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/workspace/
+create_intent:
+- tests/specify_cli/workspace/test_owned_workspace_resolution.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/workspace/context.py
+- src/mission_runtime/checkout_identity.py
+- tests/runtime/test_workspace_context_unit.py
+- tests/specify_cli/workspace/test_owned_workspace_resolution.py
+- src/specify_cli/core/stale_detection.py
+- src/specify_cli/lanes/implement_support.py
+- src/specify_cli/cli/commands/implement.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP05 – Workspace resolution owned arm

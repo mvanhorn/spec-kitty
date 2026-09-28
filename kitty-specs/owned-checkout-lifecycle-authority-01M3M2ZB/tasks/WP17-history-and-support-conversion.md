@@ -1,44 +1,46 @@
 ---
-work_package_id: "WP17"
-subtasks:
-  - "T090"
-  - "T091"
-  - "T092"
-  - "T093"
-  - "T094"
-title: "History and support module conversion"
-task_type: "implement"
-phase: "Phase 4 - Conversion sweep"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/tasks/issue_matrix.py"
-  - "src/specify_cli/review/cycle.py"
-  - "src/specify_cli/consolidation/baseline.py"
-  - "src/specify_cli/git/commit_helpers.py"
-  - "src/specify_cli/missions/_read_path_resolver.py"
-  - "src/specify_cli/migration/runtime_state_cutover.py"
-  - "src/specify_cli/migration/backfill_runtime_state.py"
-authoritative_surface: "src/specify_cli/"
-create_intent: []
+work_package_id: WP17
+title: History and support module conversion
 dependencies:
-  - "WP04"
-  - "WP07"
-  - "WP13"
-  - "WP14"
-  - "WP16"
+- WP04
+- WP07
+- WP13
+- WP14
+- WP16
 requirement_refs:
-  - "FR-001"
-  - "FR-022"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-001
+- FR-022
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T090
+- T091
+- T092
+- T093
+- T094
+phase: Phase 4 - Conversion sweep
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/
+create_intent: []
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/tasks/issue_matrix.py
+- src/specify_cli/review/cycle.py
+- src/specify_cli/consolidation/baseline.py
+- src/specify_cli/git/commit_helpers.py
+- src/specify_cli/missions/_read_path_resolver.py
+- src/specify_cli/migration/runtime_state_cutover.py
+- src/specify_cli/migration/backfill_runtime_state.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP17 – History and support module conversion

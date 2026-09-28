@@ -1,61 +1,63 @@
 ---
-work_package_id: "WP18"
-subtasks:
-  - "T095"
-  - "T096"
-  - "T097"
-  - "T098"
-  - "T099"
-  - "T100"
-title: "Single-authority gate closure and end-to-end proof"
-task_type: "implement"
-phase: "Phase 5 - Closure"
-execution_mode: "code_change"
-owned_files:
-  - "tests/architectural/test_owned_checkout_single_authority.py"
-  - "tests/architectural/_baselines.yaml"
-  - "tests/integration/test_owned_lifecycle_acceptance_e2e.py"
-  - "tests/performance/test_owned_checkout_perf.py"
-  - "tests/architectural/test_ratchet_baselines.py"
-authoritative_surface: "tests/architectural/"
-create_intent:
-  - "tests/architectural/test_owned_checkout_single_authority.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_e2e.py"
-  - "tests/performance/test_owned_checkout_perf.py"
+work_package_id: WP18
+title: Single-authority gate closure and end-to-end proof
 dependencies:
-  - "WP01"
-  - "WP02"
-  - "WP03"
-  - "WP04"
-  - "WP05"
-  - "WP06"
-  - "WP07"
-  - "WP08"
-  - "WP09"
-  - "WP10"
-  - "WP11"
-  - "WP12"
-  - "WP13"
-  - "WP14"
-  - "WP15"
-  - "WP16"
-  - "WP17"
+- WP01
+- WP02
+- WP03
+- WP04
+- WP05
+- WP06
+- WP07
+- WP08
+- WP09
+- WP10
+- WP11
+- WP12
+- WP13
+- WP14
+- WP15
+- WP16
+- WP17
 requirement_refs:
-  - "FR-001"
-  - "NFR-001"
-  - "NFR-002"
-  - "NFR-003"
-  - "NFR-005"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-001
+- NFR-001
+- NFR-002
+- NFR-003
+- NFR-005
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T095
+- T096
+- T097
+- T098
+- T099
+- T100
+phase: Phase 5 - Closure
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: tests/architectural/
+create_intent:
+- tests/architectural/test_owned_checkout_single_authority.py
+- tests/integration/test_owned_lifecycle_acceptance_e2e.py
+- tests/performance/test_owned_checkout_perf.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- tests/architectural/test_owned_checkout_single_authority.py
+- tests/architectural/_baselines.yaml
+- tests/integration/test_owned_lifecycle_acceptance_e2e.py
+- tests/performance/test_owned_checkout_perf.py
+- tests/architectural/test_ratchet_baselines.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP18 – Single-authority gate closure and end-to-end proof

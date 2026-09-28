@@ -1,47 +1,49 @@
 ---
-work_package_id: "WP02"
-subtasks:
-  - "T006"
-  - "T007"
-  - "T008"
-  - "T009"
-  - "T010"
-  - "T011"
-title: "Sole ownership minter and shared fixtures"
-task_type: "implement"
-phase: "Phase 1 - Foundation"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/core/owned_mission.py"
-  - "src/specify_cli/core/checkout_ownership.py"
-  - "tests/core/test_checkout_ownership.py"
-  - "tests/core/test_owned_mission_minter.py"
-  - "tests/core/test_adopt_owned_checkout.py"
-  - "tests/integration/conftest.py"
-  - "tests/integration/test_owned_fixtures_selftest.py"
-authoritative_surface: "src/specify_cli/core/"
-create_intent:
-  - "tests/core/test_owned_mission_minter.py"
-  - "tests/core/test_adopt_owned_checkout.py"
-  - "tests/integration/test_owned_fixtures_selftest.py"
+work_package_id: WP02
+title: Sole ownership minter and shared fixtures
 dependencies:
-  - "WP01"
+- WP01
 requirement_refs:
-  - "FR-002"
-  - "FR-020"
-  - "FR-021"
-  - "FR-023"
-  - "C-001"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-002
+- FR-020
+- FR-021
+- FR-023
+- C-001
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T006
+- T007
+- T008
+- T009
+- T010
+- T011
+phase: Phase 1 - Foundation
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/core/
+create_intent:
+- tests/core/test_owned_mission_minter.py
+- tests/core/test_adopt_owned_checkout.py
+- tests/integration/test_owned_fixtures_selftest.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/core/owned_mission.py
+- src/specify_cli/core/checkout_ownership.py
+- tests/core/test_checkout_ownership.py
+- tests/core/test_owned_mission_minter.py
+- tests/core/test_adopt_owned_checkout.py
+- tests/integration/conftest.py
+- tests/integration/test_owned_fixtures_selftest.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP02 – Sole ownership minter and shared fixtures

@@ -1,43 +1,45 @@
 ---
-work_package_id: "WP10"
-subtasks:
-  - "T050"
-  - "T051"
-  - "T052"
-  - "T053"
-  - "T054"
-  - "T055"
-title: "Mission creation: decompose and owned governance reads"
-task_type: "implement"
-phase: "Phase 3 - Commands and runtime"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/core/mission_creation.py"
-  - "src/specify_cli/cli/commands/agent/mission_create.py"
-  - "ruff.toml"
-  - "tests/core/test_mission_creation_owned_charter.py"
-  - "tests/core/test_mission_creation_decomposition.py"
-authoritative_surface: "src/specify_cli/core/mission_creation.py"
-create_intent:
-  - "tests/core/test_mission_creation_owned_charter.py"
-  - "tests/core/test_mission_creation_decomposition.py"
+work_package_id: WP10
+title: 'Mission creation: decompose and owned governance reads'
 dependencies:
-  - "WP02"
-  - "WP08"
+- WP02
+- WP08
 requirement_refs:
-  - "FR-016"
-  - "FR-017"
-  - "FR-026"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-016
+- FR-017
+- FR-026
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T050
+- T051
+- T052
+- T053
+- T054
+- T055
+phase: Phase 3 - Commands and runtime
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/core/mission_creation.py
+create_intent:
+- tests/core/test_mission_creation_owned_charter.py
+- tests/core/test_mission_creation_decomposition.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/core/mission_creation.py
+- src/specify_cli/cli/commands/agent/mission_create.py
+- ruff.toml
+- tests/core/test_mission_creation_owned_charter.py
+- tests/core/test_mission_creation_decomposition.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP10 – Mission creation: decompose and owned governance reads

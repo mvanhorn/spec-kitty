@@ -1,48 +1,50 @@
 ---
-work_package_id: "WP09"
-subtasks:
-  - "T044"
-  - "T045"
-  - "T046"
-  - "T047"
-  - "T048"
-  - "T049"
-title: "Owned status, plan setup and unsupported-action refusals"
-task_type: "implement"
-phase: "Phase 3 - Commands and runtime"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/cli/commands/agent/tasks.py"
-  - "src/specify_cli/cli/commands/agent/tasks_status_cmd.py"
-  - "src/specify_cli/cli/commands/agent/mission_setup_plan.py"
-  - "src/specify_cli/cli/commands/agent/workflow.py"
-  - "tests/specify_cli/cli/commands/agent/test_tasks_cli_contract.py"
-  - "tests/specify_cli/cli/commands/agent/test_mission_cli_golden_contract.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_status.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_cli.py"
-authoritative_surface: "src/specify_cli/cli/commands/agent/"
-create_intent:
-  - "tests/integration/test_owned_lifecycle_acceptance_status.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_cli.py"
+work_package_id: WP09
+title: Owned status, plan setup and unsupported-action refusals
 dependencies:
-  - "WP07"
-  - "WP08"
+- WP07
+- WP08
 requirement_refs:
-  - "FR-004"
-  - "FR-005"
-  - "FR-007"
-  - "FR-018"
-  - "FR-020"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-004
+- FR-005
+- FR-007
+- FR-018
+- FR-020
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T044
+- T045
+- T046
+- T047
+- T048
+- T049
+phase: Phase 3 - Commands and runtime
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/cli/commands/agent/
+create_intent:
+- tests/integration/test_owned_lifecycle_acceptance_status.py
+- tests/integration/test_owned_lifecycle_acceptance_cli.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/cli/commands/agent/tasks.py
+- src/specify_cli/cli/commands/agent/tasks_status_cmd.py
+- src/specify_cli/cli/commands/agent/mission_setup_plan.py
+- src/specify_cli/cli/commands/agent/workflow.py
+- tests/specify_cli/cli/commands/agent/test_tasks_cli_contract.py
+- tests/specify_cli/cli/commands/agent/test_mission_cli_golden_contract.py
+- tests/integration/test_owned_lifecycle_acceptance_status.py
+- tests/integration/test_owned_lifecycle_acceptance_cli.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP09 – Owned status, plan setup and unsupported-action refusals

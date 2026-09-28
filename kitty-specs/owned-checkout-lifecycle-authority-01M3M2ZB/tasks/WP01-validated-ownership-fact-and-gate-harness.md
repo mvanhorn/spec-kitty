@@ -1,44 +1,46 @@
 ---
-work_package_id: "WP01"
-subtasks:
-  - "T001"
-  - "T002"
-  - "T003"
-  - "T004"
-  - "T005"
-title: "Validated ownership fact and gate harness"
-task_type: "implement"
-phase: "Phase 1 - Foundation"
-execution_mode: "code_change"
-owned_files:
-  - "src/mission_runtime/owned_checkout.py"
-  - "src/mission_runtime/__init__.py"
-  - "tests/mission_runtime/test_owned_checkout.py"
-  - "tests/architectural/_owned_checkout_scan.py"
-  - "tests/architectural/test_owned_checkout_gate_selftest.py"
-  - "tests/architectural/test_mission_runtime_surface.py"
-  - ".github/workflows/ci-windows.yml"
-authoritative_surface: "src/mission_runtime/"
-create_intent:
-  - "src/mission_runtime/owned_checkout.py"
-  - "tests/mission_runtime/test_owned_checkout.py"
-  - "tests/architectural/_owned_checkout_scan.py"
-  - "tests/architectural/test_owned_checkout_gate_selftest.py"
+work_package_id: WP01
+title: Validated ownership fact and gate harness
 dependencies: []
 requirement_refs:
-  - "FR-001"
-  - "NFR-006"
-  - "C-003"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-001
+- NFR-006
+- C-003
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T001
+- T002
+- T003
+- T004
+- T005
+phase: Phase 1 - Foundation
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/mission_runtime/
+create_intent:
+- src/mission_runtime/owned_checkout.py
+- tests/mission_runtime/test_owned_checkout.py
+- tests/architectural/_owned_checkout_scan.py
+- tests/architectural/test_owned_checkout_gate_selftest.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/mission_runtime/owned_checkout.py
+- src/mission_runtime/__init__.py
+- tests/mission_runtime/test_owned_checkout.py
+- tests/architectural/_owned_checkout_scan.py
+- tests/architectural/test_owned_checkout_gate_selftest.py
+- tests/architectural/test_mission_runtime_surface.py
+- .github/workflows/ci-windows.yml
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP01 – Validated ownership fact and gate harness

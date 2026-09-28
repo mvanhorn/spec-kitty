@@ -1,45 +1,47 @@
 ---
-work_package_id: "WP16"
-subtasks:
-  - "T084"
-  - "T085"
-  - "T086"
-  - "T087"
-  - "T088"
-  - "T089"
-title: "Task command conversion"
-task_type: "implement"
-phase: "Phase 4 - Conversion sweep"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/cli/commands/agent/tasks_move_task.py"
-  - "src/specify_cli/cli/commands/agent/tasks_mark_status.py"
-  - "src/specify_cli/cli/commands/agent/tasks_shared.py"
-  - "src/specify_cli/cli/commands/agent/tasks_parsing_validation.py"
-  - "src/specify_cli/cli/commands/agent/tasks_verdict_persistence.py"
-  - "src/specify_cli/cli/commands/spec_commit_cmd.py"
-  - "src/specify_cli/cli/commands/agent/mission_check_prerequisites.py"
-  - "tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py"
-  - "tests/integration/test_owned_checkout_mark_status.py"
-authoritative_surface: "src/specify_cli/cli/commands/agent/"
-create_intent: []
+work_package_id: WP16
+title: Task command conversion
 dependencies:
-  - "WP07"
-  - "WP08"
-  - "WP09"
+- WP07
+- WP08
+- WP09
 requirement_refs:
-  - "FR-003"
-  - "FR-022"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-003
+- FR-022
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T084
+- T085
+- T086
+- T087
+- T088
+- T089
+phase: Phase 4 - Conversion sweep
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/cli/commands/agent/
+create_intent: []
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/cli/commands/agent/tasks_move_task.py
+- src/specify_cli/cli/commands/agent/tasks_mark_status.py
+- src/specify_cli/cli/commands/agent/tasks_shared.py
+- src/specify_cli/cli/commands/agent/tasks_parsing_validation.py
+- src/specify_cli/cli/commands/agent/tasks_verdict_persistence.py
+- src/specify_cli/cli/commands/spec_commit_cmd.py
+- src/specify_cli/cli/commands/agent/mission_check_prerequisites.py
+- tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py
+- tests/integration/test_owned_checkout_mark_status.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP16 – Task command conversion

@@ -1,39 +1,41 @@
 ---
-work_package_id: "WP14"
-subtasks:
-  - "T075"
-  - "T076"
-  - "T077"
-  - "T078"
-  - "T079"
-title: "Decompose and convert accept"
-task_type: "implement"
-phase: "Phase 4 - Conversion sweep"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/cli/commands/accept.py"
-  - "tests/specify_cli/cli/commands/test_accept_decomposition.py"
-authoritative_surface: "src/specify_cli/cli/commands/accept.py"
-create_intent:
-  - "tests/specify_cli/cli/commands/test_accept_decomposition.py"
+work_package_id: WP14
+title: Decompose and convert accept
 dependencies:
-  - "WP07"
-  - "WP08"
-  - "WP10"
+- WP07
+- WP08
+- WP10
 requirement_refs:
-  - "FR-003"
-  - "FR-022"
-  - "FR-026"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-003
+- FR-022
+- FR-026
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T075
+- T076
+- T077
+- T078
+- T079
+phase: Phase 4 - Conversion sweep
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/cli/commands/accept.py
+create_intent:
+- tests/specify_cli/cli/commands/test_accept_decomposition.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/cli/commands/accept.py
+- tests/specify_cli/cli/commands/test_accept_decomposition.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP14 – Decompose and convert accept

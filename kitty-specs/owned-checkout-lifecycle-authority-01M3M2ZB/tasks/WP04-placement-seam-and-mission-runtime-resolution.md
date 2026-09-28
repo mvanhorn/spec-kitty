@@ -1,45 +1,47 @@
 ---
-work_package_id: "WP04"
-subtasks:
-  - "T016"
-  - "T017"
-  - "T018"
-  - "T019"
-  - "T020"
-  - "T021"
-title: "Placement seam and mission-runtime resolution"
-task_type: "implement"
-phase: "Phase 2 - Seams"
-execution_mode: "code_change"
-owned_files:
-  - "src/mission_runtime/resolution.py"
-  - "src/mission_runtime/context.py"
-  - "src/specify_cli/task_utils/support.py"
-  - "tests/mission_runtime/test_placement_seam_owned.py"
-  - "tests/mission_runtime/test_resolution_owned.py"
-  - "tests/mission_runtime/test_owned_single_branch_ssot.py"
-  - "tests/mission_runtime/test_coord_read_seam_callers.py"
-authoritative_surface: "src/mission_runtime/"
-create_intent:
-  - "tests/mission_runtime/test_placement_seam_owned.py"
-  - "tests/mission_runtime/test_resolution_owned.py"
+work_package_id: WP04
+title: Placement seam and mission-runtime resolution
 dependencies:
-  - "WP02"
+- WP02
 requirement_refs:
-  - "FR-006"
-  - "FR-007"
-  - "FR-011"
-  - "FR-023"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-006
+- FR-007
+- FR-011
+- FR-023
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T016
+- T017
+- T018
+- T019
+- T020
+- T021
+phase: Phase 2 - Seams
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/mission_runtime/
+create_intent:
+- tests/mission_runtime/test_placement_seam_owned.py
+- tests/mission_runtime/test_resolution_owned.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/mission_runtime/resolution.py
+- src/mission_runtime/context.py
+- src/specify_cli/task_utils/support.py
+- tests/mission_runtime/test_placement_seam_owned.py
+- tests/mission_runtime/test_resolution_owned.py
+- tests/mission_runtime/test_owned_single_branch_ssot.py
+- tests/mission_runtime/test_coord_read_seam_callers.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP04 – Placement seam and mission-runtime resolution

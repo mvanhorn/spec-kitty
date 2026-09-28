@@ -1,46 +1,48 @@
 ---
-work_package_id: "WP07"
-subtasks:
-  - "T032"
-  - "T033"
-  - "T034"
-  - "T035"
-  - "T036"
-  - "T037"
-title: "Status transition pipeline takes the fact"
-task_type: "implement"
-phase: "Phase 2 - Seams"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/coordination/status_transition.py"
-  - "src/specify_cli/coordination/commit_router.py"
-  - "src/specify_cli/coordination/write_seam.py"
-  - "src/specify_cli/status/models.py"
-  - "src/specify_cli/status/transition_pipeline.py"
-  - "src/specify_cli/status/emit.py"
-  - "src/specify_cli/status/bootstrap.py"
-  - "src/specify_cli/agent_tasks_ports.py"
-  - "tests/specify_cli/coordination/test_status_transition.py"
-  - "tests/status/test_transition_request_owned.py"
-authoritative_surface: "src/specify_cli/coordination/status_transition.py"
-create_intent:
-  - "tests/status/test_transition_request_owned.py"
+work_package_id: WP07
+title: Status transition pipeline takes the fact
 dependencies:
-  - "WP04"
-  - "WP06"
+- WP04
+- WP06
 requirement_refs:
-  - "FR-003"
-  - "NFR-002"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-003
+- NFR-002
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T032
+- T033
+- T034
+- T035
+- T036
+- T037
+phase: Phase 2 - Seams
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/coordination/status_transition.py
+create_intent:
+- tests/status/test_transition_request_owned.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/coordination/status_transition.py
+- src/specify_cli/coordination/commit_router.py
+- src/specify_cli/coordination/write_seam.py
+- src/specify_cli/status/models.py
+- src/specify_cli/status/transition_pipeline.py
+- src/specify_cli/status/emit.py
+- src/specify_cli/status/bootstrap.py
+- src/specify_cli/agent_tasks_ports.py
+- tests/specify_cli/coordination/test_status_transition.py
+- tests/status/test_transition_request_owned.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP07 – Status transition pipeline takes the fact

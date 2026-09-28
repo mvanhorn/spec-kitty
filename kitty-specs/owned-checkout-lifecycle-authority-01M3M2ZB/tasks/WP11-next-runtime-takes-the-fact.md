@@ -1,58 +1,60 @@
 ---
-work_package_id: "WP11"
-subtasks:
-  - "T056"
-  - "T057"
-  - "T058"
-  - "T059"
-  - "T060"
-  - "T061"
-  - "T062"
-  - "T063"
-  - "T066"
-  - "T067"
-title: "next runtime takes the fact"
-task_type: "implement"
-phase: "Phase 3 - Commands and runtime"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/cli/commands/next_cmd.py"
-  - "src/runtime/next/runtime_bridge.py"
-  - "src/runtime/next/runtime_bridge_engine.py"
-  - "src/runtime/next/runtime_bridge_io.py"
-  - "src/runtime/next/next_invocation_lifecycle.py"
-  - "src/specify_cli/coordination/workspace.py"
-  - "tests/integration/test_explicit_checkout_commands.py"
-  - "tests/next/test_runtime_bridge_unit.py"
-  - "tests/specify_cli/cli/commands/test_next_answer_effective_root.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_next.py"
-  - "src/runtime/next/decision.py"
-  - "src/runtime/next/runtime_bridge_composition.py"
-authoritative_surface: "src/runtime/next/"
-create_intent:
-  - "tests/integration/test_owned_lifecycle_acceptance_next.py"
+work_package_id: WP11
+title: next runtime takes the fact
 dependencies:
-  - "WP05"
-  - "WP07"
-  - "WP08"
+- WP05
+- WP07
+- WP08
 requirement_refs:
-  - "FR-002"
-  - "FR-007"
-  - "FR-008"
-  - "FR-009"
-  - "FR-012"
-  - "FR-022"
-  - "FR-023"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-002
+- FR-007
+- FR-008
+- FR-009
+- FR-012
+- FR-022
+- FR-023
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T056
+- T057
+- T058
+- T059
+- T060
+- T061
+- T062
+- T063
+- T066
+- T067
+phase: Phase 3 - Commands and runtime
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/runtime/next/
+create_intent:
+- tests/integration/test_owned_lifecycle_acceptance_next.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/cli/commands/next_cmd.py
+- src/runtime/next/runtime_bridge.py
+- src/runtime/next/runtime_bridge_engine.py
+- src/runtime/next/runtime_bridge_io.py
+- src/runtime/next/next_invocation_lifecycle.py
+- src/specify_cli/coordination/workspace.py
+- tests/integration/test_explicit_checkout_commands.py
+- tests/next/test_runtime_bridge_unit.py
+- tests/specify_cli/cli/commands/test_next_answer_effective_root.py
+- tests/integration/test_owned_lifecycle_acceptance_next.py
+- src/runtime/next/decision.py
+- src/runtime/next/runtime_bridge_composition.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP11 – next runtime takes the fact

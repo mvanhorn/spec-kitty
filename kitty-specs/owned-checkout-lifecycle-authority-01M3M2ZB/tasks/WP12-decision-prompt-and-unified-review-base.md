@@ -1,43 +1,45 @@
 ---
-work_package_id: "WP12"
-subtasks:
-  - "T064"
-  - "T065"
-  - "T068"
-  - "T069"
-title: "Prompt building and unified review base"
-task_type: "implement"
-phase: "Phase 3 - Commands and runtime"
-execution_mode: "code_change"
-owned_files:
-  - "src/runtime/next/prompt_builder.py"
-  - "src/specify_cli/cli/commands/agent/workflow_executor.py"
-  - "src/specify_cli/core/worktree_topology.py"
-  - "src/mission_runtime/claim_commit.py"
-  - "tests/mission_runtime/test_claim_commit.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_review.py"
-authoritative_surface: "src/runtime/next/prompt_builder.py"
-create_intent:
-  - "src/mission_runtime/claim_commit.py"
-  - "tests/mission_runtime/test_claim_commit.py"
-  - "tests/integration/test_owned_lifecycle_acceptance_review.py"
+work_package_id: WP12
+title: Prompt building and unified review base
 dependencies:
-  - "WP11"
+- WP11
 requirement_refs:
-  - "FR-008"
-  - "FR-009"
-  - "FR-010"
-  - "FR-025"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-008
+- FR-009
+- FR-010
+- FR-025
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T064
+- T065
+- T068
+- T069
+phase: Phase 3 - Commands and runtime
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/runtime/next/prompt_builder.py
+create_intent:
+- src/mission_runtime/claim_commit.py
+- tests/mission_runtime/test_claim_commit.py
+- tests/integration/test_owned_lifecycle_acceptance_review.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/runtime/next/prompt_builder.py
+- src/specify_cli/cli/commands/agent/workflow_executor.py
+- src/specify_cli/core/worktree_topology.py
+- src/mission_runtime/claim_commit.py
+- tests/mission_runtime/test_claim_commit.py
+- tests/integration/test_owned_lifecycle_acceptance_review.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP12 – Prompt building and unified review base

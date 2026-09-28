@@ -1,41 +1,43 @@
 ---
-work_package_id: "WP06"
-subtasks:
-  - "T027"
-  - "T028"
-  - "T029"
-  - "T030"
-  - "T031"
-title: "Status surface authority"
-task_type: "implement"
-phase: "Phase 2 - Seams"
-execution_mode: "code_change"
-owned_files:
-  - "src/specify_cli/coordination/status_service.py"
-  - "src/specify_cli/coordination/surface_resolver.py"
-  - "src/specify_cli/coordination/transaction.py"
-  - "tests/specify_cli/coordination/test_owned_status_read_contract.py"
-  - "tests/specify_cli/coordination/test_status_surface_owned.py"
-authoritative_surface: "src/specify_cli/coordination/"
-create_intent:
-  - "tests/specify_cli/coordination/test_owned_status_read_contract.py"
-  - "tests/specify_cli/coordination/test_status_surface_owned.py"
+work_package_id: WP06
+title: Status surface authority
 dependencies:
-  - "WP02"
+- WP02
 requirement_refs:
-  - "FR-013"
-  - "FR-014"
-  - "C-002"
-agent_profile: "python-pedro"
-role: "implementer"
-agent: "claude"
-model: "claude-sonnet-5"
-assignee: ""
-shell_pid: ""
+- FR-013
+- FR-014
+- C-002
+planning_base_branch: claude/sleepy-hamilton-5lelee
+merge_target_branch: claude/sleepy-hamilton-5lelee
+branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+subtasks:
+- T027
+- T028
+- T029
+- T030
+- T031
+phase: Phase 2 - Seams
 history:
-  - at: "2026-09-28T15:00:00Z"
-    actor: "system"
-    action: "Prompt generated via /spec-kitty.tasks"
+- at: '2026-09-28T15:00:00Z'
+  actor: system
+  action: Prompt generated via /spec-kitty.tasks
+agent_profile: python-pedro
+authoritative_surface: src/specify_cli/coordination/
+create_intent:
+- tests/specify_cli/coordination/test_owned_status_read_contract.py
+- tests/specify_cli/coordination/test_status_surface_owned.py
+execution_mode: code_change
+model: claude-sonnet-5
+owned_files:
+- src/specify_cli/coordination/status_service.py
+- src/specify_cli/coordination/surface_resolver.py
+- src/specify_cli/coordination/transaction.py
+- tests/specify_cli/coordination/test_owned_status_read_contract.py
+- tests/specify_cli/coordination/test_status_surface_owned.py
+role: implementer
+tags: []
+task_type: implement
+tracker_refs: []
 ---
 
 # Work Package Prompt: WP06 – Status surface authority
