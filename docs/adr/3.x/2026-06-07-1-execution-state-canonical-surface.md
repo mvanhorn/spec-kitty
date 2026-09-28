@@ -157,6 +157,16 @@ later work, not a safety gate this surface must provide.
   unrelated `code_change` ("WP produces code"). Retiring it removes both the dead
   symbol and one half of that class-name/token footgun.
 
+- **2026-09-28 — `OwnedCheckout` added to the root surface (mission
+  `owned-checkout-lifecycle-authority-01M3M2ZB`).** `mission_runtime.OwnedCheckout` is the
+  validated ownership fact: the owned checkout, the repository root checkout, the mission's
+  stored topology and its target branch, proven once per command. The placement seam,
+  WP workspace resolution, the status transition pipeline, the `next` runtime and the prompt
+  builder consume it, so it lives in this package and adds no outbound edge into the CLI
+  application layer. It is minted only by `specify_cli.core.owned_mission` (architectural gate
+  G3) and is exported on the root because MR-1/MR-2 forbid submodule imports;
+  `tests/architectural/test_mission_runtime_surface.py` pins it in `_PUBLIC_SURFACE`.
+
 ## References
 
 - Mission spec: `kitty-specs/execution-state-canonical-surface-01KTG6P9/spec.md`
