@@ -228,3 +228,65 @@ operator**:
   the operator-directed reversal of the verify-4 residual's disposition. No new adversarial round was
   run against the resulting text this round, per the operator's own instruction that residual
   mechanism risk is carried forward to the tasks squad, analyze, and the red-first tests themselves.
+
+## Round-7 ruling
+
+Dated 2026-09-28, issued for the round-7 consistency pass (fresh-sweep verifier finding
+PLAN-FRESH5-006 against `reviews/plan-verify-6.yaml`). Quoted verbatim, attributed to **the
+operator**:
+
+> "Consistency pass, verify, close. A fresh fixer applies the round-6 graph-load carve-out (under
+> total graph-load failure, ids reachable only via transitive closure are covered by the single
+> loud `_graph/_load_failure` sentinel — no per-id record, no fail-closed) to EVERY
+> absolute-coverage claim in spec.md and plan.md — SC-001, the Key Entities 'CharterReference'
+> bullet, the 'all activated references of a kind … unresolvable (misconfigured pack root)' Edge
+> Case, and any other 'every activated id' / 'never silently' / 'at any cardinality' / 'must never
+> vanish' sentence found by a systematic grep, not only the two named. No new mechanism, no new
+> requirements. A fresh verifier confirms no absolute-coverage claim remains without the carve-out.
+> On pass, commit the whole trail; on fail, report without starting another round."
+
+### Disposition
+
+A systematic grep (case-insensitive) of `spec.md`, `plan.md`, and `contracts/charter-generate-json-diagnostics.md`
+for `every activated`, `never silent`, `silently`, `any cardinality`, `never vanish`, `must never`,
+`all activated`, `exhaustive`, and the near-variants `no trace`, `vacuous`, `omission`, `dropped`,
+`accounted for`, `coherent` turned up 20 distinct hits. Full hit-by-hit list with dispositions
+(carve-out applied / not-a-claim-and-why) is recorded in `tracer-design-decisions.md`'s new dated
+entry, "Decision: round 7 — apply the round-6 graph-load carve-out to every remaining
+absolute-coverage claim (closes PLAN-FRESH5-006)".
+
+Three genuine absolute-coverage claims were found still lacking the round-6 carve-out and were fixed,
+all three named explicitly in the operator's ruling:
+
+- **SC-001** (spec.md, Measurable Outcomes) — gained: "except for ids reachable only via DRG-transitive
+  closure when the whole DRG graph fails to load, which are covered collectively — never individually —
+  by the single loud `_graph`/`_load_failure` sentinel diagnostic (see Edge Cases; FR-001)."
+- **Key Entities "CharterReference" bullet** (spec.md) — gained: "except for an id reachable only via
+  DRG-transitive closure when the whole DRG graph fails to load, which is covered collectively with
+  other such ids — never individually as a `CharterReference` — by the single loud `_graph`/
+  `_load_failure` sentinel diagnostic (see Edge Cases; FR-001)."
+- **Edge Case "All activated references of a kind... are unresolvable"** (spec.md, the
+  misconfigured-pack-root case) — gained: "except for a kind whose activated ids are reachable only via
+  DRG-transitive closure when the whole DRG graph fails to load, which is covered collectively — never
+  individually or via fail-closed exit — by the single loud `_graph`/`_load_failure` sentinel diagnostic
+  (see FR-001)."
+
+All three edits reuse FR-001's own already-committed carve-out clause verbatim (or a minimally
+grammar-adapted form of it), rather than inventing a fourth distinct wording, so the doctrine now
+reads as one consistent carve-out across all five spec.md sites that state it (FR-001, the "Activated
+reference id" bullet, and these three) plus plan.md's I1/I2.
+
+Every other grep hit — in both spec.md and plan.md, and the one contracts-doc hit — was determined,
+per-hit, to be either (a) already carved in round 6 (FR-001's table cell, the "Activated reference id"
+bullet, I1, I2 — re-verified intact, not re-edited) or (b) not an absolute-coverage claim the
+graph-load carve-out implicates at all: several are scoped explicitly to the `SCOPE_FILTERED` cause
+only (which has no graph-load-failure exception of its own — spec.md AS4/SC-005, the WP-ATDD/FR-005
+fixture assertions, plan.md's Charter-Check seam description and IC-01 Purpose), several describe a
+different, non-overlapping mechanism (the contract doc's Round-5 addition, which presupposes the DRG
+graph loaded successfully), and the remainder are historical/narrative/purpose prose (mission history,
+gate-applicability notes, a classification-correctness risk, a test's own not-vacuous assertion) that
+make no per-id/per-kind completeness guarantee in the first place. No new mechanism, no new
+requirement, and no FR/NFR/SC was added — every edit narrows/qualifies existing absolute wording to
+match the already-ruled invariant. Re-read spec.md, plan.md, and the contracts doc in full after
+editing: no absolute-coverage claim survives that contradicts the round-6 carve-out, and no edit
+contradicts any standing round 3–6 ruling above.

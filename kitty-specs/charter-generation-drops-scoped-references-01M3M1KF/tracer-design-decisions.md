@@ -444,3 +444,131 @@ Shape"'s commit count was corrected from "six" to "five". Net effect: plan.md sh
 lines despite these additions, because far more line-level mechanism prose was deleted than was
 added back as invariants/sketch/table. See `reviews/plan.ruling.md`'s "Round-5 ruling" →
 "Disposition" for the finding-by-finding closure record.
+
+## Decision: round 7 — apply the round-6 graph-load carve-out to every remaining absolute-coverage claim (closes PLAN-FRESH5-006)
+
+**Context.** `reviews/plan-verify-6.yaml` (the round-7 fresh-sweep verifier) found that round 6 applied
+the graph-load carve-out (total graph-load failure → ids reachable only via transitive closure are
+covered collectively, never individually, by the single loud `_graph`/`_load_failure` sentinel — no
+per-id record, no fail-closed) to only two of spec.md's absolute-coverage sentences (FR-001's table
+cell and the Key Entities "Activated reference id" bullet), leaving other "every activated" / "never
+silently" / "must never" sentences uncarved, specifically SC-001 and the Key Entities "CharterReference"
+bullet.
+
+**Operator ruling (round 7, quoted in full in `reviews/plan.ruling.md`'s "Round-7 ruling" section):**
+apply the carve-out to every absolute-coverage claim in spec.md and plan.md — SC-001, the "CharterReference"
+bullet, the misconfigured-pack-root Edge Case, and any other hit a systematic grep turns up — no new
+mechanism, no new requirements; a fresh verifier confirms none remain.
+
+**Systematic grep** (case-insensitive) across `spec.md`, `plan.md`, `contracts/charter-generate-json-diagnostics.md`
+for: `every activated`, `never silent`, `silently`, `any cardinality`, `never vanish`, `must never`,
+`all activated`, `exhaustive`, plus near-variants `no trace`, `vacuous`, `omission`, `dropped`,
+`accounted for`, `coherent`. Every hit and its disposition:
+
+1. **spec.md:58, Edge Case "All activated references of a kind... are unresolvable"** (misconfigured
+   pack root) — **carve-out applied.** Named explicitly in the ruling; this is the sibling absolute
+   claim FR-001 itself cross-references via "(see Edge Cases)". Added: "except for a kind whose
+   activated ids are reachable only via DRG-transitive closure when the whole DRG graph fails to load,
+   which is covered collectively — never individually or via fail-closed exit — by the single loud
+   `_graph`/`_load_failure` sentinel diagnostic (see FR-001)" — reusing FR-001's own already-committed
+   clause verbatim for consistency.
+2. **spec.md:94, Key Entities "CharterReference" bullet** ("must never silently vanish for an activated
+   id") — **carve-out applied.** Named explicitly in the ruling. Added the matching exception clause,
+   naming the `_graph`/`_load_failure` sentinel as the collective substitute for a per-id row.
+3. **spec.md:104, SC-001** ("every activated reference id is either present... or corresponds to...
+   diagnostic — never a silent omission with no trace") — **carve-out applied.** Named explicitly in
+   the ruling. Added the matching exception clause.
+4. **spec.md:69, FR-001 table cell** — **already carved (round 6).** No further edit; re-verified this
+   round that its existing clause ("except for ids reachable only via DRG-transitive closure when the
+   whole DRG graph fails to load, which are covered collectively by one loud, structured diagnostic
+   rather than individually or via fail-closed exit") is intact and is the template this round's three
+   new edits echo.
+5. **spec.md:97, Key Entities "Activated reference id" bullet** — **already carved (round 6).** No
+   further edit; its existing "Exception: an id reachable only via DRG-transitive closure... is
+   accounted for collectively, not individually, when the whole DRG graph fails to load" clause is
+   intact.
+6. **plan.md:310-320 (I1) and :321-334 (I2)** — **already carved (round 6).** Both invariants carry
+   their own "Carve-out (total graph-load failure)" paragraphs. No further edit.
+7. **spec.md:23, User Story 1 Acceptance Scenario 4** (every activated `toolguide` id excluded by
+   language scope... never a silently empty `toolguide` section) — **not a coverage claim needing the
+   carve-out — why:** this scenario's fixture is entirely `SCOPE_FILTERED` (directly config-activated
+   `toolguide` ids excluded by language, not DRG-transitive-closure-only ids), and per plan.md's IC-01
+   "Relevant requirements" note, SC-005/AS4 back only the unconditional `SCOPE_FILTERED` placeholder
+   mechanism, which has no graph-load-failure exception — `graph.unresolved`/transitive closure is not
+   involved in this fixture at all.
+8. **spec.md:108, SC-005** (same "every activated `toolguide` id... never silently empty" wording) —
+   **not a coverage claim needing the carve-out — why:** identical reasoning to (7); SC-005 is scoped
+   to the same AS4 `SCOPE_FILTERED`-only fixture per plan.md's own IC-01 citation, explicitly stated
+   there to NOT exercise the whole-kind `MISSING_ARTIFACT` (let alone graph-load-failure) mechanism.
+9. **spec.md:16, User Story 1 Independent Test** ("never a silent omission with only a diagnostics-list
+   entry nobody reads") — **not a coverage claim needing the carve-out — why:** scoped to a single
+   directly-config-activated `SCOPE_FILTERED` id (`activated_styleguides`/`_toolguides`/`_agent_profiles`),
+   not a DRG-transitive-closure/graph-load-failure scenario.
+10. **spec.md:22, User Story 1 Acceptance Scenario 3** ("`styleguide/java-conventions` present in
+    `catalog.references`... rather than missing") — **not a coverage claim needing the carve-out — why:**
+    names one concrete, directly-activated `SCOPE_FILTERED` id from Scenario 1's fixture, not a
+    graph-load-failure/transitive-only case.
+11. **spec.md:37, User Story 2 Acceptance Scenario 1** ("none of the fixture's activated ids are missing
+    from `catalog.references`") — **not a coverage claim needing the carve-out — why:** the FR-005
+    fixture (the six #5257 ids plus one more) is built entirely from directly-activated,
+    language/scope-filtered ids per spec.md:29/plan.md's WP-ATDD description ("no Java/TypeScript
+    signal activating those six ids plus one more") — no graph-load failure or transitive-only id is
+    part of this fixture.
+12. **plan.md:232, WP-ATDD step** ("Assert: (a) every fixture id is present in `catalog.references`") —
+    **not a coverage claim needing the carve-out — why:** same WP-ATDD/FR-005 fixture as (11); no
+    graph-load-failure scenario present.
+13. **plan.md:30, Charter Check seam description** ("a `SCOPE_FILTERED` miss is preserved... never
+    silently dropped") — **not a coverage claim needing the carve-out — why:** describes the
+    unconditional `SCOPE_FILTERED`-cause classification branch specifically, which has no
+    graph-load-failure exception in its own right (a `SCOPE_FILTERED` classification requires the id to
+    have actually been looked up against a live repository — it is not the transitive-closure-only-under-
+    total-graph-failure case I1/I2's carve-out addresses).
+14. **plan.md:406, IC-01 Purpose** ("making every activated-but-unresolvable id whose cause is
+    `SCOPE_FILTERED` a placeholder... uniformly regardless of cardinality") — **not a coverage claim
+    needing the carve-out — why:** identical reasoning to (13); explicitly cause-scoped to
+    `SCOPE_FILTERED`, not a blanket "every activated id" claim.
+15. **plan.md:290/292-293, WP-CORE reconciliation decision 3 prose** ("mechanisms that satisfy FR-001
+    'at any cardinality'"; "exactly the vacuous success FR-001 forbids") — **not a coverage claim
+    needing the carve-out — why:** historical design-rationale prose explaining the `MISSING_ARTIFACT`/
+    `TYPO_SUSPECTED` whole-kind gap decision 3 closed (round 2), not itself a forward-looking absolute
+    guarantee; it paraphrases FR-001's pre-carve-out wording in a discussion of a graph-load-failure-
+    unrelated cause. FR-001 itself (the source being paraphrased) already carries the carve-out at its
+    point of record.
+16. **plan.md:10, Summary** ("This mission makes that loss impossible"; "never a silent omission, never
+    a second fail-closed code path") — **not a coverage claim needing the carve-out — why:** "that loss"
+    refers explicitly, in the same sentence, to "the actual #5257/#5253 defect" — a directly-activated,
+    scope-filtered id — not the transitive-closure-only/graph-load-failure case; editing high-level
+    Summary prose beyond what the ruling named risks scope creep the ruling's "no new mechanism, no new
+    requirements" / minimal-edit framing does not call for.
+17. **plan.md:410, IC-01 Risks (2)** ("a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` id must never fall through
+    to the placeholder branch") — **not a coverage claim needing the carve-out — why:** a classification-
+    correctness guard (don't misclassify), not a per-id completeness/coverage guarantee; unrelated to
+    the graph-load carve-out.
+18. **plan.md:431, IC-04 Purpose** ("pin this defect class... so it cannot silently regress") —
+    **not a coverage claim — why:** describes a test's purpose, not a system behavior guarantee.
+19. **plan.md:50/91/98/334**, **spec.md:10/12/14/29/31/38/60/61/73/74/87/105** — **not coverage claims —
+    why:** matched only on generic "silently"/"coherent"/"vacuous"/"dropped" usage describing gate
+    applicability, test-baseline rationale, campsite-clean-decision documentation, mission narrative/
+    history (#5253, #5257), backward-compatibility (FR-006), the parity-guard constraint (C-001), the
+    already-carved I2 carve-out's own closing clause (plan.md:334), or a test's own not-vacuous
+    assertion — none assert unconditional per-id/per-kind completeness in a context the graph-load
+    carve-out could contradict.
+20. **contracts/charter-generate-json-diagnostics.md:130** ("each of these still gets a real entry —
+    never silently dropped") — **not a coverage claim needing the carve-out — why:** this is the
+    Round-5 addition section describing four `graph.unresolved`-URN-unattributable classes (malformed
+    URN, unrecognized kind, no-repository kind, valid-but-untracked kind) that presuppose the DRG graph
+    itself loaded successfully (only individual URNs within it are unattributable to a tracked kind) —
+    a different mechanism from I1/I2's total-graph-load-failure carve-out, and not in tension with it:
+    under total graph-load failure, `graph.unresolved` is never populated at all (per I2), so this
+    section's guarantee and the carve-out apply to disjoint, non-overlapping scenarios.
+
+**Edits applied (minimal, style-preserving, no new mechanism/requirement):** spec.md's Edge Case "All
+activated references of a kind... are unresolvable" (line 58), the Key Entities "CharterReference"
+bullet (line 94), and SC-001 (line 104) each gained a carve-out clause matching FR-001's own
+already-committed phrasing pattern (reusing "covered collectively... by the single loud
+`_graph`/`_load_failure` sentinel diagnostic... rather than individually or via fail-closed exit", or
+the same clause naming, adapted grammatically per site) — the same doctrine FR-001 and the "Activated
+reference id" bullet already state, now applied uniformly across every genuine absolute-coverage claim
+found by the systematic grep. plan.md required no edits: every plan.md hit was either already carved
+(I1/I2, round 6) or is scoped to a mechanism (`SCOPE_FILTERED`-cause-specific, or historical/purpose
+prose) the carve-out does not implicate.
