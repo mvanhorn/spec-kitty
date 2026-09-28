@@ -1,0 +1,106 @@
+# Mission Specification: Charter generation drops configured scoped references and breaks parity
+
+**Mission Branch**: `fix/charter-generation-drops-scoped-references-5257`
+**Created**: 2026-09-28
+**Status**: Draft
+**Input**: GitHub issue [#5257](https://github.com/spec-kitty/spec-kitty/issues/5257) — "Charter generation drops configured scoped references and breaks parity"
+
+## User Scenarios & Testing *(mandatory)*
+
+### User Story 1 - Regeneration must not silently drop an activated, language/scope-filtered reference (Priority: P1)
+
+A spec-kitty maintainer runs `spec-kitty charter generate --force` (or `--force --json`) in a repository whose `.kittify/charter/charter.yaml` activation lists include doctrine artifacts scoped to a language the repo's own `active_languages` inference does not detect (for example, a Java styleguide or a TypeScript toolguide activated in a repo `infer_repo_languages` reports as Python-only). Today, `_render_kind_references` (`src/charter/activation/compiler.py`) looks these ids up against a "raw" per-kind repository that is not actually unfiltered — `raw_repository(kind)` (`src/charter/activation/resolver.py`) strips only the nine gated properties' *activation-config* filter; the underlying `charter.offering.service.DoctrineService` it delegates to was constructed with `active_languages=infer_repo_languages(repo_root)` already baked in at `__init__` (`src/charter/offering/service.py`, `doctrine_service_builder.py`), so `StyleguideRepository`/`ToolguideRepository`/`AgentProfileRepository.get(id)` still filters by language/scope even though the id is a legitimate, present-on-disk activation. The lookup misses, the generator appends `"Unresolved reference: <kind>/<id>"` to a diagnostics list, and the id is simply absent from `catalog.references` — no placeholder, no fail-closed guidance. The maintainer expects the compiled catalog to remain coherent with the activation list they configured: either the reference survives (placeholder or resolved), or generation refuses to proceed with a specific, actionable message.
+
+**Why this priority**: This is the mission's defect. Without a fix, every fresh `charter generate` in a repo with any language/scope-mismatched activated reference produces an incoherent charter that fails `tests/doctrine/test_activation_parity_guard.py::test_this_project_charter_pack_is_coherent`, and the only way anyone found out (#5253) was a human noticing CI failure and hand-repairing the catalog — the generator itself gave no warning proportionate to the loss.
+
+**Independent Test**: Configure `.kittify/config.yaml` with a language/scope-filtered id in `activated_styleguides` (or `_toolguides`/`_agent_profiles`) in a repo whose detected `active_languages` excludes that scope, run `charter generate --force`, and confirm the id is either present in `catalog.references` (placeholder or resolved) or generation exits non-zero with a message naming the id and the reason — never a silent omission with only a diagnostics-list entry nobody reads.
+
+**Acceptance Scenarios**:
+
+1. **Given** `.kittify/charter/charter.yaml` activates `styleguide/java-conventions` in a repo whose `infer_repo_languages` result excludes `java`, **When** `spec-kitty charter generate --force` runs, **Then** `catalog.references` still contains an entry for `styleguide/java-conventions` (a deterministic placeholder is acceptable) OR the command exits non-zero before writing any catalog, printing a message that names `styleguide/java-conventions` and states the reason is language/scope exclusion, not that it does not exist.
+2. **Given** the same fixture, **When** `spec-kitty charter generate --force --json` runs, **Then** the JSON output's diagnostics field carries the same reference id and reason machine-readably (not only as free text an automated caller would have to string-match), so CI and readiness probes consuming `--json` can detect the condition without parsing prose.
+3. **Given** a freshly generated catalog from scenario 1, **When** `PYTHONPATH=src .venv/bin/pytest -q tests/doctrine/test_activation_parity_guard.py::test_this_project_charter_pack_is_coherent` runs against it, **Then** the test passes.
+
+---
+
+### User Story 2 - A generator-to-parity regression test catches this defect class before it reaches `main` (Priority: P1)
+
+CI, not a human noticing a failing shard, must be the thing that catches a future reintroduction of this defect. Issue #5253 shows the current gap: a full regeneration silently dropped six ids, the parity guard caught the *symptom* (an already-generated, already-committed catalog was incoherent), but nothing in the suite exercises the *generator itself* against a fixture containing a language/scope-filtered activated reference and asserts the emitted catalog stays parity-coherent. `tests/doctrine/test_activation_parity_guard.py` proves an existing catalog is or isn't coherent; it does not call `compile_charter`/`charter generate` and re-check coherence on the output.
+
+**Why this priority**: The issue's acceptance bar explicitly requires this ("Add a generator-to-parity test with these six activated IDs... Assert no configured ID disappears silently and `test_this_project_charter_pack_is_coherent` passes after generation"). Without it, the fix in User Story 1 is unverified by the suite and can regress silently again exactly as it did between the "baseline `Definition unavailable` placeholder records" state and the #5253 full-generation snapshot.
+
+**Independent Test**: Revert only the User Story 1 fix (keep the new test) and confirm the new test fails red; restore the fix and confirm it passes green — proving the test actually depends on the fix rather than passing for an unrelated reason.
+
+**Acceptance Scenarios**:
+
+1. **Given** a test fixture repo whose activation list includes the six ids named in #5257 (`styleguide/java-conventions`, `toolguide/maven-review-checks`, `toolguide/typescript-mutation-tools`, `agent-profile/frontend-freddy`, `agent-profile/java-jenny`, `agent-profile/node-norris`) plus at least one additional, differently-scoped id exercising the same class (e.g. a language-filtered tactic or procedure) so the test proves the general mechanism and not six special cases, **When** the test runs the real `compile_charter`/`charter generate` production entry point (not an internal helper) and then feeds the result through `run_consistency_check`, **Then** the result is coherent and none of the fixture's activated ids are missing from `catalog.references`.
+2. **Given** the pre-fix generator code, **When** the same test runs, **Then** it fails (red), demonstrating the test is not vacuous.
+
+---
+
+### User Story 3 - An operator can tell "never existed" apart from "exists but filtered out" (Priority: P2)
+
+When a reference is unresolved, an operator investigating the diagnostic needs to know immediately whether the id was mistyped or deleted from the doctrine pack (genuinely absent) or whether it exists on disk but is excluded by the current language/scope inference (recoverable by reconciling activation, not by fixing a typo). Today both cases produce the identical string `"Unresolved reference: <kind>/<id>"`, so the operator cannot distinguish them without reading compiler source.
+
+**Why this priority**: Lower than the silent-drop fix itself (User Story 1) because it is a diagnosability improvement on top of a mechanism that must exist regardless — but the issue's "Document any deliberate unresolved-reference policy" acceptance point and this repo's silent-success rule both require the *reason* to be visible, not just the *fact* of non-resolution.
+
+**Independent Test**: Trigger both conditions against the same repository fixture (one id genuinely deleted from the doctrine pack, one id present but language/scope-filtered) and confirm the two diagnostic messages differ in a machine-checkable way (e.g. a distinct reason code or phrase), proving the probe discriminates rather than always emitting the same string.
+
+**Acceptance Scenarios**:
+
+1. **Given** an activated id with no corresponding artifact anywhere under `packs/built-in/` or any configured org/project pack root, **When** generation runs, **Then** the diagnostic/placeholder states the artifact does not exist in any known doctrine layer.
+2. **Given** an activated id whose artifact file exists on disk but is excluded solely by language/scope filtering, **When** generation runs, **Then** the diagnostic/placeholder states the artifact exists but is filtered by scope, and names the scope condition (e.g. the active-language set that excluded it).
+
+### Edge Cases
+
+- **Reference that never existed at all vs. real-but-filtered-out**: both must be reported, but with distinguishable reasons (User Story 3) — collapsing them into one generic "unresolved" message is itself a silent-success failure, because an operator cannot act on an undifferentiated message.
+- **All activated references of a kind (or all references overall) are unresolvable** (e.g. a misconfigured pack root, or every styleguide selection scoped to a language the repo doesn't use): generation must still fail closed with actionable guidance or preserve every one as a placeholder — it must never silently write an empty-for-that-kind but structurally "successful" catalog. An empty result set here is indistinguishable, to a downstream reader of `catalog.references`, from "this repo legitimately activated nothing of this kind," which is exactly the ambiguity the fix must remove.
+- **`--force` interaction**: `--force` governs whether an existing catalog file may be overwritten; it must not change whether an unresolved reference is preserved or loudly reported. Diagnostic/placeholder behavior must be identical with and without `--force` on the same fixture.
+- **A repo whose committed `.kittify/charter/charter.yaml` already carries the pre-fix `"Definition unavailable"` placeholder baseline** (this repo's own committed state, per #5257, is coherent today): the fix must not require that repo to regenerate to stay valid, and a regeneration after the fix lands must not further diverge from — or silently discard — that existing placeholder convention.
+- **Mid-flight missions**: charter generation is doctrine machinery every mission's governance depends on. The fix changes behavior only inside `spec-kitty charter generate` invocations; it must not mutate any committed `charter.yaml` outside of an explicit generate/sync call, so a mission already in flight against a currently-coherent charter is unaffected until someone explicitly regenerates.
+
+## Requirements *(mandatory)*
+
+### Functional Requirements
+
+| ID | Title | User Story | Priority | Status | Delivery | No-op passable? |
+|----|-------|------------|----------|--------|----------|-----------------|
+| FR-001 | Preserve or loudly report an activated-but-unresolvable reference | As a spec-kitty maintainer, I want `charter generate` to never silently omit a configured reference id from `catalog.references` so that the compiled charter cannot drift into an incoherent state without warning. | High | Open | [build] | no |
+| FR-002 | Distinguish never-existed from filtered-by-scope in the unresolved reason | As an operator debugging a diagnostic, I want the message to state whether an id has no known doctrine artifact at all versus exists but is excluded by language/scope, so that I reconcile the right thing (a typo vs. an activation/scope decision). | High | Open | [build] | no |
+| FR-003 | `--force` does not change unresolved-reference handling | As an operator, I want `--force` to control only catalog overwrite permission, not whether unresolved references are preserved/reported, so that forcing a regeneration cannot become a way to suppress the loud-report path. | Medium | Open | [ratchet] | yes — paired with FR-001's same-fixture run without `--force` as the positive control proving the two runs produce identical diagnostic/placeholder content |
+| FR-004 | Fail closed when every activated reference of a kind is unresolvable | As a spec-kitty maintainer, I want generation to refuse to silently succeed when an entire kind's activation list resolves to nothing, so that a misconfigured pack root or scope produces a loud failure instead of a catalog that looks like "nothing was activated." | High | Open | [build] | no |
+| FR-005 | Machine-readable diagnostics in `--json` output | As CI or an automated readiness probe, I want `charter generate --force --json`'s output to carry unresolved-reference id and reason in a structured (non-prose-only) field, so that automated callers can detect the condition without string-matching free text. | High | Open | [build] | no |
+| FR-006 | Generator-to-parity regression test for the defect class | As the spec-kitty test suite, I want a test that runs the real `compile_charter`/`charter generate` production entry point against a fixture activating the six #5257 ids plus at least one additional differently-scoped id, then asserts `run_consistency_check` reports coherent with none of the fixture's ids missing, so that this exact defect class cannot silently regress. | High | Open | [build] | no |
+| FR-007 | Backward-compatible for already-coherent committed charters | As a maintainer of a repo whose committed `charter.yaml` is already coherent (including this repo's own, per #5257), I want the fix to not require regenerating to remain valid, and not to mutate any charter.yaml outside an explicit `generate`/`sync` invocation, so that missions mid-flight against today's charter are unaffected until someone opts into regeneration. | Medium | Open | [ratchet] | yes — paired with FR-001's fixture run: a repeat generation of a fixture with zero unresolved ids produces a byte-identical catalog, proving the fix path is inert when there is nothing to reconcile |
+
+### Non-Functional Requirements
+
+| ID | Title | Requirement | Category | Priority | Status |
+|----|-------|-------------|----------|----------|--------|
+| NFR-001 | Idempotent regeneration | Running `spec-kitty charter generate --force` twice in immediate succession against an unchanged repo and config produces a byte-identical `catalog.references` (same ids, same order, same placeholder content) both times. | Reliability | High | Open |
+| NFR-002 | Actionable diagnostic content | Every unresolved-reference diagnostic and every placeholder entry names the specific `kind/id` and its reason category (never-existed vs. filtered-by-scope); a reason-less or id-less diagnostic does not satisfy this requirement. | Reliability | High | Open |
+
+### Constraints
+
+| ID | Title | Constraint | Category | Priority | Status |
+|----|-------|------------|----------|----------|--------|
+| C-001 | No weakening the parity guard | `tests/doctrine/test_activation_parity_guard.py` (including `test_this_project_charter_pack_is_coherent`) must not be relaxed, skipped, or have any of its assertions loosened to make this mission's changes pass. | Technical | High | Open |
+| C-002 | No hard-coded exception for the six named ids | The fix must address the general class (any activated reference of any kind that a raw-but-language/scope-filtered repository fails to resolve), not special-case the literal strings `styleguide/java-conventions`, `toolguide/maven-review-checks`, `toolguide/typescript-mutation-tools`, `agent-profile/frontend-freddy`, `agent-profile/java-jenny`, or `agent-profile/node-norris`. | Technical | High | Open |
+| C-003 | No machine-local absolute paths reintroduced | The fix must not reintroduce machine-local absolute `source_path` values into `catalog.references`; provenance stays portable (per #5253's `${SPEC_KITTY_PACKS_ROOT}`-relative convention). | Technical | Medium | Open |
+| C-004 | Public repo hygiene | The spec, plan, tasks, and code changes for this mission must not cite any local filesystem path (e.g. `/home/<user>/...`) or private-repo/ledger detail; #5257 is the sole citable source. | Business | Medium | Open |
+
+### Key Entities *(include if the mission involves data)*
+
+- **CharterReference**: one compiled row in `catalog.references` (id, kind, title, summary, source_path) produced by `_render_kind_references`/`_build_references_from_service` in `src/charter/activation/compiler.py`. This is the entity that must never silently vanish for an activated id.
+- **Unresolved diagnostic**: an entry currently recorded as the free-text string `"Unresolved reference: <kind>/<id>"` when a raw-repository lookup returns `None`. Must gain a reason (never-existed vs. filtered-by-scope) and a machine-readable form in `--json` output.
+- **Raw-but-scoped repository**: the object `_raw_kind_repository`/`DoctrineService.raw_repository(kind)` returns. It strips only the nine gated properties' *activation-config* filter; the underlying `charter.offering.service.DoctrineService` (`src/charter/offering/service.py`) it wraps was already constructed with `active_languages=infer_repo_languages(repo_root)` baked in at `__init__` (`src/charter/activation/doctrine_service_builder.py`), so per-kind repositories such as `StyleguideRepository`/`ToolguideRepository`/`AgentProfileRepository` still apply language/scope filtering inside `.get(id)` even against this "raw" accessor. This is the root-cause seam the fix operates on.
+- **Activated reference id**: an id present in `.kittify/charter/charter.yaml`'s activation lists (or DRG-transitively reachable from an activated directive, per `_resolve_transitive_reference_graph`) that the compiler is contractually obligated to account for — resolved, placeholdered, or loudly reported — in every compiled catalog.
+
+## Success Criteria *(mandatory)*
+
+### Measurable Outcomes
+
+- **SC-001**: A fresh `spec-kitty charter generate --force --json` run in this repository produces a catalog where every activated reference id is either present in `catalog.references` or corresponds to an explicit, id-and-reason-bearing diagnostic in the structured JSON output — never a silent omission with no trace. — [build] · no-op passable: no
+- **SC-002**: `PYTHONPATH=src .venv/bin/pytest -q tests/doctrine/test_activation_parity_guard.py::test_this_project_charter_pack_is_coherent` passes against the output of that same fresh regeneration (not only against the pre-existing committed baseline). — [ratchet] · no-op passable: yes — paired with SC-001's positive-drop control demonstrating the same run that satisfies SC-001 also satisfies parity
+- **SC-003**: The new generator-to-parity regression test (FR-006) fails red against the pre-fix generator and passes green after the fix, covering the six #5257 ids plus at least one additional id proving the general mechanism. — [build] · no-op passable: no
+- **SC-004**: A diff of `tests/doctrine/test_activation_parity_guard.py` between the mission's base commit and its final commit contains no removed or loosened assertions, and no new code path anywhere in the diff pattern-matches on any of the six literal ids from #5257. — [ratchet] · no-op passable: no
