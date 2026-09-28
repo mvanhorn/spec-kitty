@@ -1,7 +1,7 @@
 {
-  "event_count": 10,
-  "last_event_id": "01M3MWGPVDWY3VP0J9MC3E6X9P",
-  "materialized_at": "2026-09-28T20:50:17.069523+00:00",
+  "event_count": 11,
+  "last_event_id": "01M3MWVFR58AS8H04MW57HVMY6",
+  "materialized_at": "2026-09-28T20:56:10.245487+00:00",
   "mission_number": "",
   "mission_slug": "charter-generation-drops-scoped-references-01M3M1KF",
   "mission_type": "software-dev",
@@ -12,9 +12,9 @@
     "canceled": 0,
     "claimed": 0,
     "done": 0,
-    "for_review": 2,
+    "for_review": 1,
     "in_progress": 0,
-    "in_review": 0,
+    "in_review": 1,
     "planned": 2
   },
   "work_packages": {
@@ -25,15 +25,15 @@
       "agent_profile_version": "__resolved_profile_version_absent__",
       "force_count": 0,
       "implementer_of_record": "claude",
-      "lane": "for_review",
-      "last_event_id": "01M3MWD9GJ6DPP3PDBWXNY1D0A",
-      "last_transition_at": "2026-09-28T20:48:25.106847+00:00",
+      "lane": "in_review",
+      "last_event_id": "01M3MWVFR58AS8H04MW57HVMY6",
+      "last_transition_at": "2026-09-28T20:56:10.245487+00:00",
       "model": "__resolved_model_absent__",
       "notes": [
         "T001-T006 red-first tests committed (2 commits); ruff+ruff format pass; baseline 56 passed unaffected."
       ],
       "provider": "__resolved_provider_absent__",
-      "role": "implementer",
+      "role": "reviewer",
       "shell_pid": 927196,
       "shell_pid_created_at": "1790621116.95",
       "subtasks": {
@@ -70,6 +70,9 @@
       "last_event_id": "01M3MWGPVDWY3VP0J9MC3E6X9P",
       "last_transition_at": "2026-09-28T20:50:17.069523+00:00",
       "model": "__resolved_model_absent__",
+      "notes": [
+        "T017-T019 done: RefreshOutcome fold-in fixes the auto-refresh generate-failure swallow. Red-first proven (T019 commit 9615b51bc, fixed in 95d61ad09, re-verified red against a scratch pre-fix overlay). Gates green (whole-repo ruff check/format, targeted shard, baseline). test_boundary_heal.py::test_references_parity_hook_no_ops_for_a_non_references_parity_cause now fails (bool identity vs RefreshOutcome) -- out of WP04 write_scope, flagged not fixed."
+      ],
       "provider": "__resolved_provider_absent__",
       "role": "implementer",
       "shell_pid": 945038,
