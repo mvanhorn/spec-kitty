@@ -1179,6 +1179,115 @@ def _classify_and_placeholder_reference(
     return _doctrine_yaml_reference(kind=kind, raw_id=raw_id, source=source, project_root=project_root)
 
 
+#: Reserved sentinel ``kind`` for a ``graph.unresolved`` URN with no ``":"``
+#: at all (malformed -- no kind prefix could be parsed). Distinct from any
+#: real DRG-backed kind (contracts/charter-generate-json-diagnostics.md's
+#: "Round-5 addition").
+_MALFORMED_URN_KIND_LABEL = "_unattributed"
+_MALFORMED_URN_CAUSE = "malformed_urn"
+_UNATTRIBUTED_KIND_CAUSE = "unattributed_kind"
+
+#: The plural repository keys for the six DRG-backed kinds
+#: :func:`_build_references_from_service` actually tracks (directive,
+#: tactic, styleguide, toolguide, procedure, agent_profile) -- distinct from
+#: the nine-kind gated ``_RAW_REPOSITORY_KINDS`` set in
+#: ``charter.activation.resolver``, which additionally includes ``paradigms``,
+#: ``mission_step_contracts`` and ``glossary_packs`` (valid, real
+#: repositories, but not one of the six this function renders per-id
+#: references for).
+_TRACKED_REFERENCE_KIND_PLURALS: frozenset[str] = frozenset({"directives", "tactics", "styleguides", "toolguides", "procedures", "agent_profiles"})
+
+
+def _route_unresolved_urn(
+    urn: str,
+    *,
+    doctrine_service: DoctrineService,
+    diagnostics: list[str],
+    unresolved_records: list[dict[str, str]],
+    project_root: Path | None,
+) -> tuple[str | None, CharterReference | None]:
+    """Route one ``graph.unresolved`` URN through the shared classify-and-
+    placeholder helper when its kind maps to one of the six DRG-backed kinds
+    :func:`_build_references_from_service` tracks (issue #5257 T009); this
+    closes the "second, unmentioned unresolved-tracking site" gap
+    (plan.md's Round-3 note) so I1/I2 hold for both source buckets.
+
+    URN split follows ``resolve_transitive_refs``'s own successful-lookup
+    branch pattern (``kind_prefix, _, bare_id = urn.partition(":")``,
+    matching ``query.py``'s ``urn.split(":", 1)``); the singular
+    ``kind_prefix`` is mapped to the plural repository key using the
+    EXISTING ``ArtifactKind(kind_prefix).plural`` property -- never an
+    invented mapping (operator ruling, round 4).
+
+    A URN that cannot be attributed to one of the six tracked kinds (no
+    ``":"``; an unrecognized kind prefix; a valid kind whose repository is
+    genuinely ``None``; a valid, real-repository kind outside the six
+    tracked kinds) is NEVER silently dropped: it gets one of the four
+    unattributable-URN structured shapes
+    (``contracts/charter-generate-json-diagnostics.md``'s Round-5
+    addition, I3) instead.
+
+    Returns ``(attributed_kind, placeholder)``: *attributed_kind* is the
+    tracked kind's singular value when attribution succeeded -- consumed
+    by the whole-kind aggregate check's OR condition (I2) -- or ``None``
+    when the URN could not be attributed to one of the six; *placeholder*
+    is the built :class:`CharterReference` for a ``SCOPE_FILTERED`` cause,
+    or ``None`` otherwise.
+    """
+    if ":" not in urn:
+        _record_unresolved_reference(
+            kind=_MALFORMED_URN_KIND_LABEL,
+            raw_id=urn,
+            cause=_MALFORMED_URN_CAUSE,
+            detail="malformed URN, no kind prefix",
+            diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+        )
+        return None, None
+
+    kind_prefix, _, bare_id = urn.partition(":")
+    try:
+        artifact_kind = ArtifactKind(kind_prefix)
+    except ValueError:
+        _record_unresolved_reference(
+            kind=kind_prefix,
+            raw_id=bare_id,
+            cause=_UNATTRIBUTED_KIND_CAUSE,
+            detail=f"unrecognized artifact kind: {kind_prefix}",
+            diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+        )
+        return None, None
+
+    plural = artifact_kind.plural
+    repository = _raw_kind_repository(doctrine_service, plural)
+    if plural not in _TRACKED_REFERENCE_KIND_PLURALS:
+        detail = (
+            f"no repository for kind: {kind_prefix}"
+            if repository is None
+            else f"kind '{kind_prefix}' is not one of the six DRG-backed kinds tracked for reference resolution"
+        )
+        _record_unresolved_reference(
+            kind=artifact_kind.value,
+            raw_id=bare_id,
+            cause=_UNATTRIBUTED_KIND_CAUSE,
+            detail=detail,
+            diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+        )
+        return None, None
+
+    placeholder = _classify_and_placeholder_reference(
+        kind=artifact_kind.value,
+        raw_id=bare_id,
+        repository=repository,
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
+        project_root=project_root,
+    )
+    return artifact_kind.value, placeholder
+
+
 def _render_kind_references(
     ids: list[str],
     *,
@@ -1279,6 +1388,8 @@ def _build_references_from_service(
         directives=config_roots.directives,
         direct_root_urns=_direct_root_urns(config_roots),
         repo_root=repo_root,
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
     )
 
     references.extend(
@@ -1360,13 +1471,38 @@ def _build_references_from_service(
         )
     )
 
-    # Record unresolved refs in diagnostics
-    for artifact_type, artifact_id in graph.unresolved:
-        diagnostics.append(f"Unresolved reference: {artifact_type}/{artifact_id}")
+    # T009 (#5257): route every graph.unresolved URN through the SAME
+    # shared classify-and-placeholder helper the six per-kind loops above
+    # use, so I1/I2 hold for both source buckets -- not only direct
+    # per-kind lookups. ``urn`` is stored twice per query.py's own
+    # doubled-tuple convention (``unresolved.append((urn, urn))``).
+    activated_via_unresolved: set[str] = set()
+    for urn, _urn_dup in graph.unresolved:
+        attributed_kind, placeholder = _route_unresolved_urn(
+            urn,
+            doctrine_service=doctrine_service,
+            diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+            project_root=repo_root,
+        )
+        if attributed_kind is not None:
+            activated_via_unresolved.add(attributed_kind)
+            if placeholder is not None:
+                references.append(placeholder)
 
     references.append(_template_reference(mission=mission, template_set=template_set))
 
     return references
+
+
+#: I4 (round-3 operator ruling): a total DRG graph-load failure is loud and
+#: structured, but NEVER fails closed, and never participates in the
+#: six-kind whole-kind aggregate count (no per-kind bucket exists to
+#: attribute it to). ``cause`` is a plain ``str``, distinct from
+#: ``CatalogMissCause`` -- ``_catalog_miss.py`` stays REUSED, NOT MODIFIED.
+_GRAPH_LOAD_FAILURE_KIND = "_graph"
+_GRAPH_LOAD_FAILURE_ID = "_load_failure"
+_GRAPH_LOAD_FAILURE_CAUSE = "graph_load_failed"
 
 
 def _resolve_transitive_reference_graph(
@@ -1376,6 +1512,8 @@ def _resolve_transitive_reference_graph(
     repo_root: Path | None,
     direct_root_urns: frozenset[str] = frozenset(),
     pack_context: Any = None,
+    diagnostics: list[str] | None = None,
+    unresolved_records: list[dict[str, str]] | None = None,
 ) -> Any:
     """Resolve the transitive closure from built-in/project DRG layers.
 
@@ -1385,6 +1523,17 @@ def _resolve_transitive_reference_graph(
     ``config.activated_*`` with no directive edge reaching them; they are
     unioned into the same BFS start set so they (and anything they in turn
     require/suggest) resolve alongside the directive closure.
+
+    *diagnostics*/*unresolved_records* (WP02 T010, issue #5257) are
+    mutable-list sinks the caller passes in -- appended to INSIDE this
+    function's own ``except Exception:`` branch when the whole DRG graph
+    fails to load, so that failure is reported loudly (I4) instead of
+    vanishing. This is NOT a return-type widening: the return type stays
+    exactly :class:`~charter.offering.drg.query.ResolveTransitiveRefsResult`
+    (operator ruling, round 4) -- both sinks default to ``None`` and are
+    replaced with a fresh local list when absent, so every pre-existing
+    caller that does not pass them (e.g. ``tests/charter/test_activation_consumers.py``)
+    is unaffected.
     """
     from charter.activation._drg_helpers import load_validated_graph
     from charter.activation.drg_activation import filter_graph_by_activation
@@ -1392,6 +1541,11 @@ def _resolve_transitive_reference_graph(
     from charter.offering.drg.models import Relation
     from charter.offering.drg.query import ResolveTransitiveRefsResult, resolve_transitive_refs
     from charter.offering.drg.validator import assert_valid
+
+    if diagnostics is None:
+        diagnostics = []
+    if unresolved_records is None:
+        unresolved_records = []
 
     start_urns = {f"directive:{directive_id}" for directive_id in directives} | set(direct_root_urns)
     if not start_urns:
@@ -1417,7 +1571,17 @@ def _resolve_transitive_reference_graph(
                 return fallback
             merged = load_built_in_graph()
             assert_valid(merged)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 -- I4: loud, not fail-closed
+        summary = f"{exc.__class__.__name__}: {exc}"
+        diagnostics.append(f"Graph load failed: {summary}. Transitive closure not resolved; direct-root ids only.")
+        unresolved_records.append(
+            {
+                "kind": _GRAPH_LOAD_FAILURE_KIND,
+                "id": _GRAPH_LOAD_FAILURE_ID,
+                "cause": _GRAPH_LOAD_FAILURE_CAUSE,
+                "detail": summary,
+            }
+        )
         return fallback
 
     # FR-032, FR-035 (WP08): apply activation filter after load, before resolution.
