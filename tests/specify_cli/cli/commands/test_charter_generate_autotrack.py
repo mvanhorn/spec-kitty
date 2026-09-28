@@ -727,3 +727,88 @@ def test_generate_json_reports_unresolved_references_for_scope_filtered_id(
         f"detail must name the active language set that excluded this id, "
         f"got: {entry['detail']!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# WP03 T015 (#5257) — `diagnostics` field shape unchanged by the new key
+# ---------------------------------------------------------------------------
+
+
+def test_generate_json_diagnostics_field_shape_unchanged_by_unresolved_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The additive-alongside design (contracts/charter-generate-json-
+    diagnostics.md) must not widen or restructure the existing
+    ``diagnostics`` field: it stays a flat ``list[str]`` -- every element a
+    ``str``, never a ``dict`` -- both before and after this WP's
+    ``unresolved_references`` addition. Uses the same scope-filtered
+    fixture as T016, which is guaranteed to populate ``diagnostics`` with at
+    least one unresolved-reference line.
+    """
+    _git_init(tmp_path)
+    _write_curated_charter_md(tmp_path)
+    _write_single_scope_filtered_styleguide_activation(tmp_path)
+    _write_python_only_interview_answers(tmp_path)
+
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(
+        charter_app, ["generate", "--force", "--json"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, f"generate failed: {result.stdout!r}"
+    payload = json.loads(result.stdout)
+
+    diagnostics = payload["diagnostics"]
+    assert isinstance(diagnostics, list)
+    assert diagnostics, "expected at least one diagnostics line for the scope-filtered fixture"
+    assert all(isinstance(line, str) for line in diagnostics), (
+        f"diagnostics must remain a flat list[str] -- found a non-str element: {diagnostics!r}"
+    )
+    # The unresolved-reference condition is still ALSO reported as free text
+    # in diagnostics -- the new key is additive, not a replacement.
+    assert any("java-conventions" in line for line in diagnostics)
+
+
+# ---------------------------------------------------------------------------
+# Additional `unresolved_references` shape coverage (contract completeness,
+# beyond T016's single red-first scenario): the always-present empty-list
+# case. (A "genuine missing id" CLI-level case was deliberately NOT added
+# here: an id in `activated_styleguides` that fails `resolve_config_id`
+# during `_resolve_config_activated_roots` -- src/charter/activation/
+# kind_vocabulary.py's `UnknownArtifactIdError` -- hard-fails generate
+# BEFORE `compile_charter`'s soft classify-and-placeholder path runs at
+# all, a pre-existing, unrelated-to-#5257 validation layer. The
+# `missing_artifact`/`typo_suspected` CatalogMissCause classification this
+# WP's new JSON key surfaces is already unit-tested at the compiler layer
+# by WP01/WP02 -- see tests/charter/test_compiler_scope_filtered_placeholder.py,
+# test_catalog_completeness_4785.py, test_charter_whole_kind_invariants.py --
+# and WP03's own dict-shape pass-through (`list(compiled.
+# unresolved_reference_records)`, identical for every cause value) is
+# already exercised end-to-end by the scope_filtered fixture above.)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_json_unresolved_references_empty_list_when_nothing_unresolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When there is nothing unresolved, ``unresolved_references`` must
+    still be present as ``[]`` -- never omitted, never ``null`` -- matching
+    ``diagnostics``'s own always-present convention so a consumer can rely
+    on key presence rather than ``.get()`` with a default.
+    """
+    _git_init(tmp_path)
+    _write_minimal_interview(tmp_path)
+    _write_curated_charter_md(tmp_path)
+
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(
+        charter_app, ["generate", "--from-interview", "--force", "--json"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, f"generate failed: {result.stdout!r}"
+    payload = json.loads(result.stdout)
+
+    assert "unresolved_references" in payload
+    assert payload["unresolved_references"] == []

@@ -553,6 +553,17 @@ def generate(
                         "library_files": local_support_files,
                         "files_written": files_written,
                         "diagnostics": diagnostics,
+                        # FR-004 (#5257, WP03): machine-readable form of the same
+                        # unresolved-reference conditions `diagnostics` already
+                        # carries as free text -- so CI/readiness probes can
+                        # detect the condition without string-matching prose.
+                        # Additive-alongside (contracts/charter-generate-json-
+                        # diagnostics.md): `diagnostics`'s own shape (flat
+                        # list[str]) is untouched by this key. Always present,
+                        # even as `[]`, matching `diagnostics`'s own
+                        # always-present convention -- never conditionally
+                        # omitted when there is nothing unresolved.
+                        "unresolved_references": list(compiled.unresolved_reference_records),
                     },
                     indent=2,
                 )
