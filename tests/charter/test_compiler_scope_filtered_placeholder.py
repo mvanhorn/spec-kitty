@@ -152,3 +152,62 @@ def test_missing_artifact_cause_stays_diagnostics_only_no_placeholder() -> None:
             "detail": "",
         }
     ]
+
+
+def test_unresolved_reference_records_mirrors_diagnostics_for_a_mixed_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T013 (issue #5257): the structured ``unresolved_records`` sink
+    carries the same kind/id/cause as the free-text ``diagnostics`` list,
+    for a fixture mixing a ``SCOPE_FILTERED`` and a ``MISSING_ARTIFACT``
+    cause within the same kind -- proving the new field is populated
+    identically in content to ``diagnostics``' per-line reasons, not a
+    second, drifting bookkeeping list.
+    """
+    import charter.activation.compiler as compiler_module
+    from charter.activation.compiler import ConfigActivatedRoots
+    from charter.offering.drg.query import ResolveTransitiveRefsResult
+
+    class _StubDoctrineService:
+        def raw_repository(self, kind: str) -> Any:
+            if kind == "styleguides":
+                return _ScopeFilteredRepository(
+                    scope_filtered_ids=frozenset({"scope-filtered-id"}),
+                    _active_languages=["python"],
+                )
+            return _ScopeFilteredRepository(scope_filtered_ids=frozenset())
+
+    graph = ResolveTransitiveRefsResult(styleguides=["scope-filtered-id", "genuinely-missing-id"])
+    monkeypatch.setattr(compiler_module, "_resolve_transitive_reference_graph", lambda **_kwargs: graph)
+
+    diagnostics: list[str] = []
+    unresolved_records: list[dict[str, str]] = []
+    config_roots = ConfigActivatedRoots(
+        directives=[],
+        paradigms=[],
+        tactics=[],
+        styleguides=[],
+        toolguides=[],
+        procedures=[],
+        agent_profiles=[],
+    )
+
+    compiler_module._build_references_from_service(
+        mission="software-dev",
+        template_set="default",
+        config_roots=config_roots,
+        doctrine_root=compiler_module.resolve_doctrine_root(),
+        doctrine_service=_StubDoctrineService(),
+        repo_root=None,
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
+    )
+
+    assert len(unresolved_records) == 2
+    assert {record["cause"] for record in unresolved_records} == {"scope_filtered", "missing_artifact"}
+    for record in unresolved_records:
+        expected_prefix = f"Unresolved reference: {record['kind']}/{record['id']} ({record['cause']})"
+        assert any(line.startswith(expected_prefix) for line in diagnostics), (
+            f"no diagnostics line matches structured record {record!r}; diagnostics={diagnostics!r}"
+        )
+    assert len(diagnostics) == len(unresolved_records)

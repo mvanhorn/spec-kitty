@@ -366,6 +366,16 @@ class CompiledCharter:
     #: :func:`charter.activation.language_scope.infer_repo_languages`, the single
     #: authority this field's value is sourced from.
     active_languages: list[str] | None = field(default_factory=list)
+    #: Structured form of every unresolved-reference entry recorded into
+    #: ``diagnostics`` above (issue #5257, FR-004 -- consumed by WP03's
+    #: ``--json`` diagnostics field) -- one
+    #: ``{"kind": ..., "id": ..., "cause": ..., "detail": ...}`` dict per
+    #: entry, populated from the same structured-records sink
+    #: :func:`_classify_and_placeholder_reference`, :func:`_route_unresolved_urn`,
+    #: and :func:`_resolve_transitive_reference_graph`'s graph-load-failure
+    #: branch all append to. Additive: existing callers that only read
+    #: ``diagnostics`` are unaffected.
+    unresolved_reference_records: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -426,6 +436,7 @@ def compile_charter(
     active_languages = infer_repo_languages(repo_root, interview=interview)
     catalog = doctrine_catalog or load_doctrine_catalog(active_languages=active_languages)
     diagnostics: list[str] = []
+    unresolved_reference_records: list[dict[str, str]] = []
 
     if doctrine_service is None:
         doctrine_service = _default_doctrine_service(repo_root)
@@ -467,6 +478,7 @@ def compile_charter(
         doctrine_service=doctrine_service,
         repo_root=repo_root,
         diagnostics=diagnostics,
+        unresolved_reference_records=unresolved_reference_records,
     )
 
     # Build additive local support references.
@@ -501,6 +513,7 @@ def compile_charter(
         diagnostics=diagnostics,
         selected_tactics=config_roots.tactics,
         active_languages=active_languages,
+        unresolved_reference_records=unresolved_reference_records,
     )
 
 
@@ -1053,6 +1066,7 @@ def _build_references(
     doctrine_service: DoctrineService,
     repo_root: Path | None = None,
     diagnostics: list[str] | None = None,
+    unresolved_reference_records: list[dict[str, str]] | None = None,
 ) -> list[CharterReference]:
     doctrine_root = resolve_doctrine_root()
 
@@ -1067,6 +1081,7 @@ def _build_references(
             doctrine_service=doctrine_service,
             repo_root=repo_root,
             diagnostics=diagnostics if diagnostics is not None else [],
+            unresolved_records=unresolved_reference_records if unresolved_reference_records is not None else [],
         )
     )
     return references
@@ -1088,11 +1103,20 @@ def _raw_kind_repository(doctrine_service: DoctrineService, kind: str) -> Any:
     - a raw, unwrapped ``charter.offering.service.DoctrineService``, whose
       same-named properties are ALREADY the unfiltered repository object (no
       ``raw_repository`` method exists on it, nor is one needed).
+
+    Degrades to ``None`` (never raises) when *kind* has no matching
+    attribute on the raw/unwrapped shape either -- e.g. ``"templates"``/
+    ``"anti_patterns"``, valid :class:`ArtifactKind` members outside the
+    nine gated raw-repository kinds (round-6 ruling, folds in the
+    ``reviews/plan-verify-4.yaml`` residual): this mirrors the wrapped
+    shape's own ``raw_repository(kind)`` accessor, which already degrades
+    silently to ``None`` for the identical class of kind, rather than
+    raising ``AttributeError``.
     """
     raw_repository = getattr(doctrine_service, "raw_repository", None)
     if callable(raw_repository):
         return raw_repository(kind)
-    return getattr(doctrine_service, kind)
+    return getattr(doctrine_service, kind, None)
 
 
 #: Shared free-text template for every unresolved-reference diagnostic line
