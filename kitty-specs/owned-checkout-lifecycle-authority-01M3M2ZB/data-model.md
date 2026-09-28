@@ -65,6 +65,8 @@ The new `resolution_kind` value is `"owned_checkout"`:
 | `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE` | **new** | the coordination-workspace probe fails for owned `next` |
 | `WORK_PACKAGE_UNRESOLVED` | existing (now scoped to P for owned) | the WP is absent from the owned mission dir |
 
+**Code constants.** Every code above is a member of `OwnedRefusalCode(StrEnum)` in `mission_runtime.owned_checkout` (value == name), exported from the `mission_runtime` root with `OwnedCheckout` (WP01). Code and tests import the member instead of repeating the literal; a `StrEnum` member compares equal to its string, so serialized payloads are unchanged.
+
 The four claim-primitive codes are defined by the error classes in `src/specify_cli/core/checkout_ownership.py` and pass through the minter unchanged (`ActionContextError(error.error_code, str(error))`); their strings are `do_not_change` (occurrence map `logs_telemetry`). `emit_owned_refusal` (WP08) validates every emitted `error_code` against this whole table.
 
 ## Payload field (FR-007)

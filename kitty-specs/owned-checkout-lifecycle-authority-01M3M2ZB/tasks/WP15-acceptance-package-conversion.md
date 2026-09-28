@@ -89,6 +89,13 @@ Done means:
 3. The owned arm of each converted function is covered by at least one focused test in `tests/acceptance/test_gate_execution_context.py` (diff coverage ≥ 90%, NFR-005).
 4. `mypy --strict`, ruff check and ruff format are clean on the touched files; `make test-fast` passes.
 
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP15 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **0** markers.
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
+
 ## Context & Constraints
 
 - **Mission docs**: `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/` → `spec.md` (FR-001, FR-022), `plan.md` (Staging Strategy; IC-10a; Scale/Scope), `research.md` R-03 (the 92-parameter census and "convert all 92 … G4/G5 empty allowlist"), `data-model.md` (OwnedCheckout fields), `contracts/owned-checkout-carrier.md` §3 and §7, `contracts/architectural-gate.md` (G4/G5 are what this WP is burning down), `occurrence_map.yaml`.
@@ -99,7 +106,7 @@ Done means:
 - **Callee rule (plan: Staging Strategy).** For each call you make **out of** the acceptance package, read the callee's current signature first:
   - takes `owned` → pass `owned=owned`;
   - is one of the six shared dual-keyword seams, or any other function whose legacy keyword is marked `TRANSITIONAL(WP18)` → pass `owned=owned` (never the legacy keyword);
-  - still takes only `effective_root` → pass the bridging expression `effective_root=owned.owned_root if owned else None` as a plain keyword and log the site in the Activity Log for WP18/T097.
+  - still takes only `effective_root` → pass the bridging expression `effective_root=owned.owned_root if owned else None` as a plain keyword, marked `# bridging: WP<n> converts` (the WP that owns the callee), and log the site in the Activity Log.
 - **Caller rule (cross-WP call sites).** Converting a public function breaks every caller that passes `effective_root=` to it. On the planning base those callers are **in other WPs' files**:
   - `src/specify_cli/cli/commands/accept.py` (WP14) → `collect_feature_summary` (`accept.py:679, 703` via `**scope`) and `normalize_feature_encoding` (`accept.py:695`);
   - `src/specify_cli/cli/commands/agent/mission_finalize.py:2636` (WP13) → `scaffold_acceptance_matrix(..., **({"effective_root": owned.root} if owned else {}))`.

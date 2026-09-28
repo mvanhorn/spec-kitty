@@ -90,6 +90,13 @@ Done means all of the following hold at the tip of the WP:
 5. **Ratchet (T079, FR-022).** Every existing accept test file listed under Test Strategy passes **without modification**, including the owned accept scenarios in `tests/integration/test_explicit_checkout_commands.py`.
 6. ruff check, ruff format and `mypy --strict` are clean on the touched files; `make test-fast` passes.
 
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP14 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **0** markers.
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
+
 ## Context & Constraints
 
 - **Mission docs**: `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/` → `spec.md` (FR-003, FR-022, FR-026), `plan.md` (Staging Strategy; IC-10a; IC-14a; "One owning WP per shared file": `cli/commands/accept.py` is owned by IC-10a = this WP), `research.md` R-16 (Complexity: `accept` 59 is the only over-limit function in its per-file-ignored file), `data-model.md` (OwnedCheckout fields), `contracts/owned-checkout-carrier.md` (§2 once per command, §3 no bare owned roots), `contracts/cli-owned-checkout-surface.md` (accept row: existing flag, single_branch, unchanged behaviour), `occurrence_map.yaml`.
@@ -298,13 +305,13 @@ Totals: 7 parameters, 1 inline option, 7 `effective_root_kwargs(...)` calls, 14 
      - `collect_feature_summary`, `normalize_feature_encoding` — WP15 (`acceptance/__init__.py:1388`, `:1031`);
      - `verify_pr_merge_evidence`, `record_pr_merge_baseline_for_mission` — WP17 (`consolidation/baseline.py:497`, `:814`);
      - `stamp_accept_cutover` — WP17 (`migration/runtime_state_cutover.py:486`).
-     Check each callee's signature on your lane base. If it already takes `owned`, pass `owned=owned`. If it still takes `effective_root`, pass the bridging expression `effective_root=owned.owned_root if owned else None` **as a plain keyword** (never a dict splat, never `effective_root_kwargs`). Do not add a marker comment; list every bridge (file:line, callee) in the Activity Log so the callee WP (WP15/WP17, which then flip this call as a one-line out-of-map edit) or WP18/T097 can flip it. This is the only form in which the identifier may survive in `accept.py`, and only until the callee converts.
+     Check each callee's signature on your lane base. If it already takes `owned`, pass `owned=owned`. If it still takes `effective_root`, pass the bridging expression `effective_root=owned.owned_root if owned else None` **as a plain keyword** (never a dict splat, never `effective_root_kwargs`). Mark each such call `# bridging: WP<n> converts`, naming the WP that owns the callee (WP15 or WP17), and also list every bridge (file:line, callee) in the Activity Log so the callee WP (WP15/WP17, which then flip this call as a one-line out-of-map edit) or WP18/T097 can flip it. This is the only form in which the identifier may survive in `accept.py`, and only until the callee converts.
   6. **Legacy attributes.** `owned.root` → `owned.owned_root` (`:825`, `:868`); `owned.slug` → `owned.mission_slug` and `owned.directory` → `owned.mission_dir` (`:864`).
   7. **Dict key.** Delete `scope = {"effective_root": owned.root} if owned is not None else {}` (`:868`) outright; the run carrier from T076 already holds `owned`.
   8. Commit: `refactor(accept): consume the validated OwnedCheckout fact end to end (WP14/T078)`.
 - **Files**:
   - `src/specify_cli/cli/commands/accept.py` only (every census row).
-- **Parallel?**: No; after T077.
+- **Parallel?**: The committing-path count test (step 5) is written and committed red **before** T077; the rest runs after T077.
 - **Validation checklist**:
   - [ ] The census commands print only the bridge lines listed in the Activity Log (ideally nothing).
   - [ ] `grep -n '"effective_root"' src/specify_cli/cli/commands/accept.py` prints nothing.
@@ -329,7 +336,7 @@ Totals: 7 parameters, 1 inline option, 7 `effective_root_kwargs(...)` calls, 14 
      - assert the count is exactly 1 and the exit code is 0.
      Mark this test `integration` + `git_repo` (it builds real repositories), not `fast`.
   4. On the same run, assert the repository root checkout is untouched with the WP02 `r_snapshot` fixture (0 differences, NFR-001).
-  5. Add a second count for a committing run (`--mode local` without `--diagnose`) if the fixture can reach `summary.ok`; if it cannot without a large fixture, rely on `tests/integration/test_explicit_checkout_commands.py::test_accept_commits_metadata_matrix_and_cutover_only_in_owned` for the write path and say so in the Activity Log.
+  5. **Mandatory committing-path count (`--mode local`, without `--diagnose`).** This is the path that re-validates at `accept.py:342`, so it carries the FR-003 red. Borrow the `ready_accept_checkouts` fixture shape from `tests/integration/test_explicit_checkout_commands.py:388-530` (a local helper in this file on top of the WP02 fixtures, never an import from that test module) so the fixture reaches `summary.ok`. Assert exactly **1** validation and exit 0. **Red-first as a commit:** this test is committed **before** T077's fix commit, and on that red commit it fails with count **2** (the CLI edge plus the stamp's re-validation); record the observed count in the red commit's message. The red commit precedes T077 in `git log`; the reviewer verifies it. No Activity-Log-only or stash-based proof.
   6. If any existing test **must** change, stop: that is a behaviour change, which FR-022 forbids. Record it in the Activity Log and ask the reviewer before editing a file you do not own.
 - **Files**:
   - `tests/specify_cli/cli/commands/test_accept_decomposition.py` (append).
@@ -337,7 +344,8 @@ Totals: 7 parameters, 1 inline option, 7 `effective_root_kwargs(...)` calls, 14 
 - **Parallel?**: No; last.
 - **Validation checklist**:
   - [ ] Every file in the Test Strategy list is green, and `git diff --stat -- tests/ ':!tests/specify_cli/cli/commands/test_accept_decomposition.py'` is empty.
-  - [ ] The exactly-once test fails if you temporarily re-add a second `resolve_owned_mission` call (mutation check; do not commit it).
+  - [ ] The committing-path count test was committed red (count 2) before T077 and is green (count 1) after it.
+  - [ ] Mutation check (non-vacuity): re-adding a second `resolve_owned_mission` call turns both count tests red (count 2); revert it and record the check in the Activity Log.
   - [ ] The exactly-once test fails if you temporarily bypass validation (count 0).
   - [ ] Record the exact pytest command and pass counts for the whole accept list in the Activity Log (PR *Tests run* section).
 - **Edge cases**:

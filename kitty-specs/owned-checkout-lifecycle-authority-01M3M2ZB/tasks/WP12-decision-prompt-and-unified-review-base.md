@@ -3,6 +3,7 @@ work_package_id: WP12
 title: Prompt building and unified review base
 dependencies:
 - WP11
+- WP19
 requirement_refs:
 - FR-008
 - FR-009
@@ -78,7 +79,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 
 ## Objectives & Success Criteria
 
-This WP finishes the owned `next` path that WP11 started, and gives every review path one claim-commit authority (operator decision `01M3M70Y…`):
+This WP finishes the owned `next` path that WP11 (runtime) and WP19 (CLI entry) started, and gives every review path one claim-commit authority (operator decision `01M3M70Y…`):
 
 1. **FR-025.** A new topology-agnostic helper, `mission_runtime.claim_commit_for_wp(mission_dir: Path, wp_id: str)`, finds a WP's **claim commit** the same way for every review path, owned and repository-root alike:
    1. take the last `to_lane == "claimed"` status event for the WP;
@@ -94,7 +95,8 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
 5. **FR-008 / FR-009 (prompt half).**
    - `prompt_builder.py` takes the fact (`decision.py` already does, from WP11 T067).
    - Owned WP prompts read the WP file, workspace, governance and mission-type context from P.
-   - The full US3-AS1 row (`kind == "step"` with an existing prompt file, workspace P) turns green. WP11 committed it as a strict xfail.
+   - The full US3-AS1 row (`kind == "step"` with an existing prompt file, workspace P) turns green. WP19 committed it as a strict xfail.
+   - **FR-009 prompt governance.** A P-only governance marker (for example a project-local override of the implement/review command template in P) appears in the owned implement and review prompts, and R's marker is absent.
 6. **Carried test rewrite.** #5009 1be5352ee's `test_owned_review_prompt_uses_owned_target_branch` asserts `git diff {TARGET}..HEAD --stat`. It is rewritten to the claim-commit contract.
 
 **Done when:**
@@ -103,6 +105,13 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
 - `prompt_builder.py` contains no `effective_root`, and `grep -rn "bridging: WP12" src/` returns nothing;
 - ruff, format and mypy are clean on the touched files;
 - `make test-fast` is green.
+
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP12 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **0** markers.
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
 
 ## Context & Constraints
 
@@ -122,7 +131,7 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
   1. Re-export `claim_commit_for_wp` and its error type from `src/mission_runtime/__init__.py` and `__all__`.
   2. Add both names to `_PUBLIC_SURFACE` in `tests/architectural/test_mission_runtime_surface.py:49`. `test_public_surface_is_exactly_all` requires `__all__ == _PUBLIC_SURFACE`.
 
-  Also add a one-line note in the ADR 2026-06-07-1 amendment if WP03 left a list of public symbols to extend. Otherwise note it in the PR for WP18.
+  Do **not** edit the ADR here. Put a one-line note in the PR description ("`claim_commit_for_wp` joins the `mission_runtime` root surface; ADR 2026-06-07-1's amendment covers public ownership symbols generically") for the reviewer.
 - **Helper signature (plan IC-06, gate contract).** The helper is topology-agnostic and takes no fact:
 
   ```python
@@ -135,8 +144,8 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
   - The bridging calls into `build_prompt` live in `src/runtime/next/decision.py` (`_build_prompt_safe`, `_build_prompt_or_error`), which WP11 owns. Switching them from the bridging value to `owned=owned` is a mechanical, **declared out-of-map edit** in `decision.py` (plus `runtime_bridge.py` only if `grep -rn "bridging: WP12" src/` finds a site there). Rationale: "top-down completion of WP11's bridging (staging rule)."
   - Transitional surfaces are the six shared seams plus every other function marked `TRANSITIONAL(WP18)`; leave them in place.
 - **Out-of-map test edits (declared).**
-  - `tests/integration/test_explicit_checkout_commands.py` (WP11): rewrite the carried review test, and remove its strict-xfail marker.
-  - `tests/integration/test_owned_lifecycle_acceptance_next.py` (WP11): remove the strict-xfail marker on the full US3-AS1 row.
+  - `tests/integration/test_explicit_checkout_commands.py` (WP19): rewrite the carried review test, and remove its strict-xfail marker.
+  - `tests/integration/test_owned_lifecycle_acceptance_next.py` (WP19): remove the strict-xfail marker on the full US3-AS1 row.
 
   Both are needed because `prompt_builder.py` (this WP) is what turns those tests green.
 - **Campsite first.** `_build_wp_prompt` (`prompt_builder.py:152`, complexity 14) is extracted before its signature changes (T068 step 0). `_state_to_action` was WP11's (T066).
@@ -147,7 +156,7 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
 - **Strategy**: planning artifacts were generated on `claude/sleepy-hamilton-5lelee`, and completed changes merge back into `claude/sleepy-hamilton-5lelee`.
 - **Planning base branch**: `claude/sleepy-hamilton-5lelee`
 - **Merge target branch**: `claude/sleepy-hamilton-5lelee`
-- **Execution lane**: `finalize-tasks` assigns it in `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/lanes.json`. Run `spec-kitty implement WP12` and use the workspace it resolves. WP12 depends on WP11, so its lane is based on WP11's result.
+- **Execution lane**: `finalize-tasks` assigns it in `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/lanes.json`. Run `spec-kitty implement WP12` and use the workspace it resolves. WP12 depends on WP11 and WP19, so its lane is based on their result.
 
 > `spec-kitty agent mission finalize-tasks` fills these fields in automatically.
 
@@ -184,11 +193,12 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
 
      Each case must end with `next` returning `kind == "blocked"`, `error_code == "OWNED_REVIEW_BASE_UNAVAILABLE"`, and a prompt text (if any) containing no bare `git diff … ..HEAD` without a pathspec.
   5. **Repository-root review context (red on base).** Run `agent action review WP01 --mission H` on the non-owned fixture, through the workflow app and CliRunner. Assert that the printed review context names the claim commit as its base. On the base, the subject matcher at `workflow_executor.py:2259` finds nothing and leaves `ctx` without a base.
+  5a. **FR-009 prompt governance (red on the WP19 result).** On the owned fixture, place a P-only governance marker in the command template that the implement and review prompts render (use the project-override tier `resolve_command` honours; read the resolver, do not guess the path), and a different marker in R. Run `next --owned-checkout P` to the implement step and again to the review step, read each prompt file, and assert P's marker is present and R's is absent. Red on the WP19 result, because `prompt_builder` still resolves governance from the root it is handed without the fact.
   6. Wrap each owned scenario in `r_snapshot` (NFR-001: 0 differences).
   7. Commit: `test(review): red-first unified claim-commit review base (FR-010, FR-025)`.
 - **Files**: `tests/integration/test_owned_lifecycle_acceptance_review.py` (new).
 - **Validation checklist**:
-  - [ ] Every row is red on the WP11 result for the stated reason, recorded in the Activity Log.
+  - [ ] Every row is red on the WP19 result for the stated reason; the red commit precedes every fix commit in `git log`.
   - [ ] Every negative has a same-fixture positive control (AS4 is the control for AS5).
   - [ ] No assertion depends on commit-subject wording.
 - **Edge cases**: `move-task` claim commits touch only `status.events.jsonl` and `status.json` (R-05). The `-S` pathspec must be the events file, **not** `status.json`, which may also carry the event id.
@@ -245,13 +255,13 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
   3. The review block (`_review_command_lines`, step 0) handles three cases:
      - **Lane workspace** (`workspace.lane_id` set, not owned): unchanged. The base is `workspace.context.base_branch`, or `get_feature_target_branch`.
      - **Owned** (`resolution_kind == "owned_checkout"`):
-       - `owned_files` empty → raise `ActionContextError("OWNED_REVIEW_BASE_UNAVAILABLE", …)` (from the `mission_runtime` root). WP11 T067 already maps an `ActionContextError` from `build_prompt` to a blocked decision carrying its code.
+       - `owned_files` empty → raise `ActionContextError(OwnedRefusalCode.OWNED_REVIEW_BASE_UNAVAILABLE, …)` (both from the `mission_runtime` root). WP11 T067 already maps an `ActionContextError` from `build_prompt` to a blocked decision carrying its code.
        - Otherwise call `claim_commit_for_wp(owned.mission_dir, wp_id)`. On `ClaimCommitUnresolved`, raise the same typed error.
        - Otherwise emit `git log {claim}..HEAD --oneline -- <pathspecs>` and `git diff {claim}..HEAD --stat -- <pathspecs>`, keeping the existing `:(exclude)` handling for mission-dir pathspecs (`:229-239`).
      - **Repository root** (`resolution_kind == "repo_root"`): same algorithm with `claim_commit_for_wp(feature_dir-or-status-dir, wp_id)`. On failure, keep today's fail-closed text line "unavailable: …" (the non-owned contract), never an unscoped diff.
   4. `OWNED_REVIEW_BASE_UNAVAILABLE` reaches `next` as a `blocked` decision through WP11's mapping in `_build_prompt_or_error` (`decision.py`, T067): it returns `(None, message)` carrying the code, and the decision goes through `step_or_blocked` (`runtime_bridge_cores.py:901`) as `blocked`. Assert `next`'s JSON carries `error_code: "OWNED_REVIEW_BASE_UNAVAILABLE"`. Do not parse the reason string. If WP11's mapping is missing, file it against WP11 rather than re-implementing it here.
   5. Switch the `build_prompt` bridging calls in `decision.py` (`_build_prompt_safe`, `_build_prompt_or_error`) to `owned=owned` (declared out-of-map edit; see Staging).
-  6. Remove WP11's strict-xfail marker on the full US3-AS1 row in `tests/integration/test_owned_lifecycle_acceptance_next.py` (declared out-of-map edit).
+  6. Remove WP19's strict-xfail marker on the full US3-AS1 row in `tests/integration/test_owned_lifecycle_acceptance_next.py` (declared out-of-map edit).
 - **Files**: `src/runtime/next/prompt_builder.py`, plus the declared `decision.py` call-site edit and the declared test-marker edit.
 - **Validation checklist**:
   - [ ] T064's AS4 and AS5 rows are green, and US3-AS1 is green, with the xfail removed and `strict` flipping it red if it ever regresses.
@@ -271,7 +281,7 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
      - This file is **formatter-excluded** (`pyproject.toml` `[tool.ruff.format] exclude`), so do not reformat it wholesale.
   2. `core/worktree_topology._planning_claim_commit` (`worktree_topology.py:103-128`). Its caller is `worktree_topology.py:206`. Delete the matcher and call `claim_commit_for_wp(<status read dir>, wp_id)`, returning `None` on `ClaimCommitUnresolved`. Use the seam's `MissionArtifactKind.STATUS_STATE` read dir, because repository-root planning WPs' claim events live in that mission's status log. Keep the `str | None` contract for `base_branch`.
   3. `prompt_builder.py:241-257`: this was already replaced in T068. Confirm that no subject scan remains.
-  4. **Rewrite the carried test** (declared out-of-map edit in WP11's `tests/integration/test_explicit_checkout_commands.py`). `test_owned_review_prompt_uses_owned_target_branch` currently asserts `f"git diff {TARGET}..HEAD --stat" in prompt`. Rewrite it so that:
+  4. **Rewrite the carried test** (declared out-of-map edit in WP19's `tests/integration/test_explicit_checkout_commands.py`). `test_owned_review_prompt_uses_owned_target_branch` currently asserts `f"git diff {TARGET}..HEAD --stat" in prompt`. Rewrite it so that:
      - the fixture claims WP01 with `move-task --to claimed --owned-checkout owned` (event-only commit, R-05);
      - it commits an `app.py` change;
      - it calls `build_prompt("review", …, repository_root, "software-dev", owned=fact)`;
@@ -311,9 +321,11 @@ grep -rl "prompt_builder\|runtime.next.decision\|workflow_executor\|worktree_top
 make test-fast
 .venv/bin/ruff check src/runtime/next/decision.py src/runtime/next/prompt_builder.py src/specify_cli/cli/commands/agent/workflow_executor.py src/specify_cli/core/worktree_topology.py src/mission_runtime/claim_commit.py src/mission_runtime/__init__.py tests/mission_runtime/test_claim_commit.py tests/integration/test_owned_lifecycle_acceptance_review.py
 .venv/bin/ruff format --check src/runtime/next/decision.py src/runtime/next/prompt_builder.py src/specify_cli/core/worktree_topology.py src/mission_runtime/claim_commit.py src/mission_runtime/__init__.py tests/mission_runtime/test_claim_commit.py tests/integration/test_owned_lifecycle_acceptance_review.py
-.venv/bin/mypy src/runtime/next/decision.py src/runtime/next/prompt_builder.py src/runtime/next/runtime_bridge.py src/specify_cli/cli/commands/agent/workflow_executor.py src/specify_cli/cli/commands/agent/workflow.py src/specify_cli/core/worktree_topology.py src/mission_runtime/claim_commit.py src/mission_runtime/__init__.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
+.venv/bin/mypy --strict src/runtime/next/decision.py src/runtime/next/prompt_builder.py src/runtime/next/runtime_bridge.py src/specify_cli/cli/commands/agent/workflow_executor.py src/specify_cli/cli/commands/agent/workflow.py src/specify_cli/core/worktree_topology.py src/mission_runtime/claim_commit.py src/mission_runtime/__init__.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
 .venv/bin/python -m pytest -q tests/architectural/test_mission_runtime_surface.py tests/architectural/test_layer_rules.py tests/architectural/test_no_legacy_terminology.py
 ```
+
+mypy discipline (plan: Staging Strategy): never drop `--strict`; list callers **and callees** in the same invocation (`follow_imports = "skip"` for `specify_cli.*`). If `--strict` reports pre-existing errors in these files, run the identical command on the planning base, record that count, and show it did not grow; never narrow the file list to hide them.
 
 - `workflow_executor.py` is formatter-excluded, so it is not in the format check.
 - Do **not** run `make test-full` or the bare `tests/architectural/` directory.
@@ -330,7 +342,7 @@ make test-fast
 - Check that the three matchers are gone (grep in "Done when"), and that every review path calls `claim_commit_for_wp`.
 - Check that there is no unscoped diff on any owned failure path (AS5 cases a, b and c).
 - Check that `claim_commit.py` has no module-level `specify_cli` import, uses an explicit timeout, and raises a typed error with a reason.
-- Check the declared out-of-map edits (`__init__.py`, `_PUBLIC_SURFACE`, the `decision.py` `build_prompt` call sites, the two WP11 test files) and their one-line rationales in the PR.
+- Check the declared out-of-map edits (`__init__.py`, `_PUBLIC_SURFACE`, the `decision.py` `build_prompt` call sites, the two WP19 test files) and their one-line rationales in the PR.
 - Check that the `_build_wp_prompt` campsite commit (T068 step 0) precedes the signature change.
 - Check that the carried-test rewrite has the `Co-authored-by` trailer.
 - Check that mypy ran on every touched source file.

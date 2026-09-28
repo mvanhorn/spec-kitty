@@ -6,6 +6,7 @@ dependencies:
 - WP07
 - WP13
 - WP14
+- WP15
 - WP16
 requirement_refs:
 - FR-001
@@ -26,7 +27,8 @@ history:
   action: Prompt generated via /spec-kitty.tasks
 agent_profile: python-pedro
 authoritative_surface: src/specify_cli/
-create_intent: []
+create_intent:
+- tests/specify_cli/test_owned_history_support.py
 execution_mode: code_change
 model: claude-sonnet-5
 owned_files:
@@ -37,6 +39,7 @@ owned_files:
 - src/specify_cli/missions/_read_path_resolver.py
 - src/specify_cli/migration/runtime_state_cutover.py
 - src/specify_cli/migration/backfill_runtime_state.py
+- tests/specify_cli/test_owned_history_support.py
 role: implementer
 tags: []
 task_type: implement
@@ -91,8 +94,16 @@ Done means:
 1. The seven owned files contain **zero** occurrences of the identifier `effective_root`, zero `effective_root_kwargs`, zero `OwnedMission` references, and zero legacy attribute reads on the fact (`.root`, `.primary`, `.directory`, `.slug`, `.target`).
 2. Every converted function takes `owned: OwnedCheckout | None = None` (keyword-only, default `None`) where it took `effective_root: Path | None` or `owned: OwnedMission | None`; `safe_commit`'s dead `effective_root` parameter is deleted, not converted (T093).
 3. `create_rejected_review_cycle` (complexity 12) is campsite-extracted before its signature changes and stays ≤ 15, like every function you touch.
-4. Every existing test of these modules passes; the only test edit allowed is the single out-of-map re-point in T092 (explained there).
-5. ruff check, ruff format, `mypy --strict` clean on the touched files; `make test-fast` green.
+4. Every existing test of these modules passes unchanged; the only existing-test edit allowed is the single out-of-map re-point in T092 (explained there).
+5. **Owned-arm tests (non-vacuity).** Every converted function has a focused owned-arm test in the new file `tests/specify_cli/test_owned_history_support.py`: with a stale copy of M in R, the function called with `owned=fact` produces its output under P and **nothing** under R. Each is committed **red before** its conversion commit (on the red commit it fails with `TypeError` for `owned=` or with an R path), and the reviewer verifies the order in `git log`.
+6. ruff check, ruff format, `mypy --strict` clean on the touched files; `make test-fast` green.
+
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP17 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **0** markers.
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
 
 ## Context & Constraints
 
@@ -101,7 +112,7 @@ Done means:
   - WP01 `from mission_runtime import OwnedCheckout` (public import only; MR-1/MR-2). Canonical fields `repository_root`, `owned_root`, `mission_dir`, `mission_slug`, `topology`, `target_branch`; the legacy properties are deleted by WP18, so never read them.
   - WP04 `placement_seam(..., owned=)` (dual keyword until WP18) and the converted `mission_runtime.resolve_artifact_surface` (verify: if it still takes only `effective_root`, use the bridge rule).
   - WP07 `agent_tasks_ports.MissionHandle(owned=)`, `coordination/write_seam.write_artifact(owned=)`, `coordination/commit_router` and `status/transition_pipeline` conversions.
-- **Callee rule.** For each call out of these files: callee takes `owned` → `owned=owned`; callee is a dual-keyword seam → `owned=owned` (never the legacy keyword); callee still takes only `effective_root` → bridging keyword `effective_root=owned.owned_root if owned else None` as a plain keyword, logged in the Activity Log for WP18/T097.
+- **Callee rule.** For each call out of these files: callee takes `owned` → `owned=owned`; callee is a dual-keyword seam → `owned=owned` (never the legacy keyword); callee still takes only `effective_root` → bridging keyword `effective_root=owned.owned_root if owned else None` as a plain keyword, marked `# bridging: WP<n> converts` naming the callee's owner (after WP17, only WP18 remains), and logged in the Activity Log.
 - **Caller rule (cross-WP call sites).** Converting a public function breaks callers that pass the old keyword. On the planning base:
 
   | Callee (this WP) | Caller passing the keyword | Caller's WP | Dependency of WP17? |
@@ -142,6 +153,14 @@ grep -nE "owned\.(root|primary|directory|slug|target)\b" $F
 Planning-base identifier lines: `issue_matrix.py` 8, `review/cycle.py` 15, `consolidation/baseline.py` 17, `git/commit_helpers.py` 2, `missions/_read_path_resolver.py` 3, `migration/runtime_state_cutover.py` 10, `migration/backfill_runtime_state.py` 5. The end state is empty apart from logged bridges.
 
 ## Subtasks & Detailed Guidance
+
+### Owned-arm tests (apply to every subtask T090–T094)
+
+- **File:** `tests/specify_cli/test_owned_history_support.py` (new; markers `integration` + `git_repo`). The WP02 fixtures live in `tests/integration/conftest.py`, so import `owned_checkouts`, `stale_root_copy` and `r_snapshot` explicitly and re-export them through `__all__` (the pattern of `tests/integration/test_owned_checkout_mark_status.py:13-22`); never import a test module.
+- **One test per converted function** (the census below lists them per file). Each test mints the fact with the WP02 helper (real validator), activates `stale_root_copy`, calls the function with `owned=fact`, and asserts: the output (written file, returned path, or recorded ref) is under P; nothing is under R (`Path.is_relative_to`, excluding P's subtree when P is under R); `r_snapshot` shows 0 differences.
+- **Red-first per subtask:** commit the tests for a subtask's functions before that subtask's conversion commit. On the red commit they fail with `TypeError` (no `owned=`) or with an R path; record the reason in the commit message.
+- Functions whose output is not path-shaped (for example a pure predicate) assert on the P-derived value instead, and say so in the test docstring.
+
 
 ### Subtask T090 – Convert `tasks/issue_matrix.py`
 
@@ -311,9 +330,10 @@ Planning-base identifier lines: `issue_matrix.py` 8, `review/cycle.py` 15, `cons
 
 ## Test Strategy
 
-Targeted (existing files unchanged except the one T092 re-point):
+Targeted (existing files unchanged except the one T092 re-point; plus the new owned-arm file):
 
 ```bash
+uv run --frozen pytest -q tests/specify_cli/test_owned_history_support.py
 uv run --frozen pytest -q \
   tests/specify_cli/tasks/test_issue_matrix_scaffold.py tests/specify_cli/tasks/test_issue_matrix_structured.py \
   tests/specify_cli/tasks/test_issue_ref_url_provenance.py tests/mission_runtime/test_issue_matrix_content_source.py \

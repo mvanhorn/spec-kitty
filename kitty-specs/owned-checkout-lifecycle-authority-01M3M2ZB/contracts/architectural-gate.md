@@ -19,6 +19,8 @@ File: `tests/architectural/test_owned_checkout_single_authority.py`. It is AST-b
 
 `src/specify_cli/charter_runtime/lint/checks/org_layer.py` is **not** exempted: its walrus local `(effective_root := pack.effective_root(repo_root))` is **renamed** (for example to `pack_root`) by WP18 T097, and the method call itself is exempt everywhere by the `OrgPackConfig.effective_root` call rule (a `Call` whose `func` is `Attribute(attr="effective_root")`; an uncalled attribute read is still flagged).
 
+**Scan floor (exact).** The set of files G1/G2/G4/G5 scan equals `src/**/*.py` minus the named module-rule exemptions, compared as sets; an emptied or narrowed scan root fails. WP18 also runs the gate against a worktree of the planning base and records per-gate offender counts meeting the floors above.
+
 **Self-mutation tests.** Synthetic sources must each be flagged:
 - a stray claim call;
 - `import resolve_ownership_claim as r`;
@@ -41,4 +43,5 @@ A clean synthetic source passes.
 - The self-mutation and floor tests land green in the foundation WP.
 - The G1–G6 assertions are committed red as the first commit of the closing WP and go green there.
 - `_baselines.yaml` gains a section `test_owned_checkout_single_authority: {owned_root_bare_path_params: 0}`.
-- Transitional surfaces are marked `# TRANSITIONAL(WP18): <reason>`; the closing WP deletes everything `grep -rn "TRANSITIONAL(WP18)" src tests` finds and asserts that grep is empty.
+- Transitional surfaces are marked `# TRANSITIONAL(WP18): <reason>`; the closing WP deletes everything `grep -rn "TRANSITIONAL(WP18)" src tests` finds and asserts that grep is empty. It fails on any marker that no WP's DoD lists.
+- `grep -rn "# bridging:" src` is empty at the mission tip, and `tests/architectural/test_no_dead_symbols.py` is green there (not per lane).

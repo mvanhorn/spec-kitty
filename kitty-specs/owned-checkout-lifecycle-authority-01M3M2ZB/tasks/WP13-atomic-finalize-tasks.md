@@ -79,7 +79,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 `agent mission finalize-tasks` must validate everything before its first write. A refusal must leave the checkout exactly as it was. An owned checkout under `.worktrees/` must finalize.
 
 1. **FR-015 / US4-AS3 (red on base).** A **lane dependency cycle** refusal leaves `git status --porcelain --ignored` (the FR-015 oracle, plan §Staging Strategy) in the finalized checkout identical to before. The fixture is WP01→WP02→WP03, with WP01 and WP03 sharing an owned file.
-   - The oracle includes ignored files, so it covers `.kittify/derived/`.
+   - The oracle includes ignored files **and their content hashes** (WP02's `hash_tree`), so it covers rewrites under `.kittify/derived/`.
    - The oracle also includes `HEAD` and the index.
    - Today, this refusal fires only after WP frontmatter, `tasks.md`, the issue matrix, `meta.json` and status events have been written (R-07).
    - Same-fixture control: a successful finalize does append events and rewrite WP files.
@@ -94,6 +94,13 @@ Use language identifiers in code blocks: ````python`, ````bash`
 - the existing finalize suites pass unchanged;
 - ruff, format and mypy are clean on the touched files;
 - `make test-fast` is green.
+
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP13 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **0** markers expected. If a legacy parameter must be kept, list it here with its file and count in the same PR.
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
 
 ## Context & Constraints
 
@@ -129,7 +136,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 - **Staging (top-down).**
   - `finalize_tasks` holds the fact, and every helper in `mission_finalize.py` takes `owned: OwnedCheckout | None`. The six shared seams get `owned=` and keep their dual keyword until WP18 (transitional surfaces: the six shared seams plus every other function marked `TRANSITIONAL(WP18)`; mark any legacy parameter you keep).
   - **Do not change** the signature of `tasks_finalize_validation._read_transactional_wp_lane(..., effective_root=)` (`tasks_finalize_validation.py:95-110`). Its only caller is `tasks_move_task.py:568`, which WP16 owns and converts in parallel with this WP. Changing the callee before its caller breaks the top-down rule. Record it in the Activity Log for WP18's closure sweep (T097).
-- **Campsite first.** Extract these before any behaviour change, as the first commit after T070's tests: `finalize_tasks` (`:3217`, complexity 15 behind `# noqa: C901`), `_commit_finalize_artifacts` (`:2673`, 15) and `_run_bootstrap_loop` (`:1480`, 12). tasks.md lists `_run_bootstrap_loop` under WP11's T058, but the function lives here, so WP13 owns its extraction.
+- **Campsite first.** Extract these before any behaviour change, as the first commit after T070's tests: `finalize_tasks` (`:3217`, complexity 15 behind `# noqa: C901`), `_commit_finalize_artifacts` (`:2673`, 15) and `_run_bootstrap_loop` (`:1480`, 12). The function lives in `mission_finalize.py`, so WP13 owns its extraction (it is not part of WP11's T058).
 - **Preserve the revert machinery.** The `SK3466` `meta.json` revert (`_revert_unpersisted_target_branch_override`, `:3097`; `_MetaBranchOverrideProgress`, `:3077`) still guards **apply-time** failures such as the git commit. Keep it, and keep its tests green.
 - **Terminology.** In new messages and tests use "repository root checkout" and "owned checkout". Rename the `primary`/`primary_dir` locals you touch only where the name refers to a checkout. `primary_dir` in this file means the PRIMARY-partition read dir (a placement kind, not a checkout), so leave those names alone and follow the glossary sense.
 
@@ -150,10 +157,10 @@ Use language identifiers in code blocks: ````python`, ````bash`
 - **Steps**:
   1. **Non-owned atomicity.** Create `tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py` with markers `integration`, `git_repo` and `non_sandbox`, matching its neighbours.
      - Build a real repository-root mission whose WP graph is acyclic but whose collapsed lane graph is cyclic: WP01→WP02→WP03, with WP01 and WP03 sharing an owned file.
-     - You can model the fixture on `_write_cyclic_mission` in `test_finalize_lane_dependency_cycle.py:41`, but that helper patches internals through `_common_patches`. This test must run the **unpatched** command through `CliRunner` against the `mission` app (`specify_cli.cli.commands.agent.mission.app`).
+     - You can model the fixture on `_write_cyclic_mission` in `test_finalize_lane_dependency_cycle.py:42`, but that helper patches internals through `_common_patches`. This test must run the **unpatched** command through `CliRunner` against the `mission` app (`specify_cli.cli.commands.agent.mission.app`).
      - Commit the fixture.
-     - Record the oracle before and after: `git status --porcelain=v1 --ignored --untracked-files=all`, plus `git rev-parse HEAD` and `git write-tree`. `.kittify/derived/` is **gitignored** (`m_3_2_4_derived_views_gitignore_backfill.py`), so plain `--porcelain` would miss it. The spec's oracle must include it.
-     - Run `finalize-tasks --mission H --json`. Assert exit ≠ 0, the lane-cycle error in the JSON (the existing contract keys from `test_finalize_lane_dependency_cycle.py:199`), and **identical** oracles.
+     - Record the oracle before and after: `git status --porcelain=v1 --ignored --untracked-files=all`, **plus content hashes of every ignored file** (a rewrite of an already-ignored file does not change porcelain; reuse WP02's `tests/_owned_tree_hash.hash_tree`, the same hashing `r_snapshot` uses, never a re-implementation), plus `git rev-parse HEAD` and `git write-tree`. `.kittify/derived/` is **gitignored** (`m_3_2_4_derived_views_gitignore_backfill.py`), so plain `--porcelain` would miss it. The spec's oracle must include it.
+     - Run `finalize-tasks --mission H --json`. Assert exit ≠ 0, the lane-cycle error in the JSON (the existing contract-key asserts at `test_finalize_lane_dependency_cycle.py:216-217`), and **identical** oracles.
      - On the base this is red: WP frontmatter, `tasks.md` and events were already written.
   2. **Same-fixture control.** Break the cycle by removing the shared file from WP03. Finalize succeeds, the oracle **changes** (events appended, WP files rewritten), and `lanes.json` exists.
   3. **Every post-write refusal.** Add a parametrised case per refusal, each with a porcelain-identical assertion:
@@ -172,7 +179,8 @@ Use language identifiers in code blocks: ````python`, ````bash`
 - **Files**: `tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py` (new), `tests/integration/test_owned_lifecycle_acceptance_finalize.py` (new).
 - **Validation checklist**:
   - [ ] Each refusal row is red on the planning base. Record the reason, and the first diverging porcelain line, in the Activity Log.
-  - [ ] The oracle includes ignored files (`--ignored`), `HEAD` and the index.
+  - [ ] The oracle includes ignored files (`--ignored`) **and their content hashes** (r_snapshot hashing), `HEAD` and the index.
+  - [ ] The red commit precedes every fix commit in `git log`.
   - [ ] Each negative is paired with the successful control on the same fixture.
 - **Edge cases**:
   - Set `SPEC_KITTY_ENABLE_SAAS_SYNC=0`. Hosted fan-out must not create files.
@@ -266,13 +274,13 @@ Use language identifiers in code blocks: ````python`, ````bash`
      - Rename every `OwnedMission` annotation (29 occurrences on HEAD, for example `:188`, `:905`, `:1875`, `:2014`, `:2222`, `:2452`, `:2578`, `:2610`, `:2684`, `:2939`) to `OwnedCheckout`.
      - Rename the legacy attribute reads: `owned.root` → `owned.owned_root`, `owned.primary` → `owned.repository_root`, `owned.slug` → `owned.mission_slug`, `owned.directory` → `owned.mission_dir`, `owned.target` → `owned.target_branch`.
      - Convert the `"effective_root"` dict-key splats to `owned=owned` on the dual-keyword seams: `:929` (issue matrix), `:2056`, `:2593` (`placement_seam(owned.primary, owned.slug, effective_root=owned.root)` → `placement_seam(owned.repository_root, owned.mission_slug, owned=owned)`), `:2636`, `:2752`, `:3352`.
-     - Where a callee is not yet owned-aware and lives outside this WP, use the bridging expression `effective_root=owned.owned_root if owned else None`, and comment which WP converts it.
+     - Where a callee is not yet owned-aware and lives outside this WP, use the bridging expression `effective_root=owned.owned_root if owned else None`, marked `# bridging: WP<n> converts` with the WP that owns the callee.
   4. **Stale-copy field (FR-007 / R-12).** When `owned` is set, call WP08's stale-copy reporter once after resolution. It detects without git calls by comparing the repository-root placement with `owned.mission_dir`. Add a top-level `stale_repository_root_copy` to the JSON of the success report (`_emit_success_report`, `:2788`), the validate-only report (`:1920-1934`) and the refusal envelope. In human mode, print the warning on stderr. The key is additive and emitted only in owned runs (non-owned payloads stay byte-identical), and no existing key changes (serialized keys are `do_not_change`).
   5. `tasks_finalize_validation.py`: leave `_read_transactional_wp_lane`'s `effective_root` keyword and its `effective_root_kwargs` import in place (see Context). Add an Activity Log line for WP18.
 - **Files**: `src/specify_cli/cli/commands/agent/mission_finalize.py`, `src/specify_cli/cli/commands/agent/tasks_finalize_validation.py` (no signature change; comment only if needed).
 - **Validation checklist**:
   - [ ] `grep -n "OwnedMission\|owned\.root\b\|owned\.primary\|owned\.slug\|resolve_owned_mission(" src/specify_cli/cli/commands/agent/mission_finalize.py` returns nothing.
-  - [ ] `grep -n "effective_root" src/specify_cli/cli/commands/agent/mission_finalize.py` shows only commented bridging into not-yet-converted callees.
+  - [ ] `grep -n "effective_root" src/specify_cli/cli/commands/agent/mission_finalize.py` shows only `# bridging: WP<n> converts`-marked calls into not-yet-converted callees.
   - [ ] The golden and JSON contract tests for finalize pass. The additive key is accepted, or the contract fixtures are updated additively; if those fixtures belong to another WP, declare the edit.
   - [ ] T070's FR-007 row is green.
 - **Edge cases**:
@@ -313,8 +321,10 @@ grep -rl "mission_finalize\|tasks_finalize_validation\|finalize-tasks\|finalize_
 make test-fast
 .venv/bin/ruff check src/specify_cli/cli/commands/agent/mission_finalize.py src/specify_cli/cli/commands/agent/tasks_finalize_validation.py tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py tests/integration/test_owned_lifecycle_acceptance_finalize.py
 .venv/bin/ruff format --check src/specify_cli/cli/commands/agent/mission_finalize.py src/specify_cli/cli/commands/agent/tasks_finalize_validation.py tests/specify_cli/cli/commands/agent/test_finalize_atomicity.py tests/integration/test_owned_lifecycle_acceptance_finalize.py
-.venv/bin/mypy src/specify_cli/cli/commands/agent/mission_finalize.py src/specify_cli/cli/commands/agent/tasks_finalize_validation.py
+.venv/bin/mypy --strict src/specify_cli/cli/commands/agent/mission_finalize.py src/specify_cli/cli/commands/agent/tasks_finalize_validation.py src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/core/owned_mission.py src/specify_cli/status/bootstrap.py src/specify_cli/coordination/commit_router.py src/specify_cli/coordination/status_transition.py src/specify_cli/coordination/surface_resolver.py
 ```
+
+mypy discipline (plan: Staging Strategy): never drop `--strict`; list callers **and callees** in the same invocation (`follow_imports = "skip"` for `specify_cli.*`). If `--strict` reports pre-existing errors in these files, run the identical command on the planning base, record that count, and show it did not grow; never narrow the file list to hide them.
 
 - `test_finalize_clobber_e2e.py` is marked `integration` + `git_repo` only (not `slow`/`e2e`), so run it locally.
 - Do **not** run `make test-full` or the bare `tests/architectural/` directory. New test files may need registration in the `pyproject.toml` ruff-format exclude list only if they are formatter-excluded. New files should instead be formatted, so no registration is expected.

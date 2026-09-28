@@ -112,6 +112,13 @@ Done means:
    - the existing `move-task` and `mark-status` help text stays byte-identical.
 7. **Complexity.** Every function this WP touches is ≤ 15. Any touched function at ≥ 12, or one that your change would push to ≥ 12, gets a behaviour-preserving extraction commit **first**.
 
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP09 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **0** markers.
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
+
 ## Context & Constraints
 
 - **Mission docs** (under `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/`):
@@ -143,8 +150,8 @@ Done means:
   - `tasks_status_cmd._st_load_work_packages` is **11**. T045 adds an owned branch, so it extracts first.
   - `tasks_status_cmd._st_resolve_dirs` is ≤ 8.
   - `workflow.implement` is 10 and `workflow.review` is ≤ 8. T047 adds one guarded call at the top of each; keep those ≤ 11 by calling a helper.
-  - `tasks.list_tasks` (14) and `validate_workflow` (15) are **not touched**.
-  - `_print_standard_human` (`next_cmd.py:1202`) is WP11's campsite (T058), not this WP's. T045's campsites are `_st_load_work_packages` and `setup_plan` only.
+  - `tasks.list_tasks` (14), `validate_workflow` (15) and `_find_first_for_review_wp` (12) are **not touched**.
+  - `_print_standard_human` (`next_cmd.py:1202`) is WP19's campsite (T103), not this WP's. T045's campsites are `_st_load_work_packages` and `setup_plan` only.
 - **Declared out-of-map edits** (put a one-line rationale in each commit body):
   - `tests/specify_cli/cli/commands/agent/fixtures/tasks_cli/help/status.help` is the committed golden help snapshot for `status`. It must be regenerated when the flag is added (T048). No WP lists it.
 - **`core/stale_detection.py` is WP05's.** WP05 (T023 step 6) adds `check_doing_wps_for_staleness(..., *, owned: OwnedCheckout | None = None)` with the `resolve_workspace_for_wp(owned=)` pass-through. This WP only passes `owned=st.owned` to it; no edit to that file here.
@@ -180,17 +187,19 @@ Each functional commit turns its slice of T044/T049 green.
   2. **Fixture preparation (inside the tests, no conftest edits)**:
      - WP02's default `owned_checkouts` already ships WP01–WP02 (`wp_ids=("WP01", "WP02")`, WP02 T011). Use it; there is no need to author WP files;
      - run the existing, working `agent mission finalize-tasks --owned-checkout P --mission H --json` (FR-022) so WP01–WP02 are finalized and committed in P;
-     - activate `stale_root_copy` so that R holds M with WP01–WP05.
+     - run the O1/O2 rows **before** activating `stale_root_copy` (the "no stale copy" base column), then activate it so that R holds M with WP01–WP05 for the "with stale copy" rows.
      - For US1-AS2, start from a fixture state that has a substantive, committed `spec.md` and no `plan.md`. WP02's fixture ships `plan.md` (T011 step 2), so `git rm` it in P and commit before invoking.
   3. **Red cases.** Record every base result in the Activity Log.
 
-     | Case | Invocation | Base (red) | Target |
-     |---|---|---|---|
-     | O1 | flagless `status --mission H --json`, cwd = P | `MISSION_NOT_FOUND` (the handle resolves against R) | exit 0, WP01–WP02 only (via adoption) |
-     | O1-flag / US1-AS1 | `status --owned-checkout P --mission H --json`, cwd = R | exit 2 (no option) | exit 0; `[wp["id"] for wp in work_packages] == ["WP01","WP02"]`; `stale_repository_root_copy.path` == R's copy |
-     | US1-AS1 human | same without `--json` | exit 2 | stale-copy text on `result.stderr`; board lists only WP01–WP02 |
-     | O2 | flagless `setup-plan --mission H --json`, cwd = P | `PLAN_CONTEXT_UNRESOLVED` | success; plan committed in P |
-     | O2-flag / US1-AS2 | `setup-plan --owned-checkout P --mission H --json`, cwd = R | exit 2 | success; `git -C P log -1 --name-only` contains `kitty-specs/<slug>/plan.md`; P `HEAD` advanced by exactly one; R unchanged |
+     | Case | Invocation | Base, no stale copy (red) | Base, with stale copy (red) | Target |
+     |---|---|---|---|---|
+     | O1 | flagless `status --mission H --json`, cwd = P | `MISSION_NOT_FOUND` (the handle resolves against R) | exit 0 listing **R's** WP01–WP05 (fail-open) | exit 0, WP01–WP02 only (via adoption) |
+     | O1-flag / US1-AS1 | `status --owned-checkout P --mission H --json`, cwd = R | exit 2 (no option) | exit 2 (no option) | exit 0; `[wp["id"] for wp in work_packages] == ["WP01","WP02"]`; `stale_repository_root_copy.path` == R's copy (with stale copy) / `null` (without) |
+     | US1-AS1 human | same without `--json` | exit 2 | exit 2 | stale-copy text on `result.stderr` (with stale copy); board lists only WP01–WP02 |
+     | O2 | flagless `setup-plan --mission H --json`, cwd = P | `PLAN_CONTEXT_UNRESOLVED` | `SPEC_FILE_MISSING` naming R's copy | success; plan committed in P; R unchanged |
+     | O2-flag / US1-AS2 | `setup-plan --owned-checkout P --mission H --json`, cwd = R | exit 2 | exit 2 | success; `git -C P log -1 --name-only` contains `kitty-specs/<slug>/plan.md`; P `HEAD` advanced by exactly one; R unchanged |
+
+     Both base columns are red for the recorded reason; record the observed `error_code` (or the fail-open exit 0) for each in the red commit's message.
 
   4. Create `tests/integration/test_owned_lifecycle_acceptance_cli.py` for US6, invoking `specify_cli.cli.commands.agent.workflow.app` with `["implement", "WP01", "--owned-checkout", str(P)]` and the same for `review`. Run with and without `--mission H`.
      - **Base**: exit 2.
@@ -253,7 +262,7 @@ Each functional commit turns its slice of T044/T049 green.
   - [ ] `grep -n "resolve_owned_mission\|adopt_owned_checkout" src/specify_cli/cli/commands/agent/tasks*.py` finds nothing (G2).
 - **Edge cases**:
   - `_find_mission_slug`'s `error_handler` (`:192-200`) must still render `MISSION_NOT_FOUND` exactly as before for non-owned missing handles. The owned arm returns before that call.
-  - A coordination-topology owned mission: `OWNED_TOPOLOGY_UNSUPPORTED` (FR-023 pairing; `next` accepts it in WP11).
+  - A coordination-topology owned mission: `OWNED_TOPOLOGY_UNSUPPORTED` (FR-023 pairing; `next` accepts it in WP19).
   - `--owned-checkout` without `--mission`: the minter raises its existing handle-required error. Pin that code in T049. Do **not** auto-select a sole mission for an explicit owned run.
 
 ### Subtask T046 – `setup-plan --owned-checkout` commits in P
@@ -330,7 +339,7 @@ Each functional commit turns its slice of T044/T049 green.
 
 - **Purpose**: one declaration source for `--owned-checkout` (R-13, R-16 "eight inline declarations"). Update the frozen CLI contracts in the same commit that changes the surface, so the goldens never drift.
 - **Steps**:
-  1. `tasks.py` `move_task` (`:782-791`) and `mark_status` (`:916-919`): replace the inline `Annotated[Path | None, typer.Option("--owned-checkout", help=...)]` with WP08's `owned_checkout_option(help=<the exact existing string>)`. That help-preserving form is covered by the `CLI_CLAIM_INPUT_RULE` G5 exemption; keep the parameter name, and the CLI flag name `--owned-checkout` is unchanged. The help text stays **byte-identical**, so `fixtures/tasks_cli/help/move-task.help` and `mark-status.help` do not change. The forwarding at `:851` and `:954` is unchanged. The other inline declarations belong to WP10, WP11, WP13, WP14 and WP16.
+  1. `tasks.py` `move_task` (`:782-791`) and `mark_status` (`:916-919`): replace the inline `Annotated[Path | None, typer.Option("--owned-checkout", help=...)]` with WP08's `owned_checkout_option(help=<the exact existing string>)`. That help-preserving form is covered by the `CLI_CLAIM_INPUT_RULE` G5 exemption; keep the parameter name, and the CLI flag name `--owned-checkout` is unchanged. The help text stays **byte-identical**, so `fixtures/tasks_cli/help/move-task.help` and `mark-status.help` do not change. The forwarding at `:851` and `:954` is unchanged. The other inline declarations belong to WP10, WP13, WP14, WP16 and WP19.
   2. `status` (`:1362-1366`) uses `OwnedCheckoutOption` (the default help). This is the T045 wiring. Land the declaration here so the golden update rides with it.
   3. Golden updates, all in this commit:
      - `test_tasks_cli_contract.py`: `CONTRACT_FLAGS["status"]` (`:148`) becomes `("--mission", "--json", "--stale-threshold", "--owned-checkout")`. Add a comment naming this mission and FR-004, following the file's dated re-pin convention.
@@ -427,8 +436,10 @@ Each functional commit turns its slice of T044/T049 green.
 make test-fast
 .venv/bin/ruff check src/specify_cli/cli/commands/agent/tasks.py src/specify_cli/cli/commands/agent/tasks_status_cmd.py src/specify_cli/cli/commands/agent/mission_setup_plan.py src/specify_cli/cli/commands/agent/workflow.py tests/integration/test_owned_lifecycle_acceptance_status.py tests/integration/test_owned_lifecycle_acceptance_cli.py tests/specify_cli/cli/commands/agent/test_tasks_cli_contract.py tests/specify_cli/cli/commands/agent/test_mission_cli_golden_contract.py
 .venv/bin/ruff format --check <same files>
-.venv/bin/mypy src/specify_cli/cli/commands/agent/tasks.py src/specify_cli/cli/commands/agent/tasks_status_cmd.py src/specify_cli/cli/commands/agent/mission_setup_plan.py src/specify_cli/cli/commands/agent/workflow.py src/specify_cli/core/stale_detection.py src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/core/owned_mission.py src/specify_cli/workspace/context.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
+.venv/bin/mypy --strict src/specify_cli/cli/commands/agent/tasks.py src/specify_cli/cli/commands/agent/tasks_status_cmd.py src/specify_cli/cli/commands/agent/mission_setup_plan.py src/specify_cli/cli/commands/agent/workflow.py src/specify_cli/core/stale_detection.py src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/core/owned_mission.py src/specify_cli/workspace/context.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
 ```
+
+mypy discipline (plan: Staging Strategy): never drop `--strict`; list callers **and callees** in the same invocation (`follow_imports = "skip"` for `specify_cli.*`). If `--strict` reports pre-existing errors in these files, run the identical command on the planning base, record that count, and show it did not grow; never narrow the file list to hide them.
 
 Also run the tests for `core/stale_detection.py` (`grep -rl "stale_detection" tests/ --include=*.py`). Do not run `make test-full` or the bare `tests/architectural/` directory.
 
@@ -448,7 +459,7 @@ Also run the tests for `core/stale_detection.py` (`grep -rl "stale_detection" te
 - The T049 matrix has a valid-P control per command, and the mutation check is logged.
 - The campsite extraction commits precede the functional commits, and each has focused tests.
 - mypy ran clean on the touched sources.
-- `_print_standard_human` is not touched here (WP11 T058 owns it); `core/stale_detection.py` is not edited here (WP05 owns it).
+- `_print_standard_human` is not touched here (WP19 T103 owns it); `core/stale_detection.py` is not edited here (WP05 owns it).
 - Transitional surfaces (the six shared seams plus every other function marked `TRANSITIONAL(WP18)`) are expected until WP18; do not reject them.
 
 ## Activity Log

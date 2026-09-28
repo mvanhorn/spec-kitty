@@ -103,6 +103,13 @@ Close the fall-back to the repository root checkout **at its source**, in the mi
 - ruff, format and mypy `--strict` are clean on the touched files;
 - complexity is ≤ 15 (target ≤ 11 for touched functions), and `make test-fast` is green.
 
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP04 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **9** markers: `src/mission_runtime/resolution.py` 8 (`placement_seam(effective_root=)`, `PlacementSeam.effective_root`, `mission_context_for`, `resolve_action_context`, `resolve_placement_only`, `resolve_artifact_surface`, `declared_read_surface`, `read_dir_for`) and `src/specify_cli/task_utils/support.py` 1 (`locate_work_package`). Check with `grep -c "TRANSITIONAL(WP18)"` per file.
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
+
 ## Context & Constraints
 
 - `spec.md`: US2 (all ACs), §Edge Cases ("Stale copy", "Path aliases"), FR-006, FR-007, FR-011, FR-023.
@@ -166,7 +173,7 @@ Close the fall-back to the repository root checkout **at its source**, in the mi
      The optional stale copy writes the same mission into `R/kitty-specs/owned-01M1A900` with WP01..WP05 and commits it in R.
   2. **Isolate the WP04 surface from the WP05 surface.** Monkeypatch `specify_cli.workspace.context.resolve_workspace_for_wp` (it is imported lazily inside `resolve_action_context`, `resolution.py:2544`, so the module-attribute patch is observed) with a recording stub. The stub returns an object with `lane_id=None`, `branch_name=None`, `execution_mode="code_change"`, `resolution_kind="stub"`, `worktree_path=P`. WP05 replaces this stub with the real owned arm.
   3. Red tests (commit them **before** T018/T020, and paste the failing assertion lines into the Activity Log):
-     - `test_owned_wp_file_under_owned_checkout` (O3): `resolve_action_context(R, action="implement", feature=slug, wp_id="WP01", effective_root=P).wp_file` is under P. On base, `locate_work_package(R, …)` raises "no tasks directory" → `WORK_PACKAGE_UNRESOLVED` naming an R path, so the test is red.
+     - `test_owned_wp_file_under_owned_checkout` (O3): `resolve_action_context(R, action="implement", feature=slug, wp_id="WP01", effective_root=P).wp_file` is under P. On base it fails with "meta.json not found for mission … at R/…" (an R path), so the test is red. Assert on the red commit's observed failure, not on a guessed message.
      - `test_stale_root_copy_never_wins_wp_file` (O4): with the stale copy, `wp_file` is under P, never under R. On base it is R's copy, so the test is red.
      - `test_missing_wp_scoped_to_owned_checkout` (US2-AS2): with the stale copy, `wp_id="WP05"` (present only in R) raises `ActionContextError` with `code == "WORK_PACKAGE_UNRESOLVED"`, and `str(R)` is not in the message while P's mission dir (or `kitty-specs/<slug>/tasks` under P) is. On base it returns R's WP05, so the test is red.
   4. After T017/T018 land, add `owned=` twins of the three tests. They mint the fact through `specify_cli.core.owned_mission.resolve_owned_mission(R, P, slug)`, the real minter, not `_mint`: this proves the seam accepts what the minter produces.

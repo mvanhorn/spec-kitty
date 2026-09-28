@@ -108,11 +108,18 @@ Give WP workspace resolution an owned arm, per-checkout caches and an identity-g
 - complexity is ≤ 15 (target ≤ 11) on the touched functions;
 - ruff, format and mypy `--strict` are clean, and `make test-fast` is green.
 
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP05 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **1** marker: `src/specify_cli/workspace/context.py` 1 (`resolve_workspace_for_wp(effective_root=)`).
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
+
 ## Context & Constraints
 
 - `spec.md`: US2-AS1, US3-AS3 (the workspace is P, never a lane worktree under R), FR-006, FR-011, FR-019, §Edge Cases ("Same slug in two owned checkouts").
 - `plan.md`: §IC-03, §Staging Strategy ("Campsite first"), §Test Layout; §IC-13 (the #5009 carry of edaa9cd83's lookup and cache half).
-- `research.md`: R-04, R-06 (the O5 wedge: `decision._state_to_action` → `resolve_workspace_for_wp` folds to R; WP11/WP12 consume this arm), R-15.
+- `research.md`: R-04, R-06 (the O5 wedge: `decision._state_to_action` → `resolve_workspace_for_wp` folds to R; WP11/WP12/WP19 consume this arm), R-15.
 - `data-model.md`: §ResolvedWorkspace (extended).
 - `contracts/owned-checkout-carrier.md` §7 (`resolve_workspace_for_wp` is a named consumer).
 
@@ -167,7 +174,7 @@ Give WP workspace resolution an owned arm, per-checkout caches and an identity-g
 
        On base the P-side call has no keyword to reach P (`TypeError`), and a `repo_root=P` call collides with R's key through `get_main_repo_root`. Red either way.
   4. In the fix commit, re-point **the same tests** to `owned=` minted through the real minter `specify_cli.core.owned_mission.resolve_owned_mission(R, P, slug)`. The assertions must not change. The legacy keyword cannot produce the `owned_checkout` kind (see T023), so the diff between the red commit and the fix commit shows only the call-shape change. Reviewers verify this.
-  5. **Carry (#5009, plan §IC-13).** edaa9cd83 (author Samuel Goff) adds its tests to `tests/integration/test_explicit_checkout_commands.py`, a WP11-owned file. WP11 cherry-picks that commit (`git cherry-pick -x`). Here, **re-express** only the cache test, and put this trailer on the commit: `Co-authored-by: Samuel Goff <samuel@defpix.com>` (the author address on every #5009 commit).
+  5. **Carry (#5009, plan §IC-13).** edaa9cd83 (author Samuel Goff) adds its tests to `tests/integration/test_explicit_checkout_commands.py`, a WP19-owned file. WP19 (T101) cherry-picks that commit (`git cherry-pick -x`). Here, **re-express** only the cache test, and put this trailer on the commit: `Co-authored-by: Samuel Goff <samuel@defpix.com>` (the author address on every #5009 commit).
   6. Suggested module layout for the new test file, so later subtasks append in place:
      - `# --- builders ---`: `_owned_repo`, `_mint_plain` (a plain-dir fact via `OwnedCheckout._mint`);
      - `# --- T022 red-first (owned kind, cache isolation) ---`;

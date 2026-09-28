@@ -88,6 +88,13 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
 
 **Done when** every targeted test file below is green, `ruff check` passes on both source files without the per-file ignore, ruff format and mypy are clean on the touched files, and `make test-fast` is green.
 
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP10 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **0** markers.
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
+
 ## Context & Constraints
 
 - **Read first**: `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/spec.md` (US5, FR-016, FR-017, FR-026), `plan.md` (Staging Strategy, IC-09, IC-13, IC-14), `research.md` (R-01, R-15, R-16 "Complexity"), `data-model.md` (Validator table: `resolve_owned_create_root`), `contracts/cli-owned-checkout-surface.md` (the `agent mission create` row) and `occurrence_map.yaml`.
@@ -172,9 +179,11 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
   2. `_create_mission_core_impl` becomes a linear orchestration of these calls, at ≤ 15 and ideally ≤ 8. Keep its signature and docstring. `create_mission_core`'s rollback wrapper (`:584-692`) does not change.
   3. Keep every comment block that carries a decision record (#2693, #3861, #4033, #846, #1067 and so on). Move each one next to the code it explains, and do not drop any.
   4. Remove `"src/specify_cli/core/mission_creation.py" = ["C901"]` from `ruff.toml` (currently line 50). It is the only rule in that entry, so delete the whole line.
+  4a. **Remove the two no-op C901 ignores** (campsite, `ruff.toml` is owned here): `"C901"` from the `src/specify_cli/cli/commands/agent/tasks.py` entry (`:31`, keep `E402`, `S112`, `SIM108`) and from the `src/specify_cli/cli/commands/agent/workflow.py` entry (`:32`, keep `F401`). **Verify first** on your lane base: `.venv/bin/ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=15' src/specify_cli/cli/commands/agent/tasks.py src/specify_cli/cli/commands/agent/workflow.py` must print "All checks passed!" (it does on the planning base). If it does not, keep that entry and record why. Then `.venv/bin/ruff check src/specify_cli/cli/commands/agent/tasks.py src/specify_cli/cli/commands/agent/workflow.py` must pass with the narrowed entries.
+  4b. **Declared out-of-map re-pin of the single-mission-surface gate.** `tests/architectural/test_single_mission_surface_resolver.py:304-307` pins a `ContentDescriptor(rel_path="specify_cli/core/mission_creation.py", qualname="_create_mission_core_impl", token_substring="feature_dir = effective_root / KITTY_SPECS_DIR / mission_slug_formatted", …)`. The decomposition moves that join into an extracted helper (and T055 renames the root). Re-pin `qualname` to the helper that now holds the join and `token_substring` to the join's new exact text, keep `occurrence=None`, and append to its `rationale` one sentence: "Re-pinned (owned-checkout-lifecycle-authority WP10/T051): `_create_mission_core_impl` decomposed (FR-026); the join is unchanged seam-grammar output." Rationale line for the PR: "declared out-of-map re-pin: the pinned qualname/token moved in a behaviour-preserving decomposition". Run `.venv/bin/python -m pytest -q tests/architectural/test_single_mission_surface_resolver.py` after T051 **and** after T055.
   5. Add focused unit tests for the extracted pure helpers in `tests/core/test_mission_creation_decomposition.py`, for example `_validate_create_inputs` and the meta builder's retention and pr-bound branches. Sonar's new-code coverage expects them.
   6. Commit: `refactor(mission-creation): decompose _create_mission_core_impl to <=15, drop C901 ignore (FR-026)`.
-- **Files**: `src/specify_cli/core/mission_creation.py`, `ruff.toml`, `tests/core/test_mission_creation_decomposition.py`.
+- **Files**: `src/specify_cli/core/mission_creation.py`, `ruff.toml`, `tests/core/test_mission_creation_decomposition.py`; declared out-of-map: `tests/architectural/test_single_mission_surface_resolver.py` (re-pin only).
 - **Validation checklist**:
   - [ ] `.venv/bin/ruff check src/specify_cli/core/mission_creation.py` passes with the per-file ignore removed.
   - [ ] `.venv/bin/ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=15' src/specify_cli/core/mission_creation.py` passes.
@@ -244,7 +253,8 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
      - In P, override the software-dev `spec` template so it contains `OWNED-TEMPLATE-MARKER`. Use the project-override tier that `resolve_configured_template` honours: read `src/specify_cli/runtime/resolver.py` to find the project-local override path, and do not hard-code a guess.
      - In R, override the same template with different content.
      - Run `create_mission_core(… owned P …)` and assert that `<P>/kitty-specs/<slug>/spec.md` contains the marker and not R's content.
-     - **Red-first**: run the test on the base (before T053). It must fail because R's template is used. Commit the test before T053 if you reorder; otherwise record the red run from a local `git stash` of T053 in the Activity Log.
+     - **Red-first**: commit this test **before** T053's fix commit (red: R's template is used). The red commit must precede the fix commit in `git log`; no stash-based or Activity-Log-only proof is accepted.
+  1b. **Mission-type-context divergence row (FR-016, the third read).** Append a second new test on the same fixture: P and R carry **different** mission-type context for software-dev (for example a project-local mission-type override in P that changes a field `resolve_mission_type_context` returns, and a different value in R; read `resolve_mission_type_context`'s resolution chain to find the override tier, do not guess). Assert that owned create resolves P's value (observable in the created mission's meta or scaffold). Commit it red with the marker test, before T053.
   2. **FR-017 ratchet**: no new code. Run the existing authoring-root suites unchanged:
      - `tests/specify_cli/cli/commands/charter/test_charter_write_root_4785.py`, which pins `resolve_charter_write_root` raising `LinkedWorktreeCharterWriteError` for a linked worktree (`:106`, `:113`);
      - `tests/specify_cli/cli/commands/charter/test_activate_recompile_4785.py`;
@@ -252,9 +262,9 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
 
      Then add one paired assertion to the new test file: calling `resolve_charter_write_root(P)` on the **same** fixture P raises `LinkedWorktreeCharterWriteError`. This is the same-fixture pairing that FR-017 asks for.
 - **Files**: `tests/core/test_mission_creation_owned_charter.py`.
-- **Parallel?**: the test can be written in parallel with T053, but it must be committed before T053 to prove red-first.
+- **Parallel?**: the tests can be written in parallel with T053, but they must be committed before T053 to prove red-first.
 - **Validation checklist**:
-  - [ ] The marker test is red without T053 and green with it.
+  - [ ] The marker test and the mission-type-context row are red without T053 and green with it; their red commit precedes T053 in `git log`.
   - [ ] The paired FR-017 assertion is green both before and after T053. That is correct for a `[ratchet]` requirement.
   - [ ] The three charter suites pass unchanged (`git diff --stat` shows no edits under `tests/specify_cli/cli/commands/charter/`).
 - **Edge cases**: `resolve_configured_template` may cache by root. If the marker test flakes because of cross-test caching, clear the resolver cache in a fixture. Do not add sleeps.
@@ -287,7 +297,7 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
 
 ## Test Strategy
 
-Red-first order: T050 (green characterisation) → T051 (refactor, green) → T052 (carried red) → T054 marker test (red) → T053 (green) → T055.
+Red-first order: T050 (green characterisation) → T051 (refactor, green; `ruff.toml` narrowed; arch re-pin) → T052 (carried red) → T054 marker test + mission-type-context row (red, committed) → T053 (green) → T055.
 
 Run these and record the exact commands and pass/fail counts in the PR's *Tests run* section:
 
@@ -314,9 +324,11 @@ grep -rl "mission_creation\|create_mission_core" tests/ --include="*.py"   # add
 make test-fast
 .venv/bin/ruff check src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py tests/core/test_mission_creation_decomposition.py tests/core/test_mission_creation_owned_charter.py
 .venv/bin/ruff format --check src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py tests/core/test_mission_creation_decomposition.py tests/core/test_mission_creation_owned_charter.py
-.venv/bin/mypy src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/core/owned_mission.py src/specify_cli/tracker/origin.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
-.venv/bin/python -m pytest -q tests/architectural/test_no_legacy_terminology.py   # help text touched
+.venv/bin/mypy --strict src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/core/owned_mission.py src/specify_cli/tracker/origin.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
+.venv/bin/python -m pytest -q tests/architectural/test_no_legacy_terminology.py tests/architectural/test_single_mission_surface_resolver.py   # help text touched; re-pinned gate
 ```
+
+mypy discipline (plan: Staging Strategy): never drop `--strict`; list callers **and callees** in the same invocation (`follow_imports = "skip"` for `specify_cli.*`). If `--strict` reports pre-existing errors in these files, run the identical command on the planning base, record that count, and show it did not grow; never narrow the file list to hide them.
 
 Do **not** run `make test-full` or the bare `tests/architectural/` directory (`NO_FULL_HEAVY_SUITES_IN_MISSION`). A red that you did not cause is classified according to the CLAUDE.md baseline-red gotcha. Do not chase it.
 
@@ -330,7 +342,8 @@ Do **not** run `make test-full` or the bare `tests/architectural/` directory (`N
 ## Review Guidance
 
 - Check that T050 precedes T051 in `git log`, and that T051's diff contains no functional change. Diff the characterisation run output before and after.
-- Confirm that `ruff.toml` lost exactly one line, and that `ruff check` on `mission_creation.py` passes with default config.
+- Confirm that `ruff.toml` lost exactly the `mission_creation.py` line and the `C901` token from the `agent/tasks.py` and `agent/workflow.py` entries, and that `ruff check` passes on all three files.
+- Confirm the `test_single_mission_surface_resolver.py` re-pin is limited to `qualname`/`token_substring` plus one rationale sentence, and that the gate file is green.
 - Confirm that the a37e9ee39 cherry-pick is verbatim (`-x` trailer and original author), and that the adaptation lives in its own commit.
 - Confirm the `Co-authored-by: Samuel Goff <samuel@defpix.com>` trailer on the T053 commit.
 - Confirm that charter-authoring suites are untouched and green (FR-017).

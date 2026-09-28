@@ -85,7 +85,7 @@ Use language identifiers in code blocks: ````python`,````bash`
 
 ## Objectives & Success Criteria
 
-This WP introduces **one shared CLI owned surface**, `src/specify_cli/cli/commands/_owned_checkout.py`. Every owned-capable command (this WP, WP09, WP11, WP13, WP14, WP16) validates ownership through it. Its first consumer is `agent context resolve`, which:
+This WP introduces **one shared CLI owned surface**, `src/specify_cli/cli/commands/_owned_checkout.py`. Every owned-capable command (this WP, WP09, WP10, WP13, WP14, WP16, WP19) validates ownership through it. Its first consumer is `agent context resolve`, which:
 
 - gains `--owned-checkout`;
 - resolves every WP path from P;
@@ -116,6 +116,13 @@ Done means:
 6. `src/specify_cli/missions/operation_context.py` and `tests/specify_cli/missions/test_operation_context.py` are **deleted**. Their behaviours are re-homed in `tests/specify_cli/cli/commands/test_owned_checkout_helper.py`, with a written disposition per test (T043).
 7. `resolve_context` is at complexity ≤ 11 after a behaviour-preserving campsite extraction; it is **15** today.
 
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP08 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **0** markers.
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
+
 ## Context & Constraints
 
 - **Mission docs**, under `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/`:
@@ -136,7 +143,7 @@ Done means:
   - `context resolve` keeps its existing envelope keys: `{"success": false, "error_code", "error"}` on error, and `{"success": true, ...context.to_dict(), "mission_dir"}` on success.
   - New keys are **additive only**. `stale_repository_root_copy` is emitted **only when the command runs with a fact** (explicit or adopted), with the value `null` when there is no stale copy.
   - The non-owned payload stays byte-identical, and that is the regression proof.
-  - Record this convention in the helper's module docstring so WP09, WP11 and WP13 follow it.
+  - Record this convention in the helper's module docstring so WP09, WP13 and WP19 follow it.
 - **Error codes (NFR-004).**
   - Use the data-model registry codes: `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, `OWNED_CHECKOUT_IS_MISSION_WORKTREE` (a lane or coordination worktree passed as `--owned-checkout`), `OWNED_TOPOLOGY_UNSUPPORTED`, `OWNED_BRANCH_REFUSED`, `OWNED_MISSION_PATH_REFUSED` and `WORK_PACKAGE_UNRESOLVED`.
   - Also use the claim codes the validator already emits through `error_for_claim` (`checkout_ownership.py:44-76`), now listed in the data-model registry: `OWNERSHIP_NESTED`, `OWNERSHIP_FOREIGN`, `OWNERSHIP_BROKEN_POINTER` and `WORKTREE_INVOCATION_REFUSED`.
@@ -170,7 +177,8 @@ Done means:
 - **Steps**:
   1. Create `tests/integration/test_owned_lifecycle_acceptance_context.py`.
      - Markers: `pytestmark = [pytest.mark.integration, pytest.mark.git_repo]`.
-     - Invoke the command in-process through `CliRunner` on `specify_cli.cli.commands.agent.context.app`, with `["resolve", ...]`.
+     - Invoke the command in-process through `CliRunner` on `specify_cli.cli.commands.agent.context.app` **without** a `"resolve"` token: it is a single-command Typer app, which flattens, so `["resolve", ...]` becomes a usage error. Alternatively invoke through the root CLI app with `["agent", "context", "resolve", ...]`. Check once which form your base accepts and use it everywhere.
+     - The red commit must show `error_code` values and paths, never Typer usage errors (exit 2 "No such command" / "unexpected extra argument"). The only rows whose base red is legitimately exit 2 are those whose flag does not exist on the base (O3-flag, FR-020 R).
      - Use only the WP02 fixtures `owned_checkouts`, `r_snapshot` and `stale_root_copy`. They are visible here because the file sits in `tests/integration/`. Do not import from any test module.
      - Parametrise handles over slug, mid8 and mission id (spec Common fixture).
   2. Write the red cases. For each, record the base result in the Activity Log.
@@ -179,13 +187,14 @@ Done means:
      |---|---|---|---|
      | O3 | cwd = P, flagless, `--action implement --wp-id WP01 --json` | `WORK_PACKAGE_UNRESOLVED` naming R paths | exit 0; `wp_file` and `workspace_path` under P; `resolution_kind == "owned_checkout"`; `lane_id is None` |
      | O3-flag | same with `--owned-checkout P` | exit 2 (no such option) | same as O3 |
-     | O4 | O3 with `stale_root_copy` active (R holds M with WP01–WP05) | exit 0 with R paths (fails open) | every path under P; `stale_repository_root_copy.path` == R's copy dir; `mission_id` == M's id |
+     | O4 | O3 with `stale_root_copy` active (R holds M with WP01–WP05 **and a `lanes.json`**, WP02 T011) | exit 0 with R paths (fails open) | every path under P; `stale_repository_root_copy.path` == R's copy dir; `mission_id` == M's id |
      | US2-AS2 | `--wp-id WP09` (absent in P, present in R's copy) | resolves from R or errors naming R | `WORK_PACKAGE_UNRESOLVED`; the message names P's mission dir; no string in the payload starts with R's path |
      | US2-AS3 human | O4 without `--json` | no warning | stale-copy text on `result.stderr`, not stdout |
      | O10 | cwd = linked checkout on a **mismatched branch** that holds M | adopts unvalidated (effective root = that checkout) | not adopted; payload equals the cwd = R payload |
      | US7-AS1 | cwd = P, flagless, `--action tasks_outline --mission H` | resolves R (or errors) | payload equal to the `--owned-checkout P` payload |
      | US7-AS5 | cwd = P; R holds the **same slug with a different mission id** | `MISSION_CONTEXT_CONFLICT` (today via `operation_context`) | still `MISSION_CONTEXT_CONFLICT`, exit 1 |
      | FR-020 R | `--owned-checkout R` | exit 2 | `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, exit 1 |
+     | NFR-004 no-lanes | O3 with `stale_root_copy(with_lanes=False)` (R's copy has no `lanes.json`) | traceback (record it) | a typed `error_code` from `OwnedRefusalCode`, or exit 0 with P paths; never a traceback |
 
   3. Add the **positive controls on the same fixture instance**. They are green on the base and must stay green:
      - (a) A non-owned mission living only in R, resolved from cwd = R without the flag. **Capture the base JSON payload as an inline expected dict** (paths normalised to fixture-relative) and assert byte-equality after the change. This proves non-owned output is unchanged, including the absence of `stale_repository_root_copy`.
@@ -247,7 +256,7 @@ Done means:
 - **Files**: `src/specify_cli/cli/commands/_owned_checkout.py`, `tests/specify_cli/cli/commands/test_owned_checkout_helper.py`.
 - **Parallel?**: can proceed alongside T042 (different files).
 - **Validation checklist**:
-  - [ ] `.venv/bin/mypy src/specify_cli/cli/commands/_owned_checkout.py` is clean, with no `# type: ignore`.
+  - [ ] `.venv/bin/mypy --strict src/specify_cli/cli/commands/_owned_checkout.py` is clean, with no `# type: ignore`.
   - [ ] No bare-path owned parameters: the only `Path` parameters are `repository_root` and `cwd`; the raw CLI input `owned_checkout` of `resolve_owned_or_adopt` is annotated `OwnedCheckoutOption` (exempt from G5 by the named `CLI_CLAIM_INPUT_RULE`: it carries the raw, unvalidated `--owned-checkout` input to the minter). Confirm the rule name in WP01's `tests/architectural/_owned_checkout_scan.py`.
   - [ ] Every function has a focused test, because the diff-cover gate is ≥ 90%.
   - [ ] Any string used three or more times is a module constant (Sonar S1192).
@@ -416,8 +425,10 @@ Done means:
 make test-fast
 .venv/bin/ruff check src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/cli/commands/agent/context.py tests/specify_cli/cli/commands/test_owned_checkout_helper.py tests/integration/test_owned_lifecycle_acceptance_context.py
 .venv/bin/ruff format --check <same files>
-.venv/bin/mypy src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/cli/commands/agent/context.py src/specify_cli/core/owned_mission.py src/specify_cli/workspace/context.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
+.venv/bin/mypy --strict src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/cli/commands/agent/context.py src/specify_cli/core/owned_mission.py src/specify_cli/workspace/context.py src/specify_cli/core/checkout_ownership.py src/specify_cli/task_utils/support.py src/mission_runtime/owned_checkout.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
 ```
+
+mypy discipline (plan: Staging Strategy): never drop `--strict`; list callers **and callees** in the same invocation (`follow_imports = "skip"` for `specify_cli.*`). If `--strict` reports pre-existing errors in these files, run the identical command on the planning base, record that count, and show it did not grow; never narrow the file list to hide them.
 
 Do not run `make test-full` or the bare `tests/architectural/` directory.
 

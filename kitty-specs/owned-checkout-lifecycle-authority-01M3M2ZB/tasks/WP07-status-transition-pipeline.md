@@ -105,6 +105,13 @@ Done means:
 5. **NFR-002 / FR-003 through the CLI.** `agent mission finalize-tasks --owned-checkout P` performs **exactly one** ownership validation. This is **red on the base**, where the bootstrap read re-validates (see T037). `agent tasks move-task --owned-checkout P` performs exactly one as well.
 6. **Nothing changes for non-owned missions.** All status-transition, bootstrap, pipeline, commit-router and write-seam tests stay green. The existing owned `move-task`/`mark-status`/finalize tests (FR-022) stay green without edits.
 
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP07 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **12** markers: `status/models.py` 3 (`TransitionRequest.effective_root`, `.owned_mission`, `has_owned_root_only`); `coordination/status_transition.py` 3 (the legacy re-validation branch, `read_events_transactional(effective_root=)`, `emit_inner_state_changed_transactional(effective_root=)`); `status/bootstrap.py` 2 (`effective_root`, `owned_mission`); `coordination/commit_router.py` 1 (`commit_for_mission`); `coordination/write_seam.py` 1 (`write_artifact`); `agent_tasks_ports.py` 2 (`MissionHandle.effective_root`, the `_placement_for` legacy arm).
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
+
 ## Context & Constraints
 
 **Mission documents.** All live under `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/`:
@@ -119,7 +126,7 @@ Done means:
 - **WP04** exposes `owned=` on `placement_seam` / `mission_context_for` / `resolve_action_context`, and possibly on `resolve_placement_only`.
   - Before calling a `mission_runtime` function, grep its current signature.
   - If it takes `owned=`, pass the fact.
-  - If it still takes only `effective_root=`, pass the **bridging expression** `effective_root=owned.owned_root if owned else None`. This is not a new signature.
+  - If it still takes only `effective_root=`, pass the **bridging expression** `effective_root=owned.owned_root if owned else None`, marked `# bridging: WP<n> converts` with the WP that owns the callee. This is not a new signature.
 - **WP06** added:
   - `_TransactionIdentity.owned` (set in `_identity_for_request`);
   - the owned arm of `_read_contract_from_transaction_target`;
@@ -256,7 +263,7 @@ Done means:
   3. Out-of-map `src/specify_cli/coordination/transaction.py` (WP06-owned; declare it):
      - `acquire(..., owned: OwnedCheckout | None = None)` replaces `effective_root` (`:249`). The lock root is `owned.owned_root if owned else repo_root` (`:291-293`).
      - `_acquire_locked(..., owned=)` replaces `primary_root=` (`:299-312`, `:547`). `txn._owned` replaces `_primary_root` (`:195`), and `commit()` reads `self._owned.repository_root` (`:830`).
-     - The `safe_commit(effective_root=...)` keyword (`:836`) stays as a bridging expression, because `git/commit_helpers.py` converts in WP17: `effective_root=self.worktree_root if self._owned is not None else None`.
+     - The `safe_commit(effective_root=...)` keyword (`:836`) stays as a bridging expression marked `# bridging: WP17 converts`, because `git/commit_helpers.py` converts in WP17: `effective_root=self.worktree_root if self._owned is not None else None`.
      - `append_events` (`:643`): `if self._owned is not None: primary_checkout_append(self.feature_dir, owned=self._owned)`. The legacy and coordination arms are unchanged.
 - **Files**: `src/specify_cli/coordination/status_transition.py`, `tests/specify_cli/coordination/test_status_transition.py`, and the declared hunk in `src/specify_cli/coordination/transaction.py`.
 - **Parallel?**: no.
@@ -278,7 +285,7 @@ Done means:
      - `tests/status/test_transition_request_owned.py`: `bootstrap_canonical_state(P_mission_dir, slug, owned=fact, repo_root=fact.repository_root)` seeds WP rows with **zero** calls to `resolve_ownership_claim` (tripwire).
      - `prepare_transition` with `owned=fact` on `in_progress → for_review` passes the fact to the injected resolver as `owned=`.
   2. `src/specify_cli/status/transition_pipeline.py`:
-     - `_default_resolve_subtasks_dir(..., owned: OwnedCheckout | None = None)` (`:84-104`) bridges into `resolve_subtasks_gate_dir(..., effective_root=owned.owned_root if owned else None)`, because `missions/_read_path_resolver.py` converts in WP17. Add the comment `# bridging: _read_path_resolver converts in WP17`.
+     - `_default_resolve_subtasks_dir(..., owned: OwnedCheckout | None = None)` (`:84-104`) bridges into `resolve_subtasks_gate_dir(..., effective_root=owned.owned_root if owned else None)`, because `missions/_read_path_resolver.py` converts in WP17. Mark the call `# bridging: WP17 converts`.
      - `_infer_review_gates` (`:131-176`) passes `owned=request.owned_fact()` at `:163`.
      - Update `SubtasksDirResolver` (`:64`) and its docstring to say the resolver receives `owned=`.
   3. `src/specify_cli/status/emit.py`: rename `_flat_subtasks_dir_resolver`'s dropped parameter (`:690`) to `owned: OwnedCheckout | None = None`. Keep the `noqa: ARG001` with its D-1 rationale; it is still deliberately dropped. Update the docstring (`:694-699`). There is no other `effective_root` in `emit.py` (`grep -n effective_root src/specify_cli/status/emit.py`).
@@ -319,7 +326,7 @@ Done means:
      - The private internals `_commit_partition_group`, the new helpers and `_group_files_by_partition` take `owned` only when the caller holds a fact.
      - Where only a bare root arrives (legacy callers), keep one private bridging variable `owned_root: Path | None` confined to `commit_for_mission`. Do not introduce a new bare-path **parameter** anywhere.
      - Placement calls (`:298-301`, `:242`) use `owned=` or the bridging expression, according to WP04's signature.
-     - `safe_commit(...)` (`:432-439`): `**effective_root_kwargs(owned.owned_root if owned else legacy_root)`. This is the bridging expression, because `commit_helpers` converts in WP17. Drop the module-level `effective_root_kwargs` import (`:44`) if it is no longer needed. Otherwise keep it with a `# bridging` comment.
+     - `safe_commit(...)` (`:432-439`): `**effective_root_kwargs(owned.owned_root if owned else legacy_root)`, marked `# bridging: WP17 converts`. This is the bridging expression, because `commit_helpers` converts in WP17. Drop the module-level `effective_root_kwargs` import (`:44`) if it is no longer needed. Otherwise keep it with a `# bridging` comment.
   4. Convert `write_seam.py` the same way:
      - `write_artifact(..., owned=None, effective_root=None)` (`:462-472`, legacy keyword transitional);
      - `_probe_write_target(..., owned=...)` (`:239-268`, private, fact only);
@@ -431,8 +438,10 @@ Done means:
 make test-fast
 .venv/bin/ruff check <every touched src and test file>
 .venv/bin/ruff format --check <every touched src and test file>
-.venv/bin/mypy src/specify_cli/status/models.py src/specify_cli/status/transition_pipeline.py src/specify_cli/status/emit.py src/specify_cli/status/bootstrap.py src/specify_cli/coordination/status_transition.py src/specify_cli/coordination/transaction.py src/specify_cli/coordination/commit_router.py src/specify_cli/coordination/write_seam.py src/specify_cli/agent_tasks_ports.py
+.venv/bin/mypy --strict src/specify_cli/status/models.py src/specify_cli/status/transition_pipeline.py src/specify_cli/status/emit.py src/specify_cli/status/bootstrap.py src/specify_cli/coordination/status_transition.py src/specify_cli/coordination/transaction.py src/specify_cli/coordination/commit_router.py src/specify_cli/coordination/write_seam.py src/specify_cli/agent_tasks_ports.py src/specify_cli/core/owned_mission.py src/specify_cli/git/commit_helpers.py src/specify_cli/missions/_read_path_resolver.py src/specify_cli/coordination/surface_resolver.py src/specify_cli/coordination/status_service.py
 ```
+
+mypy discipline (plan: Staging Strategy): never drop `--strict`; list callers **and callees** in the same invocation (`follow_imports = "skip"` for `specify_cli.*`). If `--strict` reports pre-existing errors in these files, run the identical command on the planning base, record that count, and show it did not grow; never narrow the file list to hide them.
 
 Do not run `make test-full` or the bare `tests/architectural/` directory. Classify unrelated reds per the `CLAUDE.md` baseline-red gotcha.
 

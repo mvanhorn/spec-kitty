@@ -30,6 +30,7 @@ create_intent:
 - tests/core/test_owned_mission_minter.py
 - tests/core/test_adopt_owned_checkout.py
 - tests/integration/test_owned_fixtures_selftest.py
+- tests/_owned_tree_hash.py
 execution_mode: code_change
 model: claude-sonnet-5
 owned_files:
@@ -40,6 +41,7 @@ owned_files:
 - tests/core/test_adopt_owned_checkout.py
 - tests/integration/conftest.py
 - tests/integration/test_owned_fixtures_selftest.py
+- tests/_owned_tree_hash.py
 role: implementer
 tags: []
 task_type: implement
@@ -106,7 +108,10 @@ Also:
 - `tests/core/test_checkout_ownership.py` is still green;
 - the existing owned command tests are green unchanged: `tests/integration/test_explicit_checkout_commands.py`, `tests/integration/test_owned_checkout_mark_status.py` and `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py`;
 - `tests/architectural/test_cold_import_status_boundary.py` is green;
-- ruff, format and mypy `--strict` are clean on the touched files, and `make test-fast` is green.
+- ruff, format and mypy `--strict` are clean on the touched files, and `make test-fast` is green;
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list): `src/specify_cli/core/owned_mission.py` **3** (`OwnedMission` factory, `_EffectiveRootKwargs`, `effective_root_kwargs`) and `tests/core/test_owned_mission_minter.py` **2** (`test_transitional_factory_mints_the_fact`, `test_effective_root_kwargs_accepts_fact`); WP18 T096 fails on unlisted markers;
+- new refusal codes come from WP01's `OwnedRefusalCode` (no repeated literals); the existing literal sites in `owned_mission.py` are converted to it here;
+- **dead-symbol gate (S3):** judged at the mission tip (WP18). Expected transient reds from this WP: `resolve_owned_create_root` (no caller until WP10) and `adopt_owned_checkout` (no caller until WP08). They are not this WP's failures: record them in the Activity Log; never allowlist.
 
 ## Context & Constraints
 
@@ -124,7 +129,7 @@ Also:
 - `:71-128`: `resolve_owned_mission`. The topology refusal is at `:108-110` and always single_branch; the branch check is at `:111-114`; the protection check is at `:115-116`; the #3866 top-level tripwire is at `:127`.
 - `:131-135`: `require_unstaged_index`.
 - `src/specify_cli/core/checkout_ownership.py:190-266`: `resolve_ownership_claim`. It returns `OWNED` for the repository root itself (`:225-231`), and `tests/core/test_checkout_ownership.py:111` (`test_primary_self_ownership_is_owned`) pins that primitive behaviour.
-- Other claim-primitive callers (G1 offenders, converted by later WPs, **not here**): `src/specify_cli/cli/commands/next_cmd.py:170` (WP11) and `src/specify_cli/core/mission_creation.py:848` (WP10).
+- Other claim-primitive callers (G1 offenders, converted by later WPs, **not here**): `src/specify_cli/cli/commands/next_cmd.py:170` (WP19) and `src/specify_cli/core/mission_creation.py:848` (WP10).
 
 **Constraints**:
 - **Cold-import boundary (#1461).** `owned_mission.py` is cold-imported by `task_utils.support` and ~37 CLI modules. Keep the `mission_resolver` and `checkout_ownership` imports **function-local** (as at `:84-89`); `tests/architectural/test_cold_import_status_boundary.py:39` pins this. Any `surface_resolver`, `lanes` or `workspace` import added for adoption must also be function-local.
@@ -238,7 +243,7 @@ Also:
 - **Parallel?**: Yes with T007.
 - **Validation checklist**:
   - [ ] Tests are green, and mypy `--strict` is clean.
-  - [ ] `grep -n "resolve_owned_create_root" src` shows only the definition. WP10 adds the caller; the dead-symbol gate may flag it until then (same handling as WP01 T002: record it, do not allowlist).
+  - [ ] `grep -n "resolve_owned_create_root" src` shows only the definition. WP10 adds the caller; the dead-symbol gate flags it until then (expected transient red, judged at the mission tip by WP18: record it, do not allowlist). `adopt_owned_checkout` is likewise dead until WP08.
 - **Edge cases**:
   - The caller in WP10 passes `owned_checkout.resolve()`. The function must resolve internally anyway, and must be idempotent on already-resolved input.
 
@@ -331,7 +336,7 @@ Also:
 
 ### Subtask T011 – Shared integration fixtures with self-tests
 
-- **Purpose**: Every owned acceptance test (WP08, WP09, WP11–WP13, WP18) uses one fixture set. That keeps the R snapshot (NFR-001) and the stale copy identical everywhere (plan §Test Layout: fixtures live in `tests/integration/conftest.py`, never imported from test modules).
+- **Purpose**: Every owned acceptance test (WP08, WP09, WP11–WP13, WP18, WP19) uses one fixture set. That keeps the R snapshot (NFR-001) and the stale copy identical everywhere (plan §Test Layout: fixtures live in `tests/integration/conftest.py`, never imported from test modules).
 - **Steps**:
   1. Extend `tests/integration/conftest.py` (31 lines today). Keep the existing coordination-topology re-export and the SaaS-sync autouse. Put the implementation in private helpers in the same file, or in a new helper module registered the way `conftest_coord_topology.py` is. **A new helper module is not in this WP's owned files**, so prefer keeping everything in `conftest.py`.
   2. `owned_checkouts`: a factory fixture `make_owned_checkouts(*, topology="single_branch", placement="sibling" | "under_worktrees", wp_ids=("WP01", "WP02"), protected_target=False)` plus a default `owned_checkouts` fixture. It builds, without `spec-kitty init` (per-PR speed; init-built variants are `e2e` + `slow`, nightly):
@@ -343,14 +348,14 @@ Also:
      It returns a frozen dataclass `OwnedCheckouts(repository_root, owned_root, sibling, mission_slug, mission_id, mid8, target_branch, mission_dir)`. **Name the fields exactly like this.** `owned_root` is fine here because tests are outside G5's `src/` scope.
   3. `owned_handle`: parametrised over `("slug", "mid8", "mission_id")`, returning the handle string for the default fixture (spec §Common fixture).
   4. `r_snapshot`: requests the canonical home fixture (`canonical_home` in `tests/conftest.py`). **Never set `SPEC_KITTY_HOME` yourself**: the home-pin scan gate (`_home_pin_scan`) polices fixtures that do. It returns an object with `take() -> RSnapshot` and `assert_unchanged(before, after)`. `RSnapshot` holds:
-     - sha256 of every file under R's working tree, **including ignored files**, excluding the `.git` directory and **exactly P's resolved subtree** when P lives under R (never a blanket `.worktrees/` exclusion);
+     - sha256 of every file under R's working tree, **including ignored files**, excluding the `.git` directory and **exactly P's resolved subtree** when P lives under R (never a blanket `.worktrees/` exclusion). The walk lives in a plain helper module, `tests/_owned_tree_hash.py` (`hash_tree(root: Path, *, exclude: Path | None = None) -> dict[str, str]`), so that tests outside `tests/integration/` (WP13's finalize atomicity oracle) reuse the same hashing without importing a test module or a conftest;
      - `git rev-parse HEAD` in R;
      - the index: `git ls-files --stage` plus `git diff --cached`;
      - the file hashes under `<git-common-dir>/spec-kitty-locks` (constant `LOCK_DIRECTORY`, `src/specify_cli/core/checkout_file_lock.py:31`);
      - the file hashes under the isolated `SPEC_KITTY_HOME`.
 
      `assert_unchanged` prints the added, removed and changed keys per component.
-  5. `stale_root_copy`: copies P's mission dir into `R/kitty-specs/<slug>` with the **same** `mission_id`, adds WP files so R holds WP01–WP05 (spec US1-AS1), and commits it in R. It returns the copied path. Offer a `different_id=True` variant for US7-AS5.
+  5. `stale_root_copy`: copies P's mission dir into `R/kitty-specs/<slug>` with the **same** `mission_id`, adds WP files so R holds WP01–WP05 (spec US1-AS1), and commits it in R. The copy **includes a `lanes.json`** (a lane map that differs from P's), so a base-tree reader that folds to R succeeds with R's paths (exit 0, fail-open), which is the O4 base behaviour. It returns the copied path. Offer a `different_id=True` variant for US7-AS5, and a `with_lanes=False` variant (no `lanes.json`) for the NFR-004 no-lanes row (base: a traceback, target: a typed `error_code`). The self-test pins that the default copy has `lanes.json`.
   6. `owned_cwd`: parametrised over `("repository_root", "owned_checkout", "elsewhere")`, it `monkeypatch.chdir`s accordingly (NFR-001 cwd matrix).
   7. Create `tests/integration/test_owned_fixtures_selftest.py` (`pytestmark = [pytest.mark.integration, pytest.mark.git_repo]`). These self-tests are the fixtures' non-vacuity proof:
      - P's git common dir equals R's; P is on `codex/owned`; the meta topology is as requested;
@@ -374,7 +379,7 @@ Also:
 | Requirement | Red-first test | Entry point | Why non-vacuous |
 |---|---|---|---|
 | FR-023 | `test_next_topologies_accept_lanes_with_coord` | `resolve_owned_mission` (pre-existing) | paired with the lifecycle-default refusal on the same fixture |
-| FR-002 (minter half) | `test_returns_validated_fact` and the branch/protection ratchets | `resolve_owned_mission` | the fact type check is red on base; the branch and protection refusals prove the checks `next` will inherit (the CLI half is WP11) |
+| FR-002 (minter half) | `test_returns_validated_fact` and the branch/protection ratchets | `resolve_owned_mission` | the fact type check is red on base; the branch and protection refusals prove the checks `next` will inherit (the CLI half is WP19) |
 | FR-020 | `test_repository_root_is_refused` | `resolve_owned_mission` | red on base: R is accepted today; control: valid P accepted |
 | FR-021 (helper) | `tests/core/test_adopt_owned_checkout.py` | new function (the CLI-level O10 red is WP08) | nine cases with claim-count assertions; the R case asserts 0 claims |
 
@@ -396,7 +401,7 @@ uv run --frozen mypy --strict src/specify_cli/core/owned_mission.py src/specify_
   src/specify_cli/cli/commands/accept.py src/specify_cli/cli/commands/agent/tasks_mark_status.py src/specify_cli/cli/commands/agent/mission_finalize.py \
   src/specify_cli/cli/commands/agent/tasks_move_task.py src/specify_cli/cli/commands/spec_commit_cmd.py src/specify_cli/coordination/status_transition.py \
   src/specify_cli/status/bootstrap.py src/specify_cli/status/models.py src/specify_cli/migration/backfill_runtime_state.py src/specify_cli/migration/runtime_state_cutover.py
-# callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*); if --strict surfaces pre-existing errors in the retyped files, run those without --strict and record it
+# callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*); never drop --strict and never narrow the file list: if --strict reports pre-existing errors in the retyped files, run the same command on the planning base, record that error count, and show this WP does not increase it
 ```
 
 No `make test-full`, and no bare `tests/architectural/`.

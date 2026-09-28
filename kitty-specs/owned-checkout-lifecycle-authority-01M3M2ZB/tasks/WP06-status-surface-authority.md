@@ -93,6 +93,13 @@ Done means all of the following hold:
 5. **FR-014 ratchet.** A repository-root-labelled read or append of the **same** `.worktrees/<name>` path shape, when that path is a **registered coordination worktree**, is still refused with the existing `StatusContractError` message.
 6. **NFR-002.** The owned arm adds **zero** git subprocess calls: the fact already proves registration and branch.
 
+**Mission-wide DoD (post-tasks squad):**
+- `grep -rn "bridging: WP06 converts" src` is empty: every bridging call site marked for this WP is converted, including sites in other WPs' files (declared out-of-map edits).
+- Every bridging call site this WP adds carries `# bridging: WP<n> converts`, naming the WP that converts it (never a free-form comment, never no marker).
+- `TRANSITIONAL(WP18)` markers added by this WP (exact list; any deviation is amended here in the same PR, and WP18 T096 fails on unlisted markers): **0** markers (this WP adds none).
+- Red-first proofs are **commits**: the red test commit precedes its fix commit, and the reviewer verifies the order in `git log`.
+- Error codes are imported from `OwnedRefusalCode` (WP01); no `OWNED_*` string literal is repeated in `src/` or new tests (Sonar S1192).
+
 ## Context & Constraints
 
 - Charter: `.kittify/charter/charter.md` (single canonical authority, ATDD-first C-011, campsite cleaning, gate discipline).
@@ -204,7 +211,7 @@ Done means all of the following hold:
 - **Validation checklist**:
   - [ ] The tests were committed red (`ImportError` on the new name), then green.
   - [ ] Same-fixture positive control: the `owned is None` row and the owned row use the **same** path, so the only variable is the fact.
-  - [ ] `.venv/bin/mypy src/specify_cli/coordination/surface_resolver.py` is clean.
+  - [ ] `.venv/bin/mypy --strict src/specify_cli/coordination/surface_resolver.py` is clean.
   - [ ] `tests/coordination/test_surface_resolver_collapse.py` and `tests/specify_cli/coordination/test_surface_resolver.py` stay green.
 - **Edge cases**:
   - On Windows, compare resolved, case-normalised paths. Reuse whatever WP01 decided for case folding (`kernel.paths.is_windows()`); do not invent a second rule.
@@ -348,8 +355,10 @@ Done means all of the following hold:
 make test-fast
 .venv/bin/ruff check src/specify_cli/coordination/status_service.py src/specify_cli/coordination/surface_resolver.py src/specify_cli/coordination/transaction.py src/specify_cli/coordination/status_transition.py tests/specify_cli/coordination/test_owned_status_read_contract.py tests/specify_cli/coordination/test_status_surface_owned.py
 .venv/bin/ruff format --check <same files>
-.venv/bin/mypy src/specify_cli/coordination/status_service.py src/specify_cli/coordination/surface_resolver.py src/specify_cli/coordination/transaction.py src/specify_cli/coordination/status_transition.py
+.venv/bin/mypy --strict src/specify_cli/coordination/status_service.py src/specify_cli/coordination/surface_resolver.py src/specify_cli/coordination/transaction.py src/specify_cli/coordination/status_transition.py src/specify_cli/core/owned_mission.py src/mission_runtime/owned_checkout.py src/mission_runtime/resolution.py
 ```
+
+mypy discipline (plan: Staging Strategy): never drop `--strict`; list callers **and callees** in the same invocation (`follow_imports = "skip"` for `specify_cli.*`). If `--strict` reports pre-existing errors in these files, run the identical command on the planning base, record that count, and show it did not grow; never narrow the file list to hide them.
 
 Do **not** run `make test-full` or the bare `tests/architectural/` directory (`NO_FULL_HEAVY_SUITES_IN_MISSION`). Classify any unrelated red with the baseline-red gotcha in `CLAUDE.md` before touching it.
 

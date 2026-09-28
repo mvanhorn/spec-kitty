@@ -93,6 +93,12 @@ This WP lays the foundation every later WP builds on. It adds **no behaviour cha
 5. A reusable AST scanner, `tests/architectural/_owned_checkout_scan.py`, implements every rule of `contracts/architectural-gate.md` (G1–G6). WP18 builds the live-tree gate on it.
 6. Self-mutation tests in `tests/architectural/test_owned_checkout_gate_selftest.py` prove each rule flags its synthetic offender and passes a clean synthetic source. **They never scan the live `src/` tree for offenders** (the tree is full of offenders until WP18; see Context).
 
+7. **Error-code registry (S7).** `src/mission_runtime/owned_checkout.py` defines `class OwnedRefusalCode(StrEnum)` with one member per row of the data-model registry (the four claim-primitive codes, `OWNED_MISSION_PATH_REFUSED`, `OWNED_TOPOLOGY_UNSUPPORTED`, `OWNED_BRANCH_REFUSED`, `OWNED_INDEX_REFUSED`, `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, `OWNED_CHECKOUT_IS_MISSION_WORKTREE`, `OWNED_ACTION_UNSUPPORTED`, `OWNED_REVIEW_BASE_UNAVAILABLE`, `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`, `WORK_PACKAGE_UNRESOLVED`); each member's value equals its name (the strings are `do_not_change`). It is exported from the `mission_runtime` root with `OwnedCheckout`. Every later WP and test imports codes from it instead of repeating literals (Sonar S1192); existing literal sites are converted by the WP that owns their file.
+
+**`TRANSITIONAL(WP18)` markers added by this WP (exact list):** `src/mission_runtime/owned_checkout.py` **5** (the legacy properties `primary`, `root`, `directory`, `slug`, `target`) and `tests/mission_runtime/test_owned_checkout.py` **1** (`test_legacy_properties_mirror_canonical_fields`); `grep -c "TRANSITIONAL(WP18)"` gives 5 and 1. WP18 T096 fails on any marker no WP lists.
+
+**Dead-symbol gate (S3).** `tests/architectural/test_no_dead_symbols.py` is judged at the **mission tip** (WP18), not here. Expected transient red from this WP: `OwnedCheckout` (and `OwnedRefusalCode`) have no `src/` importer until WP02. That red is **not** this WP's failure: record it in the Activity Log, never allowlist it.
+
 **Done means**: all new tests green; `tests/architectural/test_mission_runtime_surface.py` green; `tests/architectural/test_layer_rules.py` green with the `mission_runtime` outbound ledger unchanged; ruff check, ruff format and mypy `--strict` clean on every touched file; `make test-fast` green.
 
 ## Context & Constraints
@@ -156,7 +162,8 @@ Constraints:
      - `directory` → `mission_dir`
      - `slug` → `mission_slug`
      - `target` → `target_branch`
-  7. Module `__all__ = ["OwnedCheckout", "OwnedCheckoutPathRefused"]`. Module docstring: what the fact proves, who mints it, and that it is never persisted.
+  7. Add `class OwnedRefusalCode(StrEnum)` (`from enum import StrEnum`; Python 3.11+) listing every data-model registry code, value == name. `OwnedCheckoutPathRefused` uses `OwnedRefusalCode.OWNED_MISSION_PATH_REFUSED` as its `code`. Pin in T003: `{c.value for c in OwnedRefusalCode}` equals the registry set, and `OwnedRefusalCode.OWNED_BRANCH_REFUSED == "OWNED_BRANCH_REFUSED"` (StrEnum compares equal to the string, so existing `error_code` string assertions keep passing).
+  8. Module `__all__ = ["OwnedCheckout", "OwnedCheckoutPathRefused", "OwnedRefusalCode"]`. Module docstring: what the fact proves, who mints it, and that it is never persisted.
 - **Files**: `src/mission_runtime/owned_checkout.py` (new).
 - **Parallel?**: No. T002–T005 depend on the class existing.
 - **Validation checklist**:
@@ -175,9 +182,9 @@ Constraints:
 
 - **Purpose**: `runtime` and `specify_cli` consume `OwnedCheckout` from the package root only. MR-1 (pytestarch) and MR-2 (AST scan) in `tests/architectural/test_mission_runtime_surface.py` forbid submodule imports from outside the package, so the type must be on the root (research R-01).
 - **Steps**:
-  1. In `src/mission_runtime/__init__.py` (imports at `:37-84`, `__all__` at `:85-135`), add `from mission_runtime.owned_checkout import OwnedCheckout` and add `"OwnedCheckout"` to `__all__` in sorted position. Add a short comment in the local style: `# owned-checkout-lifecycle-authority WP01 (FR-001/C-003): the validated ownership fact …`.
+  1. In `src/mission_runtime/__init__.py` (imports at `:37-84`, `__all__` at `:85-135`), add `from mission_runtime.owned_checkout import OwnedCheckout, OwnedRefusalCode` and add `"OwnedCheckout"` and `"OwnedRefusalCode"` to `__all__` in sorted position. Add a short comment in the local style: `# owned-checkout-lifecycle-authority WP01 (FR-001/C-003): the validated ownership fact …`.
   2. Do **not** export `OwnedCheckoutPathRefused`. It subclasses `ActionContextError`, which is already public, so consumers catch that. Keep the surface lean (FR-014 of dead-port-disposition).
-  3. In `tests/architectural/test_mission_runtime_surface.py`, add `"OwnedCheckout"` to `_PUBLIC_SURFACE` (`:49-170`) with a comment naming this mission and WP. `test_public_surface_is_exactly_all` (`:191-199`) asserts list equality with `__all__`, so both edits land in the same commit.
+  3. In `tests/architectural/test_mission_runtime_surface.py`, add `"OwnedCheckout"` and `"OwnedRefusalCode"` to `_PUBLIC_SURFACE` (`:49-170`) with a comment naming this mission and WP. `test_public_surface_is_exactly_all` (`:191-199`) asserts list equality with `__all__`, so both edits land in the same commit.
   4. Update the package docstring's surface paragraph (`__init__.py:22-29`) with one sentence: the validated ownership fact is on the root because the runtime layers consume it (ADR 2026-06-07-1; WP03 amends that ADR).
 - **Commit sequence**:
   1. Red: add `"OwnedCheckout"` to `_PUBLIC_SURFACE` alone. `test_public_surface_is_exactly_all` goes red: the surface list and `__all__` disagree.
@@ -194,7 +201,7 @@ Constraints:
   - [ ] `pytest tests/architectural/test_layer_rules.py -q` is green, and the `mission_runtime` outbound ledger count is unchanged.
   - [ ] `pytest tests/architectural/test_no_dead_symbols.py -q`: see Edge cases.
 - **Edge cases**:
-  - **Dead-symbol gate (judged at the lane tip).** `tests/architectural/test_no_dead_symbols.py` fails an `__all__` member that has no `src/` importer. The re-export from the parent package counts for the `owned_checkout` module declaration, but `mission_runtime.__all__` itself may be flagged until WP02 imports `OwnedCheckout` in `specify_cli/core/owned_mission.py`. If it goes red, do **not** add an allowlist entry. Record the finding in the Activity Log and tell the reviewer. The lane pairing WP01→WP02 resolves it; WP02's T006 is the first `src/` consumer.
+  - **Dead-symbol gate (judged at the mission tip, WP18; expected transient red here).** `tests/architectural/test_no_dead_symbols.py` fails an `__all__` member that has no `src/` importer. The re-export from the parent package counts for the `owned_checkout` module declaration, but `mission_runtime.__all__` itself may be flagged until WP02 imports `OwnedCheckout` in `specify_cli/core/owned_mission.py`. If it goes red, do **not** add an allowlist entry. Record the finding in the Activity Log and tell the reviewer. WP02's T006 is the first `src/` consumer; WP18 asserts the gate green at the mission tip. The expected transient reds across the mission are: `OwnedCheckout` until WP02, `resolve_owned_create_root` until WP10, `adopt_owned_checkout` until WP08. Do not treat them as this WP's failure.
   - MR-2 ignores `TYPE_CHECKING` imports (`test_ast_scan_ignores_type_checking_imports`, `:373`). A runtime import is still required here, because consumers use the class at runtime.
   - Consumers outside the package import the type as `from mission_runtime import OwnedCheckout`, never from `mission_runtime.owned_checkout`. Tests may import the submodule directly (for `OwnedCheckoutPathRefused` or the sentinel), because MR-1/MR-2 scan `src/` only. Say this in the `owned_checkout.py` module docstring, so later WPs do not "fix" a test import.
   - The package docstring already claims that "The root surface is exactly what `src/` consumers outside the package import". Until WP02 lands, `OwnedCheckout` has no such consumer. That is the same transient condition as the dead-symbol note above; do not reword the docstring to hide it.

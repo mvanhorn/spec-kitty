@@ -177,7 +177,7 @@ Sources (read in full):
   4. **Create reads governance from the owned checkout.** Charter activation, mission-type context and the spec template are read from the owned checkout for an owned create. Charter **authoring** stays repository-root-only (#4785). Invoking charter commands from an owned checkout is #4250's scope (FR-016, FR-017, C-004).
   5. **Coordination-topology owned `next`.** It stays supported. A failing coordination-workspace probe (the #4867 zero-byte `commondir` case) now yields a `blocked` decision with `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE` instead of an uncaught git fatal. The bounded transient-lock retry from "Isolation and contention boundaries" (`:85-97`) is unchanged (FR-012, research R-08).
   6. **The threading consequence is superseded.** "Explicit-root propagation adds parameters across the `next` decision and runtime-bridge layers" (`:112-114`) is replaced by one immutable fact carried on `DecideNextContext` and the prompt builder.
-  7. **Verification.** Name the per-PR in-process twin of the nightly `tests/e2e/test_worktree_owned_root_concurrency.py` proof, added for FR-022. Refer to it by requirement, not by file, because its final file name is decided in WP11.
+  7. **Verification.** Name the per-PR in-process twin of the nightly `tests/e2e/test_worktree_owned_root_concurrency.py` proof, added for FR-022. It is the `lanes_with_coord` CLI twin in `tests/integration/test_owned_lifecycle_acceptance_next.py` (WP19 T102); refer to it by requirement and name that file.
 - **Skeleton**:
   ```markdown
   ## Amendments

@@ -138,6 +138,10 @@ Not needed; there are no Charter Check violations.
 
 **Top-down conversion.** A function's signature changes to `owned: OwnedCheckout | None` only once its callers hold the fact. Its not-yet-converted callees receive the bridging expression `effective_root=owned.owned_root if owned else None`, which is not a new signature.
 
+**Bridging markers (binding).** Every bridging call site carries `# bridging: WP<n> converts`, naming the WP that converts it. The converting WP's DoD asserts `grep -rn "bridging: WP<self>" src` is empty (it converts the marked sites, in other WPs' files as declared out-of-map edits). WP18 asserts `grep -rn "# bridging:" src` is empty.
+
+**The one bottom-up exception: `next`.** The `next` runtime (WP11) converts before its CLI entry (WP19). The five runtime entry points `next_cmd` calls keep a marked `TRANSITIONAL(WP18)` legacy `effective_root` keyword whose arm obtains the fact once through `_transitional_owned_from_legacy`; WP19 removes every caller, and WP18 deletes the keywords.
+
 **Transitional surfaces: the six shared seams plus every other function marked TRANSITIONAL(WP18).** From the seam WP until the closing WP, the six shared seams accept both `owned=` and the legacy `effective_root=`:
 - `placement_seam`
 - `mission_context_for`
@@ -146,17 +150,21 @@ Not needed; there are no Charter Check violations.
 - `locate_work_package`
 - `TransitionRequest`
 
-**`TRANSITIONAL(WP18)` convention (binding).** Every transitional legacy parameter, field, property, alias or factory anywhere in `src/` or `tests/` carries a `# TRANSITIONAL(WP18): <reason>` comment on the line that declares it. This covers the six seams' legacy keyword, `effective_root_kwargs` / `_EffectiveRootKwargs`, the legacy `OwnedCheckout` properties (`primary`, `root`, `directory`, `slug`, `target`), the legacy `OwnedMission` factory function, the tests pinning them, and any other function a WP must keep dual for a later WP. The closing WP (WP18 T096) deletes **exactly** everything `grep -rn "TRANSITIONAL(WP18)" src tests` finds, and T097 asserts that grep is empty. An unmarked transitional surface is a review rejection.
+**`TRANSITIONAL(WP18)` convention and budget (binding).** Each WP that adds markers lists them exactly in its DoD with the expected `grep -c` per file; WP18 T096 fails on any marker that no WP's DoD lists.  Every transitional legacy parameter, field, property, alias or factory anywhere in `src/` or `tests/` carries a `# TRANSITIONAL(WP18): <reason>` comment on the line that declares it. This covers the six seams' legacy keyword, `effective_root_kwargs` / `_EffectiveRootKwargs`, the legacy `OwnedCheckout` properties (`primary`, `root`, `directory`, `slug`, `target`), the legacy `OwnedMission` factory function, the tests pinning them, and any other function a WP must keep dual for a later WP. The closing WP (WP18 T096) deletes **exactly** everything `grep -rn "TRANSITIONAL(WP18)" src tests` finds, and T097 asserts that grep is empty. An unmarked transitional surface is a review rejection.
 
 **Transitional `OwnedMission` is a factory function.** It is a legacy factory **function** defined in `core/owned_mission.py` (the minter module, so G3 holds). It accepts the old positional arguments `(primary, root, directory, slug, target)` and mints an `OwnedCheckout` (topology `SINGLE_BRANCH`), marked `# TRANSITIONAL(WP18)`. The six unowned tests that construct `OwnedMission(...)` keep working unchanged until WP18 T097 re-points them. Because a function is not a type, WP02 retypes the annotation sites (`owned: OwnedMission | None`) to `OwnedCheckout` as a declared, annotation-only out-of-map edit.
 
 Nothing ships in between: the PR contains only the final state, so none of this is a shipped shim. Reviewers must not reject a marked transitional surface before the closing WP.
 
-**mypy invocation discipline.** `pyproject.toml` sets `follow_imports = "skip"` for `specify_cli.*`: an imported `specify_cli` module that is not itself on the mypy command line is typed `Any`. A signature change is therefore only type-checked when its **callers and callees are checked in the same invocation**. Every WP's mypy command lists the changed module together with every caller and callee it touched (or that calls a changed signature).
+**mypy invocation discipline.** `pyproject.toml` sets `follow_imports = "skip"` for `specify_cli.*`: an imported `specify_cli` module that is not itself on the mypy command line is typed `Any`. A signature change is therefore only type-checked when its **callers and callees are checked in the same invocation**. Every WP's mypy command lists the changed module together with every caller and callee it touched (or that calls a changed signature). `--strict` is never dropped; pre-existing errors are baselined by count (the same command on the planning base) and must not grow.
 
-**Dead-symbol gate at the lane tip.** `tests/architectural/test_no_dead_symbols.py` is judged at the lane tip, not per intermediate WP. A symbol added by one WP and first consumed by a later WP in the same lane (for example `OwnedCheckout` before WP02, `resolve_owned_create_root` before WP10) may be red in between; record it in the Activity Log, never allowlist it.
+**Dead-symbol gate at the mission tip.** `tests/architectural/test_no_dead_symbols.py` is judged at the **mission tip** (WP18), not per lane or intermediate WP (a consumer may land in another lane). Expected transient reds: `OwnedCheckout` until WP02, `resolve_owned_create_root` until WP10, `adopt_owned_checkout` until WP08. WP01/WP02 name them and do not treat them as their own failures; record them in the Activity Log, never allowlist. WP18 asserts the gate green.
 
-**FR-015 oracle.** The atomic-finalize oracle is `git status --porcelain --ignored` in P, so ignored writes (for example under `.kittify/derived/`) are caught too.
+**Red-first proofs are commits.** The red test commit precedes its fix commit, and reviewers verify the order in `git log`. Activity-Log-only or `git stash` proofs are not accepted. Mutation checks are non-vacuity evidence, not red-first proofs; where a WP's closing proof needs one, it is committed as a test.
+
+**Error codes.** WP01 defines `OwnedRefusalCode` (`StrEnum`, value == name) in `mission_runtime.owned_checkout`, exported from the package root with `OwnedCheckout`. Every WP and test imports codes from it (Sonar S1192); existing literal sites are converted by the WP that owns their file.
+
+**FR-015 oracle.** The atomic-finalize oracle is `git status --porcelain --ignored` in P **plus content hashes of the ignored files** (WP02's `tests/_owned_tree_hash.hash_tree`, the same hashing as `r_snapshot`), `HEAD` and the index, so ignored writes and rewrites (for example under `.kittify/derived/`) are caught too.
 
 **Every WP leaves the tree green.** The gate's self-mutation and floor tests land green in the foundation WP. The G1–G6 assertions are committed red as the **first commit of the closing WP** and turn green within it (red-first inside that WP).
 
@@ -164,7 +172,9 @@ Nothing ships in between: the PR contains only the final state, so none of this 
 
 | File | Owner concern |
 |---|---|
-| `next_invocation_lifecycle.py`, `next_cmd.py`, `prompt_builder.py` | IC-05 |
+| `next_invocation_lifecycle.py`, `runtime_bridge*.py`, `decision.py` | IC-05 runtime (WP11) |
+| `next_cmd.py` | IC-05 CLI entry (WP19) |
+| `prompt_builder.py` | IC-05/IC-06 (WP12) |
 | `agent_tasks_ports.py` | IC-04 |
 | `cli/commands/accept.py` | IC-10a |
 | `mission_finalize.py` | IC-07 |
@@ -183,7 +193,8 @@ Nothing ships in between: the PR contains only the final state, so none of this 
 ## Test Layout and Markers
 
 - **One acceptance file per WP**: `tests/integration/test_owned_lifecycle_acceptance_{status,context,next,review,finalize,cli,create}.py`, marked `integration` + `git_repo` (in-process CliRunner).
-- **Shared fixtures** (`owned_checkouts`, `r_snapshot`, `stale_root_copy`) live in `tests/integration/conftest.py`, not imported from test modules.
+- **Shared fixtures** (`owned_checkouts`, `r_snapshot`, `stale_root_copy`) live in `tests/integration/conftest.py`, not imported from test modules. The tree-hash walk behind `r_snapshot` is a plain helper, `tests/_owned_tree_hash.py`, reusable outside `tests/integration/` (WP13's oracle). `stale_root_copy` writes a `lanes.json` by default (the O4 fail-open base).
+- **Minting facts in tests.** Tests may reference `OwnedCheckout._mint` (gate G3 scans `src/` only), but should prefer WP02's fixture helper or the real validator, so facts stay realistic.
 - **Seam unit tests** are marked `unit` + `fast`. **Gates** are marked `architectural`.
 - **Tests that build with `spec-kitty init` or an installed CLI** are marked `e2e` + `slow` (nightly). The per-PR guard for coordination-topology owned `next` is the in-process twin (FR-022).
 - **NFR-002 counts** patch at `checkout_ownership.resolve_ownership_claim` and clear the workspace caches first.
@@ -263,7 +274,7 @@ Nothing ships in between: the PR contains only the final state, so none of this 
   - `coordination/workspace.py:163`: capture stderr, raise a typed `CoordinationWorkspaceUnavailable` (subclassing `CalledProcessError`, so the transient-lock retry still applies), and map it to a `blocked` decision with `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`.
   - Carry #5009 edaa9cd83 (the `next` half) and 1be5352ee (the composition half). Re-express e6923bc97.
 - **Sequencing**: IC-02, IC-03, IC-04, IC-08 core.
-- **Risks**: god-module, so campsite-extract first. Consider splitting the runtime and the prompt/review work into separate WPs.
+- **Risks**: god-module, so campsite-extract first. Split into three WPs: the runtime core (WP11), the CLI entry `next_cmd.py` (WP19, after WP11), and prompt/review (WP12, after both).
 
 ### IC-06 — Unified review base (decision `01M3M70Y…`)
 - **Relevant requirements**: FR-010, FR-025.
@@ -282,7 +293,7 @@ Nothing ships in between: the PR contains only the final state, so none of this 
   1. build the whole plan in memory first, reusing `--validate-only` (INV-6);
   2. then apply all writes in one phase.
 - **Sequencing**: IC-04, IC-08 core.
-- **Risks**: the oracle is `git status --porcelain --ignored`, including `.kittify/derived/`.
+- **Risks**: the oracle is `git status --porcelain --ignored` plus ignored-file content hashes, including `.kittify/derived/`.
 
 ### IC-08 — CLI owned surface and validated flagless adoption
 - **Relevant requirements**: FR-004, FR-005, FR-006, FR-007, FR-018, FR-020, FR-021, NFR-004.
