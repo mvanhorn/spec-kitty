@@ -16,7 +16,7 @@ An owned mission's lifecycle reads fall back to the repository root checkout. Th
 - Introduce one validated ownership fact, `mission_runtime.OwnedCheckout`. It is minted only by `specify_cli.core.owned_mission`.
 - Every owned read consumes the fact: the placement seam, WP and workspace resolution, the status surface, the `next` runtime, prompts, the review base, and CLI entry points.
 - Convert all 92 bare-path parameters in this mission.
-- Delete `OwnedMission` and `effective_root_kwargs`, with no alias.
+- Delete `OwnedMission` and `effective_root_kwargs`, with no alias left at the end of the mission (every transitional surface is marked `# TRANSITIONAL(WP18)` and deleted by the closing WP).
 - Enforce the result with a non-vacuous architectural gate that has an **empty allowlist**. Operator rationale: "half-implemented work and ratchets have been hurting us for weeks. I'd rather spend the effort now."
 
 The rename `OwnedMission` → `OwnedCheckout` makes this a **bulk-edit mission** (`change_mode: bulk_edit`). The classification workflow was run, and [occurrence_map.yaml](occurrence_map.yaml) governs which occurrences change.
@@ -107,7 +107,7 @@ src/runtime/next/
 ├── runtime_bridge.py            # DecideNextContext.owned, _dn_*, board authority, composition, #4867 probe
 ├── runtime_bridge_engine.py, runtime_bridge_io.py, decision.py, prompt_builder.py, next_invocation_lifecycle.py
 src/specify_cli/
-├── core/owned_mission.py        # sole minter: resolve_owned_mission(allowed_topologies), resolve_owned_create_root, adopt_owned_checkout; OwnedMission + effective_root_kwargs deleted
+├── core/owned_mission.py        # sole minter: resolve_owned_mission(allowed_topologies), resolve_owned_create_root, adopt_owned_checkout; TRANSITIONAL(WP18) OwnedMission factory + effective_root_kwargs deleted
 ├── core/checkout_ownership.py   # repository-root-itself refusal
 ├── core/mission_creation.py     # governance reads from the owned root
 ├── workspace/context.py         # owned arm, resolution_kind=owned_checkout, cache keyed on the resolved tasks dir
@@ -120,7 +120,7 @@ src/specify_cli/
 ├── missions/operation_context.py # DELETED (cwd adoption replaced by adopt_owned_checkout)
 └── (accept, consolidation, review cycle, commit_router, write_seam …)  # remaining effective_root → owned conversions
 tests/
-├── architectural/test_owned_checkout_single_authority.py   # NEW gates G1–G5
+├── architectural/test_owned_checkout_single_authority.py   # NEW gates G1–G6
 ├── integration/test_owned_lifecycle_acceptance.py          # NEW SC-001 walkthrough + O1–O10 repros
 └── (existing owned test files re-pointed; #5009 tests carried)
 docs/
@@ -138,7 +138,7 @@ Not needed; there are no Charter Check violations.
 
 **Top-down conversion.** A function's signature changes to `owned: OwnedCheckout | None` only once its callers hold the fact. Its not-yet-converted callees receive the bridging expression `effective_root=owned.owned_root if owned else None`, which is not a new signature.
 
-**Temporary dual keyword on six shared seams.** From the seam WP until the closing WP, these accept both `owned=` and the legacy `effective_root=`:
+**Transitional surfaces: the six shared seams plus every other function marked TRANSITIONAL(WP18).** From the seam WP until the closing WP, the six shared seams accept both `owned=` and the legacy `effective_root=`:
 - `placement_seam`
 - `mission_context_for`
 - `resolve_action_context`
@@ -146,9 +146,19 @@ Not needed; there are no Charter Check violations.
 - `locate_work_package`
 - `TransitionRequest`
 
-The legacy keyword is **deleted in the closing WP**, together with `effective_root_kwargs`. Nothing ships in between: the PR contains only the final state, so this is not a shipped shim. Reviewers must not reject the transitional keyword before the closing WP.
+**`TRANSITIONAL(WP18)` convention (binding).** Every transitional legacy parameter, field, property, alias or factory anywhere in `src/` or `tests/` carries a `# TRANSITIONAL(WP18): <reason>` comment on the line that declares it. This covers the six seams' legacy keyword, `effective_root_kwargs` / `_EffectiveRootKwargs`, the legacy `OwnedCheckout` properties (`primary`, `root`, `directory`, `slug`, `target`), the legacy `OwnedMission` factory function, the tests pinning them, and any other function a WP must keep dual for a later WP. The closing WP (WP18 T096) deletes **exactly** everything `grep -rn "TRANSITIONAL(WP18)" src tests` finds, and T097 asserts that grep is empty. An unmarked transitional surface is a review rejection.
 
-**Every WP leaves the tree green.** The gate's self-mutation and floor tests land green in the foundation WP. The G1–G5 assertions are committed red as the **first commit of the closing WP** and turn green within it (red-first inside that WP).
+**Transitional `OwnedMission` is a factory function.** It is a legacy factory **function** defined in `core/owned_mission.py` (the minter module, so G3 holds). It accepts the old positional arguments `(primary, root, directory, slug, target)` and mints an `OwnedCheckout` (topology `SINGLE_BRANCH`), marked `# TRANSITIONAL(WP18)`. The six unowned tests that construct `OwnedMission(...)` keep working unchanged until WP18 T097 re-points them. Because a function is not a type, WP02 retypes the annotation sites (`owned: OwnedMission | None`) to `OwnedCheckout` as a declared, annotation-only out-of-map edit.
+
+Nothing ships in between: the PR contains only the final state, so none of this is a shipped shim. Reviewers must not reject a marked transitional surface before the closing WP.
+
+**mypy invocation discipline.** `pyproject.toml` sets `follow_imports = "skip"` for `specify_cli.*`: an imported `specify_cli` module that is not itself on the mypy command line is typed `Any`. A signature change is therefore only type-checked when its **callers and callees are checked in the same invocation**. Every WP's mypy command lists the changed module together with every caller and callee it touched (or that calls a changed signature).
+
+**Dead-symbol gate at the lane tip.** `tests/architectural/test_no_dead_symbols.py` is judged at the lane tip, not per intermediate WP. A symbol added by one WP and first consumed by a later WP in the same lane (for example `OwnedCheckout` before WP02, `resolve_owned_create_root` before WP10) may be red in between; record it in the Activity Log, never allowlist it.
+
+**FR-015 oracle.** The atomic-finalize oracle is `git status --porcelain --ignored` in P, so ignored writes (for example under `.kittify/derived/`) are caught too.
+
+**Every WP leaves the tree green.** The gate's self-mutation and floor tests land green in the foundation WP. The G1–G6 assertions are committed red as the **first commit of the closing WP** and turn green within it (red-first inside that WP).
 
 **One owning WP per shared file** (tasks must honour this):
 
@@ -196,7 +206,7 @@ The legacy keyword is **deleted in the closing WP**, together with `effective_ro
     - `resolve_owned_mission(..., allowed_topologies)`, with `LIFECYCLE_OWNED_TOPOLOGIES` / `NEXT_OWNED_TOPOLOGIES`;
     - `resolve_owned_create_root`, which returns a typed `OwnedCreateRoot` value rather than a bare `Path`;
     - `adopt_owned_checkout`: excludes R, other repositories, coordination worktrees (`classify_worktree_topology(...) is COORD_WORKTREE`), lane worktrees (via `lanes.json` membership) and rejected checkouts. It also re-expresses today's mission-surface-conflict refusal for different mission ids (US7-AS5).
-    - Delete `OwnedMission`, `_EffectiveRootKwargs` and `effective_root_kwargs` in the closing WP.
+    - The legacy `OwnedMission` factory function, `_EffectiveRootKwargs` and `effective_root_kwargs` are marked `# TRANSITIONAL(WP18)` and deleted in the closing WP.
   - `core/checkout_ownership.py`: add `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`.
   - Rename the 104 attribute sites according to `occurrence_map.yaml`.
   - The gate's self-mutation and floor tests land here, green.
@@ -258,7 +268,7 @@ The legacy keyword is **deleted in the closing WP**, together with `effective_ro
 ### IC-06 — Unified review base (decision `01M3M70Y…`)
 - **Relevant requirements**: FR-010, FR-025.
 - **Affected surfaces**:
-  - A new helper, `claim_commit_for_wp(checkout_root, mission_slug, wp_id)`, in `mission_runtime`. It uses git through the kernel seam and fails closed.
+  - A new helper, `claim_commit_for_wp(mission_dir: Path, wp_id: str)`, in `mission_runtime`. It is topology-agnostic (not a G6 consumer of the fact), runs git in-layer via `subprocess` with a timeout (the `lifecycle_phase.py` precedent; no general kernel git seam exists), and fails closed.
   - Used by both the `owned_checkout` and `repo_root` review paths.
   - **Delete the three subject matchers**: `workflow_executor.py:2259`, `prompt_builder.py:255` and `core/worktree_topology.py:125`. The `prompt_builder` edit is owned by IC-05's WP, or the WP is split and sequenced after it.
   - Rewrite #5009 1be5352ee's review assertion to the claim-commit contract.
@@ -272,7 +282,7 @@ The legacy keyword is **deleted in the closing WP**, together with `effective_ro
   1. build the whole plan in memory first, reusing `--validate-only` (INV-6);
   2. then apply all writes in one phase.
 - **Sequencing**: IC-04, IC-08 core.
-- **Risks**: the oracle is `git status --porcelain`, including `.kittify/derived/`.
+- **Risks**: the oracle is `git status --porcelain --ignored`, including `.kittify/derived/`.
 
 ### IC-08 — CLI owned surface and validated flagless adoption
 - **Relevant requirements**: FR-004, FR-005, FR-006, FR-007, FR-018, FR-020, FR-021, NFR-004.
@@ -311,8 +321,8 @@ The legacy keyword is **deleted in the closing WP**, together with `effective_ro
 - **Relevant requirements**: FR-001, SC-004.
 - **Affected surfaces**:
   - `tests/architectural/test_owned_checkout_single_authority.py`, following `contracts/architectural-gate.md`: AST scans of all reference forms, an identifier ban, the carrier-field FQN rule and self-mutation cases.
-  - The closing WP commits the G1–G5 assertions red, then deletes the dual keywords, `effective_root_kwargs` and every remaining `effective_root` in `src/` outside `src/charter`, so the gate turns green.
-  - Add a `_baselines.yaml` cap of 0.
+  - The closing WP commits the G1–G6 assertions red, then deletes everything marked `TRANSITIONAL(WP18)` (the six shared seams' legacy keyword plus every other marked surface) and every remaining `effective_root` outside the org-pack module rule, so the gate turns green.
+  - Add the `_baselines.yaml` section `test_owned_checkout_single_authority: {owned_root_bare_path_params: 0}`.
 - **Sequencing**: last.
 
 ### IC-12 — ADRs and glossary
@@ -331,7 +341,7 @@ Each carried commit keeps author Samuel Goff (`cherry-pick -x`) and lands at the
 | 4ff6ff0c0 | IC-04 | carry, then trim |
 | 22f380055 | pyproject | only if the engine file is still formatter-excluded |
 
-The fix commits are re-expressed with a `Co-authored-by: Samuel Goff` trailer. 6d682dce3 and the doc and style commits are dropped.
+The fix commits are re-expressed with a `Co-authored-by: Samuel Goff <samuel@defpix.com>` trailer. 6d682dce3 and the doc and style commits are dropped.
 
 ### IC-14 — Complexity restoration (decision `01M3M718…`)
 - **IC-14a**: decompose `accept()` (59 → ≤15), behaviour-preserving, with focused tests.

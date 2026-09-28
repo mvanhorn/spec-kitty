@@ -18,6 +18,7 @@ owned_files:
   - "tests/mission_runtime/test_placement_seam_owned.py"
   - "tests/mission_runtime/test_resolution_owned.py"
   - "tests/mission_runtime/test_owned_single_branch_ssot.py"
+  - "tests/mission_runtime/test_coord_read_seam_callers.py"
 authoritative_surface: "src/mission_runtime/"
 create_intent:
   - "tests/mission_runtime/test_placement_seam_owned.py"
@@ -91,7 +92,7 @@ Close the fall-back to the repository root checkout **at its source**, in the mi
 5. `locate_work_package(..., owned=...)` reads from the owned checkout.
 6. The remaining bare owned-root parameters in `resolution.py` are converted, or explicitly recorded as transitional (see T021).
 
-**Staging (plan §Staging Strategy).** `placement_seam`, `mission_context_for`, `resolve_action_context` and `locate_work_package` are four of the six **dual-keyword seams**: they accept `owned=` **and** the legacy `effective_root=` until WP18 deletes the legacy keyword. Reviewers must not reject the legacy keyword in this WP.
+**Staging (plan §Staging Strategy).** `placement_seam`, `mission_context_for`, `resolve_action_context` and `locate_work_package` are four of the six shared **dual-keyword seams**: they accept `owned=` **and** the legacy `effective_root=` until WP18 deletes the legacy keyword. Transitional surfaces are the six shared seams plus every other function marked TRANSITIONAL(WP18): every legacy parameter or field carries `# TRANSITIONAL(WP18): <reason>`, and WP18 deletes exactly what `grep -rn "TRANSITIONAL(WP18)" src tests` finds. Reviewers must not reject a marked legacy keyword in this WP.
 
 **Done means**:
 - the red-first tests of T016 went red on base and are green now;
@@ -131,7 +132,7 @@ Close the fall-back to the repository root checkout **at its source**, in the mi
 - `declared_read_surface`: `acceptance/execution_context.py` (WP15);
 - `read_dir_for`: `tasks/issue_matrix.py` (WP17).
 
-The plan lists only six dual-keyword seams, so **these four also need the dual keyword until WP18** (a deviation from the six-seam list; record it in the Activity Log, and WP18 deletes them together).
+**These four also need the dual keyword until WP18.** They are "other functions marked TRANSITIONAL(WP18)" in the plan's convention: mark each legacy parameter `# TRANSITIONAL(WP18): <reason>` so WP18's grep finds them.
 
 **Constraints**:
 - **Layer rule.** `resolution.py` imports `OwnedCheckout` only under `TYPE_CHECKING`, or lazily from `mission_runtime.owned_checkout` (it is intra-package, so MR-1/MR-2 do not apply). WP01's `owned_checkout.py` imports `ActionContextError` from `resolution.py`, so a module-level import back would be a cycle.
@@ -201,7 +202,7 @@ The plan lists only six dual-keyword seams, so **these four also need the dual k
      - `git_repo` tests for the COORD-partition kinds on a `lanes_with_coord` fact (see T019).
      - A ratchet: `placement_seam(R, slug, effective_root=P)` still returns P's dir (legacy keyword).
      - Passing both keywords raises `TypeError`.
-  2. Change `PlacementSeam` (`resolution.py:1946`): add `owned: OwnedCheckout | None = None`, and keep `effective_root: Path | None = None` with a comment `# Transitional (WP04); deleted by WP18`. In `__post_init__`, refuse both being set.
+  2. Change `PlacementSeam` (`resolution.py:1946`): add `owned: OwnedCheckout | None = None`, and keep `effective_root: Path | None = None` with a comment `# TRANSITIONAL(WP18): legacy field for unconverted callers`. In `__post_init__`, refuse both being set.
   3. `write_target` / `read_dir` (`:1983-2051`) forward `owned=self.owned` (and the legacy `effective_root`) to `resolve_placement_only` / `resolve_artifact_surface`, which gain the same dual keyword (see the External callers list).
   4. `placement_seam(repo_root, mission_slug, *, owned=None, effective_root=None)` (`:2491`) keeps the P-1 partition assertion.
   5. Shape of the dual keyword (use the same pattern for all dual-keyword functions in this WP, so WP18 can delete them mechanically):
@@ -211,7 +212,7 @@ The plan lists only six dual-keyword seams, so **these four also need the dual k
          mission_slug: str,
          *,
          owned: OwnedCheckout | None = None,
-         effective_root: Path | None = None,  # Transitional (WP04); deleted by WP18.
+         effective_root: Path | None = None,  # TRANSITIONAL(WP18): legacy keyword for unconverted callers
      ) -> PlacementSeam:
          _refuse_both(owned, effective_root)
          assert_partition_invariant()
@@ -279,8 +280,8 @@ The plan lists only six dual-keyword seams, so **these four also need the dual k
      | `lanes_with_coord` / `coord` | COORD-partition kind | the coordination read dir from `_assemble_core_fragments` | COORD |
 
      If the fourth row cannot be computed without git (the coordination worktree probe), that is acceptable **only** for coordination topologies, which only `next` mints. Record the git-call count for that row in the Activity Log; NFR-002's zero-extra-calls budget applies to the owned **status** reads of single_branch missions.
-  7. **Declared out-of-map edit**: `tests/mission_runtime/test_coord_read_seam_callers.py::test_agent_tasks_ports_feature_write_dir_fails_loud_sanely` (`:234-270`) asserts `OWNED_TOPOLOGY_UNSUPPORTED` from exactly this guard, through `RealCoordCommitRouter.feature_write_dir(MissionHandle(..., effective_root=repo))`. Re-express it so it asserts the new contract: a coordination-topology mission reached through the legacy owned leg fails loud with a **typed** coordination error (for example `CoordinationWorktreeUnmaterialized` or `ActionContextError`), and never silently returns the repository-root dir. First characterise what the arm now does. If it silently returns a PRIMARY path for a COORD kind, stop and escalate: that would be a regression. Rationale line for the PR: "WP04 deletes the placement-layer topology guard (R-16); this pin asserted that guard."
-- **Files**: `src/mission_runtime/resolution.py`, `src/mission_runtime/context.py`, `tests/mission_runtime/test_owned_single_branch_ssot.py`, `tests/mission_runtime/test_placement_seam_owned.py`; out-of-map: `tests/mission_runtime/test_coord_read_seam_callers.py`.
+  7. **Owned test re-expression** (this WP owns the file): `tests/mission_runtime/test_coord_read_seam_callers.py::test_agent_tasks_ports_feature_write_dir_fails_loud_sanely` (`:234-270`) asserts `OWNED_TOPOLOGY_UNSUPPORTED` from exactly this guard, through `RealCoordCommitRouter.feature_write_dir(MissionHandle(..., effective_root=repo))`. Re-express it so it asserts the new contract: a coordination-topology mission reached through the legacy owned leg fails loud with a **typed** coordination error (for example `CoordinationWorktreeUnmaterialized` or `ActionContextError`), and never silently returns the repository-root dir. First characterise what the arm now does. If it silently returns a PRIMARY path for a COORD kind, stop and escalate: that would be a regression. Rationale line for the commit body: "WP04 deletes the placement-layer topology guard (R-16); this pin asserted that guard."
+- **Files**: `src/mission_runtime/resolution.py`, `src/mission_runtime/context.py`, `tests/mission_runtime/test_owned_single_branch_ssot.py`, `tests/mission_runtime/test_placement_seam_owned.py`, `tests/mission_runtime/test_coord_read_seam_callers.py`.
 - **Validation checklist**:
   - [ ] `grep -n "_require_owned_single_branch" -r src tests` finds no hits.
   - [ ] `pytest tests/mission_runtime/test_owned_single_branch_ssot.py tests/mission_runtime/test_coord_read_seam_callers.py tests/mission_runtime/test_artifact_surface_backfilled_primary.py tests/mission_runtime/test_status_surface_dir_deleted_arm.py -q` is green.
@@ -342,7 +343,7 @@ The plan lists only six dual-keyword seams, so **these four also need the dual k
      - **not reachable from any legacy caller** (only called from the converted seams): convert fully to `owned: OwnedCheckout | None`, with no legacy parameter;
      - **reachable from a legacy caller** (the dual-keyword public functions plus the private helpers they feed): keep the legacy parameter, but funnel both through **one** private normaliser, for example `_owned_read_root(owned, legacy_root) -> Path | None`, used at the two existing fold points (`:1094` and `:1428`). The owned-vs-legacy fork then exists once.
   3. `src/mission_runtime/context.py` has **no** `effective_root` today (verified). Expect zero hits. The only change there is T019's docstring. If the scanner finds something, convert it.
-  4. Add a module-level comment block near `placement_seam` that lists the transitional legacy keywords by function name, so WP18 can find them. Do not name the gate rule inside production code.
+  4. Mark every legacy parameter or field you keep with `# TRANSITIONAL(WP18): <reason>` on its declaring line (that grep is WP18's inventory). Do not name the gate rule inside production code.
   5. Expected shape of the Activity Log table (fill in every scanner hit; these rows are examples, not the full list):
 
      | Function | Legacy caller reaches it? | Action |
@@ -399,7 +400,7 @@ No `make test-full`, and no bare `tests/architectural/`.
 - **Coordination-topology `next` behaviour shifts when the guard goes.** Mitigation: T019 step 6 characterisation, the surface-stamp fix, and the named `next` regression files. Escalate a silent PRIMARY substitution for a COORD kind.
 - **A second topology authority creeps back.** `mission_context_for` must not compare the fact's topology against `meta.json` and refuse, except when a caller passes a contradicting explicit `topology`.
 - **An import cycle** between `owned_checkout.py` and `resolution.py`. Use a `TYPE_CHECKING` import in `resolution.py`.
-- **More than six dual-keyword seams.** Four more functions need it (listed above). Mitigation: the Activity Log inventory for WP18.
+- **More than six dual-keyword seams.** Four more functions need it (listed above). Mitigation: each carries `# TRANSITIONAL(WP18)`, so WP18's grep finds it; the Activity Log inventory is a cross-check.
 - **Workspace leg still folds to R until WP05.** This is intentional (staging). T016 stubs it, and WP05 turns the real leg green.
 
 ## Review Guidance
@@ -407,8 +408,8 @@ No `make test-full`, and no bare `tests/architectural/`.
 - The red-first commits exist and precede the fix commits, and each red test asserts "under P" and "not under R".
 - The fact arm makes no git calls and no `get_main_repo_root` calls (the plain-dir unit tests prove it).
 - `_require_owned_single_branch` is gone; the owned arm's surface stamp is derived from the artifact home, not hard-coded.
-- The legacy keyword is present and transitional on exactly the documented functions (six-seam members plus the four extras), and passing both keywords raises `TypeError`.
-- The out-of-map edit to `tests/mission_runtime/test_coord_read_seam_callers.py` is declared, with its rationale.
+- The legacy keyword is present on exactly the documented functions (six-seam members plus the four extras), each marked `# TRANSITIONAL(WP18)`, and passing both keywords raises `TypeError`.
+- The re-expression of `tests/mission_runtime/test_coord_read_seam_callers.py` (owned here) carries its rationale.
 - `resolve_workspace_for_wp` is untouched here (WP05).
 - mypy `--strict` passed.
 

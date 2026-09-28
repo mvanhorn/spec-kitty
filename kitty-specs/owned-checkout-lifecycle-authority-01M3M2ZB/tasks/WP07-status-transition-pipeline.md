@@ -123,11 +123,11 @@ Done means:
   - the owned arm of `_read_contract_from_transaction_target`;
   - `EventLogReadContract.primary_checkout(..., owned=)` and `EventLogWriteContract.primary_checkout_append(..., owned=)`;
   - the `transaction.py:644` segment swap.
-- **WP02** makes `resolve_owned_mission` return the fact and keeps `OwnedMission` as a transitional alias with legacy attribute names. **New code uses canonical fields only:** `repository_root`, `owned_root`, `mission_dir`, `mission_slug`, `target_branch`, `topology`.
+- **WP02** makes `resolve_owned_mission` return the fact and turns `OwnedMission` into a transitional legacy factory function (marked `TRANSITIONAL(WP18)`) that mints an `OwnedCheckout`; the legacy attribute names resolve through `OwnedCheckout`'s `TRANSITIONAL(WP18)` properties. **New code uses canonical fields only:** `repository_root`, `owned_root`, `mission_dir`, `mission_slug`, `target_branch`, `topology`.
 
 **Staging rules (binding).**
 - Conversion is top-down.
-- The six shared seams keep a dual keyword until WP18. `TransitionRequest` is one of them.
+- Transitional surfaces are the six shared seams plus every other function marked TRANSITIONAL(WP18). The six shared seams keep a dual keyword until WP18; `TransitionRequest` is one of them.
 - **Additional transitional dual keywords introduced here (declared design extension).** These public callees are called with a bare owned root by files converted in later WPs:
 
   | Callee | Legacy caller(s) with the owner WP |
@@ -140,11 +140,11 @@ Done means:
   | `MissionHandle` | `tasks_move_task.py:550,2888,2925`, `tasks_mark_status.py:232` (WP16), `review/cycle.py:699` (WP17) |
 
   The rules for these callees:
-  - Each gains `owned: OwnedCheckout | None = None` as the authoritative parameter and keeps its legacy `effective_root` / `owned_mission` parameter with the **same lifetime as the six-seam dual keywords**.
+  - Each gains `owned: OwnedCheckout | None = None` as the authoritative parameter and keeps its legacy `effective_root` / `owned_mission` parameter with the **same lifetime as the six shared seams' dual keywords**.
   - Converting those callers here would be a large out-of-map edit into five WPs' files, which is why the legacy parameter stays.
   - Mark every legacy parameter with `# TRANSITIONAL(WP18): delete with the dual keywords`.
-  - Record this list in the Activity Log so WP18 T096 deletes all of them. The mission plan's six-seam list did not name these; report it to the reviewer.
-- The transitional `OwnedMission` alias and its legacy attribute names live until WP18. Do not add new reads of `.root`/`.primary`/`.directory`/`.slug`/`.target`.
+  - Record this list in the Activity Log as a cross-check. Under the plan's convention these are "other functions marked TRANSITIONAL(WP18)"; WP18 T096 deletes exactly what `grep -rn "TRANSITIONAL(WP18)" src tests` finds.
+- The transitional `OwnedMission` legacy factory function and the legacy attribute names live until WP18. Do not add new reads of `.root`/`.primary`/`.directory`/`.slug`/`.target`.
 
 **Declared out-of-map edits.** WP06 owns the first two; the last two have no owner in the pinned map. Declare each in its commit body with a one-line rationale.
 - `src/specify_cli/coordination/transaction.py`: convert `acquire(effective_root=)` to `acquire(owned=)` and make the owned append label honest.

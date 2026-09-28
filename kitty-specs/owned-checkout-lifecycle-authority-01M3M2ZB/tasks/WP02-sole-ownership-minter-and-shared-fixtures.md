@@ -95,8 +95,8 @@ Use language identifiers in code blocks: ````python`,````bash`
 | `LIFECYCLE_OWNED_TOPOLOGIES` / `NEXT_OWNED_TOPOLOGIES` | `frozenset[MissionTopology]` | FR-023 |
 
 Also:
-- `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` refuses R passed as the owned checkout (FR-020, research R-14).
-- The transitional alias `OwnedMission = OwnedCheckout` and `effective_root_kwargs` accepting the fact keep every current call site green (plan §Staging Strategy).
+- `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` refuses R passed as the owned checkout (FR-020, research R-14), and `OWNED_CHECKOUT_IS_MISSION_WORKTREE` refuses a lane worktree of the mission or a coordination worktree passed as the owned checkout (data-model registry).
+- The transitional `OwnedMission` **legacy factory function** (old positional arguments in, `OwnedCheckout` out) and `effective_root_kwargs` accepting the fact keep every current call site green. Both are marked `# TRANSITIONAL(WP18)` (plan §Staging Strategy: the six shared seams plus every other function marked TRANSITIONAL(WP18)).
 - The shared integration fixtures `owned_checkouts`, `r_snapshot` and `stale_root_copy`, with self-tests that prove each fixture detects what it claims to detect.
 
 **Done means**:
@@ -212,11 +212,11 @@ Also:
 
 ### Subtask T008 – `resolve_owned_create_root` → typed `OwnedCreateRoot`
 
-- **Purpose**: `agent mission create --owned-checkout` needs a validated owned root **before** the mission exists. Today `core/mission_creation.py:848` calls the claim primitive directly (a G1 offender). WP02 provides the minter-side function; **WP10 wires it** (T053). It returns a typed value, not a bare `Path` (plan §IC-01, tasks T008). Note: `data-model.md` §Validator still says it returns `Path`; the plan and tasks supersede that, so record the correction in the Activity Log.
+- **Purpose**: `agent mission create --owned-checkout` needs a validated owned root **before** the mission exists. Today `core/mission_creation.py:848` calls the claim primitive directly (a G1 offender). WP02 provides the minter-side function; **WP10 wires it** (T053). It returns a typed value, not a bare `Path` (plan §IC-01, data-model §Validator: `OwnedCreateRoot`).
 - **Steps**:
   1. **Red first** in `tests/core/test_owned_mission_minter.py`:
      - `resolve_owned_create_root(R, P)` returns an `OwnedCreateRoot` whose `repository_root == R.resolve()` and `checkout == P.resolve()`. Red with `ImportError` / `AttributeError`. That is an acceptable red only because there is no pre-existing entry point for this new function. The pre-existing-entry-point reproduction for create lives in WP10 (a37e9ee39).
-     - The refusals: R itself → `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`; a nested directory → the `OWNERSHIP_NESTED` code; a foreign repository → `OWNERSHIP_FOREIGN`.
+     - The refusals: R itself → `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`; a nested directory → `OWNERSHIP_NESTED`; a foreign repository → `OWNERSHIP_FOREIGN`; a broken `.git` pointer → `OWNERSHIP_BROKEN_POINTER` (the claim codes of `checkout_ownership.py:61-76`, listed in the data-model registry).
   2. Define `OwnedCreateRoot` as a frozen dataclass in `owned_mission.py` with fields `repository_root: Path` and `checkout: Path`. **Do not name a field `owned_root` / `owned_checkout` / `checkout_root`**: gate G5 bans those names typed `Path` everywhere except on `mission_runtime.owned_checkout.OwnedCheckout` (`contracts/architectural-gate.md`). Construction goes only through `resolve_owned_create_root` (reuse the private-token pattern from WP01, or keep the dataclass module-private and export only the function plus the type for annotations).
   3. Implement `resolve_owned_create_root(repository_root, checkout)`: claim → `error_for_claim` (raise the structured error as `ActionContextError(error.error_code, str(error))`, the same translation as `:92-94`) → the repository-root refusal → return the value. No branch or topology check: the mission does not exist yet, and create keeps its own guards (`mission_creation.py:863-879`).
   4. Why a typed value and not a bare `Path`: `create_mission_core` currently derives `effective_root` from the claim inline (`src/specify_cli/core/mission_creation.py:859-861`) and threads it as a bare path (an FR-001 / G5 offender). WP10 replaces that with `create_root: OwnedCreateRoot | None`, and every governance read at create (`:848`, `:951`, `:963`, `:968`) then takes its root from `create_root.checkout`. The type makes "validated before use" visible in signatures.
@@ -254,6 +254,7 @@ Also:
      5. The mission is absent from `toplevel` → `None` (today's behaviour: resolve from R).
      6. **Mission-surface conflict (US7-AS5)**: if the handle resolves in both R and `toplevel` to **different** mission ids, raise `ActionContextError("MISSION_CONTEXT_CONFLICT", <the message text of MissionSurfaceConflictError>)`. `agent/context.py:153-154` already maps the old exception to exactly this code, so JSON output is unchanged. Do not import from `operation_context.py`; WP08 deletes it.
      7. Otherwise call `resolve_owned_mission(R, toplevel, handle, allowed_topologies=allowed_topologies)`; on `ActionContextError` → `None` (a rejected checkout falls back to today's behaviour, US7-AS3). A different repository also lands here (the claim is `FOREIGN`).
+  3a. **Explicit path: `OWNED_CHECKOUT_IS_MISSION_WORKTREE`.** Reuse the step-3/step-4 predicates (`_is_coordination_worktree`, `_is_lane_worktree_of_mission`) inside `resolve_owned_mission`, right after the repository-root refusal and before any mission read: an explicit `--owned-checkout` that names a coordination worktree or a lane worktree of the mission raises `ActionContextError("OWNED_CHECKOUT_IS_MISSION_WORKTREE", …)`. Export the constant from `checkout_ownership.py` next to `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`. Adoption (above) returns `None` for the same checkouts instead of raising. Red first in `tests/core/test_owned_mission_minter.py` (lane worktree and `…-coord` worktree each refused with the code; the valid P under `R/.worktrees/` accepted as the control, which guards the `LANE_WORKTREE` trap).
   4. Cases in `tests/core/test_adopt_owned_checkout.py` (each asserts the return value **and** the number of `resolve_ownership_claim` calls, via a counting monkeypatch on `specify_cli.core.checkout_ownership.resolve_ownership_claim`):
      - cwd = R → `None`, 0 claims;
      - cwd = a subdirectory of a valid P → a fact, 1 claim;
@@ -264,7 +265,7 @@ Also:
      - cwd = a checkout of another repository → `None`;
      - same handle, different mission ids in R and P → `MISSION_CONTEXT_CONFLICT`;
      - same handle and the same mission id in R and P (a stale copy) → a fact for P.
-- **Files**: `src/specify_cli/core/owned_mission.py`, `tests/core/test_adopt_owned_checkout.py` (new).
+- **Files**: `src/specify_cli/core/owned_mission.py`, `src/specify_cli/core/checkout_ownership.py` (the new code constant), `tests/core/test_adopt_owned_checkout.py` (new), `tests/core/test_owned_mission_minter.py`.
 - **Validation checklist**:
   - [ ] All nine cases are green, and the claim counts match.
   - [ ] `tests/architectural/test_cold_import_status_boundary.py` is green (all new imports are function-local).
@@ -273,33 +274,58 @@ Also:
   - A `WorktreeRegistryUnavailable` from the classifier → `None` (fail closed toward today's behaviour, never toward adoption).
   - Adoption never writes anything.
 
-### Subtask T010 – Transitional `OwnedMission` alias plus `effective_root_kwargs` accepting the fact
+### Subtask T010 – Transitional `OwnedMission` legacy factory function plus `effective_root_kwargs` accepting the fact
 
-- **Purpose**: Keep all ~104 `OwnedMission` attribute reads and 34 `effective_root_kwargs(...)` calls green while later WPs convert top-down (plan §Staging Strategy). WP18 deletes both.
+- **Purpose**: Keep all ~104 `OwnedMission` attribute reads, the 34 `effective_root_kwargs(...)` calls and the six unowned tests that construct `OwnedMission(...)` green while later WPs convert top-down (plan §Staging Strategy). WP18 deletes all of it.
 - **Steps**:
-  1. Delete the `OwnedMission` dataclass (`owned_mission.py:17-38`) and add `OwnedMission = OwnedCheckout  # Transitional alias (WP02); deleted by WP18.` The legacy attribute names resolve through WP01's transitional properties.
-  2. Change `effective_root_kwargs(root: Path | OwnedCheckout | None) -> _EffectiveRootKwargs`, which returns `{"effective_root": root.owned_root}` for a fact. Update its docstring to say it is transitional.
-  3. **Re-point the direct positional constructions** of `OwnedMission(...)`. They now raise `TypeError`, because the alias's constructor is sentinel-guarded and has six fields. The known sites on HEAD:
+  1. Delete the `OwnedMission` dataclass (`owned_mission.py:17-38`) and replace it with a **legacy factory function** in the same module (the minter module, so gate G3 holds):
+     ```python
+     def OwnedMission(  # TRANSITIONAL(WP18): legacy positional constructor for unconverted tests
+         primary: Path, root: Path, directory: Path, slug: str, target: str,
+     ) -> OwnedCheckout:
+         """Transitional legacy factory (WP02); deleted by WP18. Mints an OwnedCheckout from the old positional arguments."""
+         return OwnedCheckout._mint(
+             repository_root=primary, owned_root=root, mission_dir=directory,
+             mission_slug=slug, topology=MissionTopology.SINGLE_BRANCH, target_branch=target,
+         )
+     ```
+     The function keeps the legacy class name so call sites stay unchanged until WP18 (ruff's `N` rules are not selected, so no suppression is needed; do not add one). It carries the `TRANSITIONAL(WP18)` marker, so WP18 deletes it. The legacy attribute names resolve through WP01's transitional properties.
+  2. **Annotation retype (declared out-of-map, annotation-only).** A function is not a type, so every annotation or `TYPE_CHECKING` import that uses `OwnedMission` as a type is retyped to `OwnedCheckout` (imported from the `mission_runtime` package root). No logic changes, no attribute renames. Sites on HEAD (`grep -rn "OwnedMission\b" src --include=*.py`):
+     - `src/specify_cli/cli/commands/accept.py:30,271,728`
+     - `src/specify_cli/cli/commands/agent/tasks_mark_status.py:88,124,498`
+     - `src/specify_cli/cli/commands/agent/mission_finalize.py:60,188,905,1875,2014,2222,2452,2578,2610,2684,2939`
+     - `src/specify_cli/cli/commands/agent/tasks_move_task.py:125,249`
+     - `src/specify_cli/cli/commands/spec_commit_cmd.py:33,106`
+     - `src/specify_cli/coordination/status_transition.py:86,1597`
+     - `src/specify_cli/status/bootstrap.py:28,100`
+     - `src/specify_cli/status/models.py:26,908`
+     - `src/specify_cli/migration/backfill_runtime_state.py:85,1433,1453,2081,2129`
+     - `src/specify_cli/migration/runtime_state_cutover.py:51,129,149,199,253,271,291,347`
+
+     Rationale line (commit body and PR): "WP02 turns `OwnedMission` into a TRANSITIONAL(WP18) factory function; a function is not a type, so annotation sites are retyped to `OwnedCheckout` (occurrence_map code_symbols rename, annotation-only)." These files' owning WPs (WP07, WP13, WP14, WP16, WP17) all depend on WP02, so the edit lands before them in-lane.
+  3. Change `effective_root_kwargs(root: Path | OwnedCheckout | None) -> _EffectiveRootKwargs`, which returns `{"effective_root": root.owned_root}` for a fact. Mark `_EffectiveRootKwargs` and `effective_root_kwargs` each with `# TRANSITIONAL(WP18): <reason>`, and say so in the docstring.
+  4. **Leave the positional constructions alone.** The unowned tests that construct `OwnedMission(...)` keep working through the factory until WP18 T097 re-points them:
      - `tests/specify_cli/cli/commands/agent/test_tasks_move_task_pre_review_identity_read.py:182`
      - `tests/specify_cli/cli/commands/agent/test_tasks_mark_status_recovery.py:41`
-     - `tests/specify_cli/coordination/test_status_transition.py:1206` (a WP07-owned file)
+     - `tests/specify_cli/coordination/test_status_transition.py:1206`
      - `tests/status/test_bootstrap.py:542`
      - `tests/migration/test_runtime_feature_dir_threading.py:23`
+     - plus any other hit of `grep -rn "OwnedMission(" tests` (record the full list, six expected, in the Activity Log for WP18).
 
-     Replace each with `OwnedCheckout._mint(...)` using **valid** paths. The move-task test passes arguments in a non-canonical order that would violate the new invariants, so rebuild its paths deliberately. These are **declared out-of-map edits** (rationale: "WP02 makes positional `OwnedMission(...)` construction raise by contract §1; the test must mint the fact"). List them in the Activity Log and the PR.
-  4. Run `grep -rn "OwnedMission(" src tests` and `grep -rn "effective_root_kwargs(" src`. The first must show no hits. The second must still type-check under mypy (the `**` splats stay typed).
-  5. Annotation sites (`owned: OwnedMission | None`, for example `src/specify_cli/status/models.py`, `coordination/status_transition.py`, `migration/runtime_state_cutover.py`, `migration/backfill_runtime_state.py`) keep working through the alias with no edit. **Do not** rename them here; the `code_symbols` rename happens in each owning WP (occurrence map), and the final sweep is WP18.
-  6. Add `tests/core/test_owned_mission_minter.py::test_transitional_alias_is_the_fact` (`OwnedMission is OwnedCheckout`) and `test_effective_root_kwargs_accepts_fact` (a fact yields `{"effective_root": fact.owned_root}`, a path yields `{"effective_root": path}`, `None` yields `{}`). WP18 deletes both tests with the alias; say so in their docstrings.
-- **Commit sequence**: (a) the two alias tests, red; (b) the alias plus the widened helper; (c) one commit re-pointing the five out-of-map test constructions, whose message lists the files and the rationale.
-- **Files**: `src/specify_cli/core/owned_mission.py` plus the five out-of-map test files above.
+     Run them. If a test's arguments violate the fact's invariants (for example the move-task test's non-canonical argument order), it now raises `ValueError`. Do **not** edit the test here: record the failure and adjust the factory only if it can map the legacy arguments faithfully; otherwise escalate to the orchestrator before merging. Every listed file must be green unchanged.
+  5. Add `tests/core/test_owned_mission_minter.py::test_transitional_factory_mints_the_fact` (`isinstance(OwnedMission(R, P, P/"kitty-specs"/slug, slug, "codex/owned"), OwnedCheckout)`, with `topology is SINGLE_BRANCH`) and `test_effective_root_kwargs_accepts_fact` (a fact yields `{"effective_root": fact.owned_root}`, a path yields `{"effective_root": path}`, `None` yields `{}`). Mark both `# TRANSITIONAL(WP18)`; WP18 deletes them with the factory.
+- **Commit sequence**: (a) the two tests, red; (b) the factory function plus the widened helper plus the annotation retype (one commit, because the retype is what keeps mypy green once `OwnedMission` stops being a type); record the rationale.
+- **Files**: `src/specify_cli/core/owned_mission.py`, `tests/core/test_owned_mission_minter.py`, plus the declared annotation-only retype in the ten `src/` files above.
 - **Validation checklist**:
-  - [ ] `pytest` on the five re-pointed files plus `tests/specify_cli/cli/commands/test_next_owned_commit_guard.py tests/next/test_runtime_bridge_unit.py tests/runtime/test_artifact_presence_placement.py -q` is green.
-  - [ ] `mypy --strict src/specify_cli/core/owned_mission.py` is clean.
+  - [ ] `pytest` on the six legacy-construction test files plus `tests/specify_cli/cli/commands/test_next_owned_commit_guard.py tests/next/test_runtime_bridge_unit.py tests/runtime/test_artifact_presence_placement.py -q` is green, with no test file edited.
+  - [ ] `grep -rn "OwnedMission\b" src --include=*.py` lists only the factory in `owned_mission.py` and call sites that call it (no annotation uses it).
+  - [ ] `grep -n "TRANSITIONAL(WP18)" src/specify_cli/core/owned_mission.py` lists the factory, `_EffectiveRootKwargs` and `effective_root_kwargs`.
+  - [ ] mypy runs over `src/specify_cli/core/owned_mission.py` **together with** the ten retyped files in one invocation (`follow_imports = "skip"` for `specify_cli.*`), and is clean.
 - **Edge cases**:
   - Tests that monkeypatch `resolve_owned_mission` to return a stub object keep working, because attribute access is duck-typed. Do not "fix" them here.
   - `OwnedCheckout` hashing differs from the old dataclass (the token has `compare=False`). No production code hashes `OwnedMission`; verify with a grep.
   - `OwnedCheckout.files()` raises `OwnedCheckoutPathRefused`, a subclass of `ActionContextError` with the same `OWNED_MISSION_PATH_REFUSED` code as before. Existing `except ActionContextError` handlers in `spec_commit_cmd.py` and `mission_finalize.py` still catch it. Confirm by running `tests/integration/test_explicit_checkout_commands.py`, which includes the path-refusal cases.
-  - The alias must be a plain module-level assignment, not a subclass or wrapper. G3 and the mypy identity `OwnedMission is OwnedCheckout` depend on it, and WP18's deletion is then one line.
+  - `isinstance(x, OwnedMission)` no longer works (a function). `grep -rn "isinstance(.*OwnedMission" src tests` must be empty; if not, retype it to `OwnedCheckout` in the same annotation-only commit.
 
 ### Subtask T011 – Shared integration fixtures with self-tests
 
@@ -364,14 +390,19 @@ uv run --frozen pytest tests/architectural/test_cold_import_status_boundary.py t
 make test-fast
 uv run --frozen ruff check src/specify_cli/core/owned_mission.py src/specify_cli/core/checkout_ownership.py tests/core tests/integration/conftest.py tests/integration/test_owned_fixtures_selftest.py
 uv run --frozen ruff format --check src/specify_cli/core/owned_mission.py src/specify_cli/core/checkout_ownership.py tests/core/test_owned_mission_minter.py tests/core/test_adopt_owned_checkout.py tests/core/test_checkout_ownership.py tests/integration/conftest.py tests/integration/test_owned_fixtures_selftest.py
-uv run --frozen mypy --strict src/specify_cli/core/owned_mission.py src/specify_cli/core/checkout_ownership.py
+uv run --frozen mypy --strict src/specify_cli/core/owned_mission.py src/specify_cli/core/checkout_ownership.py \
+  src/specify_cli/cli/commands/accept.py src/specify_cli/cli/commands/agent/tasks_mark_status.py src/specify_cli/cli/commands/agent/mission_finalize.py \
+  src/specify_cli/cli/commands/agent/tasks_move_task.py src/specify_cli/cli/commands/spec_commit_cmd.py src/specify_cli/coordination/status_transition.py \
+  src/specify_cli/status/bootstrap.py src/specify_cli/status/models.py src/specify_cli/migration/backfill_runtime_state.py src/specify_cli/migration/runtime_state_cutover.py
+# callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*); if --strict surfaces pre-existing errors in the retyped files, run those without --strict and record it
 ```
 
 No `make test-full`, and no bare `tests/architectural/`.
 
 ## Risks & Mitigations
 
-- **Hidden positional constructions.** Mitigation: T010 step 4 greps, and the out-of-map list is declared.
+- **Hidden positional constructions.** Mitigation: the factory keeps them working unchanged; T010 step 4 records the full list for WP18 T097.
+- **Type-vs-function break.** Turning `OwnedMission` into a function breaks it as an annotation. Mitigation: the declared annotation-only retype in T010 step 2, checked by one mypy invocation over the minter and all retyped files.
 - **Adoption drift into a second authority.** Adoption must end in `resolve_owned_mission`; the adoption tests assert claim counts.
 - **The `LANE_WORKTREE` trap.** Pinned by both the fixture self-test and the adoption test for P under `.worktrees/`.
 - **Cold-import regression.** All new imports are function-local; the cold-import gate runs.
@@ -383,7 +414,8 @@ No `make test-full`, and no bare `tests/architectural/`.
 - The repository-root refusal is at the minter; the claim primitive and its five-value enum are unchanged.
 - The `OwnedCreateRoot` field names avoid G5's banned names.
 - The adoption tests cover all nine cases with claim counts; R costs 0 claims.
-- The alias and `effective_root_kwargs` widening are transitional (WP18 deletes them); the out-of-map test edits are listed with a rationale.
+- The `OwnedMission` factory function, `_EffectiveRootKwargs` and `effective_root_kwargs` are transitional and each carries `# TRANSITIONAL(WP18)`; no legacy-construction test was edited; the annotation-only retype is declared with its rationale.
+- `OWNED_CHECKOUT_IS_MISSION_WORKTREE` refuses explicit lane and coordination worktrees; adoption returns `None` for them.
 - The fixtures request `canonical_home`, and the snapshot excludes exactly P's subtree.
 - mypy `--strict` ran and passed.
 

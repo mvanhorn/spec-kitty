@@ -3,16 +3,13 @@ work_package_id: "WP12"
 subtasks:
   - "T064"
   - "T065"
-  - "T066"
-  - "T067"
   - "T068"
   - "T069"
-title: "Decision, prompt building and unified review base"
+title: "Prompt building and unified review base"
 task_type: "implement"
 phase: "Phase 3 - Commands and runtime"
 execution_mode: "code_change"
 owned_files:
-  - "src/runtime/next/decision.py"
   - "src/runtime/next/prompt_builder.py"
   - "src/specify_cli/cli/commands/agent/workflow_executor.py"
   - "src/specify_cli/core/worktree_topology.py"
@@ -43,7 +40,7 @@ history:
     action: "Prompt generated via /spec-kitty.tasks"
 ---
 
-# Work Package Prompt: WP12 – Decision, prompt building and unified review base
+# Work Package Prompt: WP12 – Prompt building and unified review base
 
 ## ⚡ Do This First: Load Agent Profile
 
@@ -81,7 +78,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 
 This WP finishes the owned `next` path that WP11 started, and gives every review path one claim-commit authority (operator decision `01M3M70Y…`):
 
-1. **FR-025.** A new helper, `mission_runtime.claim_commit_for_wp`, finds a WP's **claim commit** the same way for every review path, owned and repository-root alike:
+1. **FR-025.** A new topology-agnostic helper, `mission_runtime.claim_commit_for_wp(mission_dir: Path, wp_id: str)`, finds a WP's **claim commit** the same way for every review path, owned and repository-root alike:
    1. take the last `to_lane == "claimed"` status event for the WP;
    2. find the unique commit on `HEAD` whose diff to `status.events.jsonl` introduced that `event_id`.
 
@@ -93,7 +90,7 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
 3. **FR-010 / US3-AS4.** An owned WP's review prompt uses its claim commit as the base. The diff is `claim..HEAD -- <WP owned_files>` and excludes a sibling WP's files.
 4. **FR-010 / US3-AS5.** If the WP declares no `owned_files`, or has no single claim commit, `next --owned-checkout` returns a `blocked` decision with `error_code == "OWNED_REVIEW_BASE_UNAVAILABLE"`. It never emits an unscoped whole-checkout diff.
 5. **FR-008 / FR-009 (prompt half).**
-   - `decision.py` and `prompt_builder.py` take the fact.
+   - `prompt_builder.py` takes the fact (`decision.py` already does, from WP11 T067).
    - Owned WP prompts read the WP file, workspace, governance and mission-type context from P.
    - The full US3-AS1 row (`kind == "step"` with an existing prompt file, workspace P) turns green. WP11 committed it as a strict xfail.
 6. **Carried test rewrite.** #5009 1be5352ee's `test_owned_review_prompt_uses_owned_target_branch` asserts `git diff {TARGET}..HEAD --stat`. It is rewritten to the claim-commit contract.
@@ -101,7 +98,7 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
 **Done when:**
 - every row above has its red-first test committed before its fix;
 - `grep -rn 'claimed for implementation\|Move {wp_id} to in_progress\|Start {wp_id} implementation' src/` returns nothing;
-- `decision.py` and `prompt_builder.py` contain no `effective_root`;
+- `prompt_builder.py` contains no `effective_root`, and `grep -rn "bridging: WP12" src/` returns nothing;
 - ruff, format and mypy are clean on the touched files;
 - `make test-fast` is green.
 
@@ -112,35 +109,35 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
   - `plan.md`: Staging Strategy, IC-05, IC-06, IC-13.
   - `research.md`: R-05 (the algorithm), R-15, R-16 "Review-base duplication".
   - `data-model.md`: the review-base status event fact and the `OWNED_REVIEW_BASE_UNAVAILABLE` code.
-  - `contracts/owned-checkout-carrier.md` §7: the prompt builder and the review-base helper are consumers of the fact.
-- **WP11 provides** `DecideNextContext.owned`, owned board authority, and bridging calls into this WP's files. The bridging looks like `repo_root=owned.owned_root if owned else repo_root`, each call marked `# bridging: WP12 converts`. Replace every one of them.
+  - `contracts/owned-checkout-carrier.md` §7: the prompt builder is a consumer of the fact; the review-base helper is deliberately **not** (it is topology-agnostic and is not in G6's consumer list).
+- **WP11 provides** `DecideNextContext.owned`, owned board authority, `decision.py` on the fact (T066/T067, including the typed `ActionContextError` → blocked-decision `error_code` mapping in `_build_prompt_or_error`), and bridging calls into `prompt_builder.py`. The bridging looks like `repo_root=owned.owned_root if owned else repo_root`, each call marked `# bridging: WP12 converts`. Replace every one of them (`grep -rn "bridging: WP12" src/`).
 - **Layer rules for the new helper.**
   - `src/mission_runtime/claim_commit.py` sits in the `mission_runtime` layer (`kernel <- charter <- {…, mission_runtime} <- specify_cli`, `tests/architectural/test_layer_rules.py:82-84`).
   - It may import `specify_cli.status` **lazily, inside the function**. `status` is already an allowed subpackage in `_MISSION_RUNTIME_ALLOWED_SPECIFY_CLI` (`test_layer_rules.py:116-144`), so the cap-10 ledger in `_baselines.yaml:21` does not grow.
   - A module-level import would break `test_package_root_cold_imports` (`test_mission_runtime_surface.py:180`).
-- **Git access from `mission_runtime`.** No general-purpose kernel git seam exists. `kernel/git_topology.py` exposes only `git_common_dir` / `git_toplevel`, and its runner `_run_rev_parse` is private. Follow the established in-layer precedent, `mission_runtime/lifecycle_phase.py:174-185`: call `subprocess.run([...], cwd=…, capture_output=True, text=True, timeout=<module constant>, check=False)` directly, and translate `TimeoutExpired` and non-zero exits into a typed error. Do **not** import `specify_cli.git`, because `git` is not an allowed subpackage and importing it would grow the ledger. This deliberately deviates from plan IC-06's phrase "git through the kernel seam". Record the deviation and this rationale in the PR.
+- **Git access from `mission_runtime`.** No general-purpose kernel git seam exists. `kernel/git_topology.py` exposes only `git_common_dir` / `git_toplevel`, and its runner `_run_rev_parse` is private. Follow the established in-layer precedent, `mission_runtime/lifecycle_phase.py:174-185`: call `subprocess.run([...], cwd=…, capture_output=True, text=True, timeout=<module constant>, check=False)` directly, and translate `TimeoutExpired` and non-zero exits into a typed error. Do **not** import `specify_cli.git`, because `git` is not an allowed subpackage and importing it would grow the ledger. Plan IC-06 records this choice.
 - **Public surface (MR-1/MR-2).** Code outside the package may import `mission_runtime` symbols only from the package root. You must therefore make two **declared out-of-map edits** to WP01-owned files, and put this rationale in the PR: "MR-1/MR-2 forbid submodule imports; FR-025 needs the helper at the package root."
   1. Re-export `claim_commit_for_wp` and its error type from `src/mission_runtime/__init__.py` and `__all__`.
   2. Add both names to `_PUBLIC_SURFACE` in `tests/architectural/test_mission_runtime_surface.py:49`. `test_public_surface_is_exactly_all` requires `__all__ == _PUBLIC_SURFACE`.
 
   Also add a one-line note in the ADR 2026-06-07-1 amendment if WP03 left a list of public symbols to extend. Otherwise note it in the PR for WP18.
-- **Helper signature (deviation from plan IC-06).** Plan IC-06 names the helper `claim_commit_for_wp(checkout_root, mission_slug, wp_id)`. WP18's gate G5 bans any parameter named `checkout_root` that is annotated `Path` (`contracts/architectural-gate.md`). Use this signature instead:
+- **Helper signature (plan IC-06, gate contract).** The helper is topology-agnostic and takes no fact:
 
   ```python
   claim_commit_for_wp(mission_dir: Path, wp_id: str) -> str
   ```
 
-  `mission_dir` is the directory that holds `status.events.jsonl` in the checkout whose `HEAD` is being reviewed. Git runs with `cwd=mission_dir`, and the pathspec `status.events.jsonl` is relative to it. Record the deviation in the PR.
-- **Staging.** WP11 already routes the runtime through the fact.
-  - This WP converts `decision.py` (except `decide_next`, which WP11 converted as a declared edit) and `prompt_builder.py` to `owned: OwnedCheckout | None`.
-  - Callers in `runtime_bridge.py` (WP11-owned) must switch from the bridging value to `owned=`. That is a mechanical, declared out-of-map edit in `src/runtime/next/runtime_bridge.py`. Rationale: "top-down completion of WP11's bridging (staging rule)."
-  - The six seams keep their dual keyword until WP18.
+  `mission_dir` is the directory that holds `status.events.jsonl` in the checkout whose `HEAD` is being reviewed. Git runs with `cwd=mission_dir`, and the pathspec `status.events.jsonl` is relative to it. It is not a G6 consumer, and no parameter is named `checkout_root` (G5).
+- **Staging.** WP11 already routes the runtime and `decision.py` through the fact.
+  - This WP converts `prompt_builder.py` to `owned: OwnedCheckout | None`.
+  - The bridging calls into `build_prompt` live in `src/runtime/next/decision.py` (`_build_prompt_safe`, `_build_prompt_or_error`), which WP11 owns. Switching them from the bridging value to `owned=owned` is a mechanical, **declared out-of-map edit** in `decision.py` (plus `runtime_bridge.py` only if `grep -rn "bridging: WP12" src/` finds a site there). Rationale: "top-down completion of WP11's bridging (staging rule)."
+  - Transitional surfaces are the six shared seams plus every other function marked `TRANSITIONAL(WP18)`; leave them in place.
 - **Out-of-map test edits (declared).**
   - `tests/integration/test_explicit_checkout_commands.py` (WP11): rewrite the carried review test, and remove its strict-xfail marker.
   - `tests/integration/test_owned_lifecycle_acceptance_next.py` (WP11): remove the strict-xfail marker on the full US3-AS1 row.
 
   Both are needed because `prompt_builder.py` (this WP) is what turns those tests green.
-- **Campsite first.** `_state_to_action` (`decision.py:394`, complexity 14) and `_build_wp_prompt` (`prompt_builder.py:152`, complexity 14) are extracted before their signatures change.
+- **Campsite first.** `_build_wp_prompt` (`prompt_builder.py:152`, complexity 14) is extracted before its signature changes (T068 step 0). `_state_to_action` was WP11's (T066).
 - **Terminology.** Use "claim commit", "owned checkout" and "repository root checkout". In user-facing prompt text, never write bare "primary" or "feature".
 
 ## Branch Strategy
@@ -223,49 +220,17 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
   - Repositories with `log.showSignature` or a custom `format.pretty` config: always pass `--format=%H` explicitly, and use `--no-show-signature` if your git supports it.
   - An event id is a ULID, which is safe as a `-S` literal (no regex; `-S` is a literal match unless `--pickaxe-regex` is given).
 
-### Subtask T066 – Campsite: `_state_to_action`, `_build_wp_prompt`
-
-- **Purpose**: Standing Order 2. Both functions are at complexity 14, and both change signature in T067/T068.
-- **Steps**:
-  1. `_state_to_action` (`decision.py:394-493`). Extract:
-     - `_implement_state_action(mission_slug, feature_dir, repo_root)` for the `state == "implement"` block (`:408-435`);
-     - `_review_state_action(...)` for the review block (`:440-444`);
-     - `_template_state_action(state, repo_root, mission_name)` for the generic template + `_ALIASES` resolution (`:451-493`).
-
-     The outer function becomes a 4-way dispatch.
-  2. `_build_wp_prompt` (`prompt_builder.py:152-302`). Extract:
-     - `_workspace_header_lines(...)`;
-     - `_isolation_rule_lines(wp_id, action)`;
-     - `_review_command_lines(...)`, the whole `if action == "review":` block (`:222-275`) that T068/T069 rewrite;
-     - `_completion_lines(action, wp_id, mission_slug, subtask_ids)`.
-  3. Commit: `refactor(next): campsite extractions in decision/prompt_builder (C901)`. There is no behaviour change, and the existing tests stay green unmodified.
-- **Files**: `src/runtime/next/decision.py`, `src/runtime/next/prompt_builder.py`.
-- **Validation checklist**:
-  - [ ] `.venv/bin/ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=11' src/runtime/next/decision.py src/runtime/next/prompt_builder.py` no longer reports these two functions.
-  - [ ] `tests/next/` is green and unchanged. Grep `tests/` for monkeypatch strings `decision._state_to_action` / `prompt_builder._build_wp_prompt` and keep both names.
-- **Edge cases**: `_state_to_action` is imported by name in `runtime_bridge.py` and in the carried #5009 test. Keep the name and positional order.
-
-### Subtask T067 – `decision.py` takes the fact
-
-- **Purpose**: FR-008/FR-009. The pre-finalize fallback and prompt building in `decision.py` must stop folding to the repository root checkout (#5009 e6923bc97 is re-expressed here for `decision.py`).
-- **Steps**:
-  1. `_state_to_action(state, mission_slug, feature_dir, repo_root, mission_name, *, owned: OwnedCheckout | None = None)`. Each `resolve_workspace_for_wp(repo_root, mission_slug, wp)` (`:425`, `:434`, `:443`) becomes `resolve_workspace_for_wp(repo_root, mission_slug, wp, owned=owned)`. `resolve_command(f"{state}.md", …)` and the alias variant use `owned.owned_root if owned else repo_root`, because a command template is a P-local governance read (e6923bc97).
-  2. `_build_prompt_safe` (`:496`) and `_build_prompt_or_error` (`:524`) take `owned` and forward it to `build_prompt`. The composed-action probe `resolve_mission_type_context(repo_root, …)` (`:559`) uses the owned root.
-  3. `decide_next` (WP11 converted its signature): remove any remaining `effective_root` compatibility if it has no caller left (`grep -rn "decide_next(" src/ tests/`).
-  4. `_with_guard_failure_paths(decision, repo_root)` (`:344`): if guard paths must name owned artifacts, pass the owned root. Otherwise leave it unchanged and say why in the Activity Log.
-  5. Switch the bridging call sites in `runtime_bridge.py` (WP11-owned, declared edit) from `repo_root=owned.owned_root if owned else repo_root` to `repo_root=repo_root, owned=ctx.owned` or `owned=owned`. The sites are `:1913`, `:1923`, `:1978`, `:1986`, `:3200`, `:3264`, `:3388`, `:3436` and `:3446` (line numbers are from the planning base and shift after WP11).
-  6. Add a direct unit pin, the one that WP11 deferred from carried edaa9cd83: `_state_to_action("implement", SLUG, P/kitty-specs/SLUG, repository_root, "software-dev", owned=fact)` returns `("implement", "WP01", str(fact.owned_root))`.
-- **Files**: `src/runtime/next/decision.py`, plus the declared `src/runtime/next/runtime_bridge.py` call-site edits.
-- **Validation checklist**:
-  - [ ] `grep -n "effective_root" src/runtime/next/decision.py` returns nothing.
-  - [ ] `grep -n "bridging: WP12" src/runtime/next/` returns nothing.
-  - [ ] The non-owned behaviour of `tests/next/` (lane and coordination missions) is unchanged.
-- **Edge cases**: the in_review / for_review arbitration rules (FR-012a comments) must survive the extraction unchanged.
-
-### Subtask T068 – `prompt_builder` takes the fact; scoped review diff; fail closed
+### Subtask T068 – Campsite `_build_wp_prompt`; `prompt_builder` takes the fact; scoped review diff; fail closed
 
 - **Purpose**: FR-008 (the prompt half), FR-009 and FR-010. `_build_wp_prompt` calls `mission_context_for(repo_root, mission_slug)` (`prompt_builder.py:162-164`) and `resolve_workspace_for_wp(repo_root, …)` (`:167`), and it reads governance from `repo_root` (`:193-194`). For an owned mission, all of these read the repository root checkout.
 - **Steps**:
+  0. **Campsite first (own commit, no behaviour change).** Extract from `_build_wp_prompt` (`prompt_builder.py:152-302`, complexity 14):
+     - `_workspace_header_lines(...)`;
+     - `_isolation_rule_lines(wp_id, action)`;
+     - `_review_command_lines(...)`, the whole `if action == "review":` block (`:222-275`) that steps 3 and T069 rewrite;
+     - `_completion_lines(action, wp_id, mission_slug, subtask_ids)`.
+
+     Commit: `refactor(next): campsite extraction of prompt_builder._build_wp_prompt (C901)`. Check with `.venv/bin/ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=11' src/runtime/next/prompt_builder.py`; `tests/next/` stays green unmodified; keep the name `_build_wp_prompt` (grep `tests/` for `prompt_builder._build_wp_prompt` patch strings).
   1. `build_prompt(action, feature_dir, mission_slug, wp_id, agent, repo_root, mission_type, *, owned: OwnedCheckout | None = None)` (`:61`). Its tasks:
      - forward `owned` to `_build_wp_prompt`;
      - when owned, give `_build_template_prompt` the owned root;
@@ -275,19 +240,20 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
      - Reads governance and mission-type lines from the owned root. This re-expresses the e6923bc97 prompt half with credit.
      - When `workspace.resolution_kind == "owned_checkout"`, writes the workspace contract line as "owned checkout" (not "repository root planning workspace").
      - When owned, emits completion commands with `--owned-checkout <P>` (`move-task`, `mark-status`), because that is the supported owned path (US3 and the quickstart).
-  3. The review block (`_review_command_lines`, T066) handles three cases:
+  3. The review block (`_review_command_lines`, step 0) handles three cases:
      - **Lane workspace** (`workspace.lane_id` set, not owned): unchanged. The base is `workspace.context.base_branch`, or `get_feature_target_branch`.
      - **Owned** (`resolution_kind == "owned_checkout"`):
-       - `owned_files` empty → raise a typed `OwnedReviewBaseUnavailable` (in `prompt_builder.py`, or reuse `ActionContextError("OWNED_REVIEW_BASE_UNAVAILABLE", …)` from the `mission_runtime` root).
+       - `owned_files` empty → raise `ActionContextError("OWNED_REVIEW_BASE_UNAVAILABLE", …)` (from the `mission_runtime` root). WP11 T067 already maps an `ActionContextError` from `build_prompt` to a blocked decision carrying its code.
        - Otherwise call `claim_commit_for_wp(owned.mission_dir, wp_id)`. On `ClaimCommitUnresolved`, raise the same typed error.
        - Otherwise emit `git log {claim}..HEAD --oneline -- <pathspecs>` and `git diff {claim}..HEAD --stat -- <pathspecs>`, keeping the existing `:(exclude)` handling for mission-dir pathspecs (`:229-239`).
      - **Repository root** (`resolution_kind == "repo_root"`): same algorithm with `claim_commit_for_wp(feature_dir-or-status-dir, wp_id)`. On failure, keep today's fail-closed text line "unavailable: …" (the non-owned contract), never an unscoped diff.
-  4. Map `OWNED_REVIEW_BASE_UNAVAILABLE` to a `blocked` decision. `_build_prompt_or_error` (`decision.py`) catches the typed error and returns `(None, message)`, while carrying the code. The decision then goes through `step_or_blocked` (`runtime_bridge_cores.py:901`) as `blocked`. Make sure `next`'s JSON carries `error_code: "OWNED_REVIEW_BASE_UNAVAILABLE"` through the same typed attribute that WP11 used for `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`. Do not parse the reason string.
-  5. Remove WP11's strict-xfail marker on the full US3-AS1 row in `tests/integration/test_owned_lifecycle_acceptance_next.py` (declared out-of-map edit).
-- **Files**: `src/runtime/next/prompt_builder.py`, `src/runtime/next/decision.py`, plus the declared test-marker edit.
+  4. `OWNED_REVIEW_BASE_UNAVAILABLE` reaches `next` as a `blocked` decision through WP11's mapping in `_build_prompt_or_error` (`decision.py`, T067): it returns `(None, message)` carrying the code, and the decision goes through `step_or_blocked` (`runtime_bridge_cores.py:901`) as `blocked`. Assert `next`'s JSON carries `error_code: "OWNED_REVIEW_BASE_UNAVAILABLE"`. Do not parse the reason string. If WP11's mapping is missing, file it against WP11 rather than re-implementing it here.
+  5. Switch the `build_prompt` bridging calls in `decision.py` (`_build_prompt_safe`, `_build_prompt_or_error`) to `owned=owned` (declared out-of-map edit; see Staging).
+  6. Remove WP11's strict-xfail marker on the full US3-AS1 row in `tests/integration/test_owned_lifecycle_acceptance_next.py` (declared out-of-map edit).
+- **Files**: `src/runtime/next/prompt_builder.py`, plus the declared `decision.py` call-site edit and the declared test-marker edit.
 - **Validation checklist**:
   - [ ] T064's AS4 and AS5 rows are green, and US3-AS1 is green, with the xfail removed and `strict` flipping it red if it ever regresses.
-  - [ ] `grep -n "effective_root" src/runtime/next/prompt_builder.py` returns nothing.
+  - [ ] `grep -n "effective_root" src/runtime/next/prompt_builder.py` returns nothing, and `grep -rn "bridging: WP12" src/` returns nothing.
   - [ ] The prompt temp file is not written under R (`r_snapshot` shows 0 differences).
 - **Edge cases**:
   - A WP whose `owned_files` are all under `kitty-specs/<slug>/` (a planning-artifact WP) still excludes `tasks/**`, `tasks.md` and the status files from the pathspec (`:231-238`).
@@ -311,7 +277,7 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
      - it keeps `"wrong-primary-base" not in prompt`, with the variable renamed in canonical terms;
      - it removes the strict xfail.
 
-     Commit with a `Co-authored-by: Samuel Goff <samuel@defpix.com>` trailer. That address is the author email on every #5009 commit, while tasks.md names a noreply address; use the commit email.
+     Commit with a `Co-authored-by: Samuel Goff <samuel@defpix.com>` trailer (the author email on every #5009 commit).
   5. Final guard: `grep -rn "claimed for implementation\|to in_progress\" in subject\|Start {wp_id} implementation" src/` returns nothing.
 - **Files**: `src/specify_cli/cli/commands/agent/workflow_executor.py`, `src/specify_cli/core/worktree_topology.py`, `src/runtime/next/prompt_builder.py`, plus the declared test edit.
 - **Validation checklist**:
@@ -327,8 +293,8 @@ This WP finishes the owned `next` path that WP11 started, and gives every review
 Red-first order:
 1. T064 reds, committed before any `src/` edit.
 2. T065 helper, with its own unit tests written first.
-3. T066 campsite (green).
-4. T067 → T069, which turn the reds green.
+3. T068 step 0 campsite (green).
+4. T068 → T069, which turn the reds green.
 
 Record the exact commands and pass counts under *Tests run*:
 
@@ -343,7 +309,7 @@ grep -rl "prompt_builder\|runtime.next.decision\|workflow_executor\|worktree_top
 make test-fast
 .venv/bin/ruff check src/runtime/next/decision.py src/runtime/next/prompt_builder.py src/specify_cli/cli/commands/agent/workflow_executor.py src/specify_cli/core/worktree_topology.py src/mission_runtime/claim_commit.py src/mission_runtime/__init__.py tests/mission_runtime/test_claim_commit.py tests/integration/test_owned_lifecycle_acceptance_review.py
 .venv/bin/ruff format --check src/runtime/next/decision.py src/runtime/next/prompt_builder.py src/specify_cli/core/worktree_topology.py src/mission_runtime/claim_commit.py src/mission_runtime/__init__.py tests/mission_runtime/test_claim_commit.py tests/integration/test_owned_lifecycle_acceptance_review.py
-.venv/bin/mypy src/runtime/next/decision.py src/runtime/next/prompt_builder.py src/specify_cli/cli/commands/agent/workflow_executor.py src/specify_cli/core/worktree_topology.py src/mission_runtime/claim_commit.py src/mission_runtime/__init__.py
+.venv/bin/mypy src/runtime/next/decision.py src/runtime/next/prompt_builder.py src/runtime/next/runtime_bridge.py src/specify_cli/cli/commands/agent/workflow_executor.py src/specify_cli/cli/commands/agent/workflow.py src/specify_cli/core/worktree_topology.py src/mission_runtime/claim_commit.py src/mission_runtime/__init__.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
 .venv/bin/python -m pytest -q tests/architectural/test_mission_runtime_surface.py tests/architectural/test_layer_rules.py tests/architectural/test_no_legacy_terminology.py
 ```
 
@@ -354,7 +320,7 @@ make test-fast
 
 - **Squash-rebasing P's branch** folds the claim commit into an implementation commit. `-S` then returns that combined commit, and the diff `claim..HEAD` silently omits the work inside it. Document this in the helper docstring and in the PR, as the plan's IC-06 does. The helper cannot detect it. Rewriting history before review is out of contract.
 - **A future event schema that cites event ids** would make `-S` ambiguous. The helper then fails closed with `ambiguous`, and the T065 uniqueness pin goes red first, deliberately.
-- **Ownership split with WP11.** The runtime files are WP11's. Every edit to them here is mechanical (bridging → `owned=`) and declared. If WP11's final code has no `# bridging: WP12` markers, grep for `owned.owned_root if owned else` in `runtime_bridge.py` to find the sites.
+- **Ownership split with WP11.** The runtime files and `decision.py` are WP11's. Every edit to them here is mechanical (bridging → `owned=`) and declared. If WP11's final code has no `# bridging: WP12` markers, grep for `owned.owned_root if owned else` in `decision.py` and `runtime_bridge.py` to find the sites.
 - **Out-of-map surface edits.** `mission_runtime/__init__.py` and `test_mission_runtime_surface.py` are WP01's files. Keep each edit to the added names only.
 
 ## Review Guidance
@@ -362,7 +328,8 @@ make test-fast
 - Check that the three matchers are gone (grep in "Done when"), and that every review path calls `claim_commit_for_wp`.
 - Check that there is no unscoped diff on any owned failure path (AS5 cases a, b and c).
 - Check that `claim_commit.py` has no module-level `specify_cli` import, uses an explicit timeout, and raises a typed error with a reason.
-- Check the declared out-of-map edits (`__init__.py`, `_PUBLIC_SURFACE`, `runtime_bridge.py` call sites, the two WP11 test files) and their one-line rationales in the PR.
+- Check the declared out-of-map edits (`__init__.py`, `_PUBLIC_SURFACE`, the `decision.py` `build_prompt` call sites, the two WP11 test files) and their one-line rationales in the PR.
+- Check that the `_build_wp_prompt` campsite commit (T068 step 0) precedes the signature change.
 - Check that the carried-test rewrite has the `Co-authored-by` trailer.
 - Check that mypy ran on every touched source file.
 

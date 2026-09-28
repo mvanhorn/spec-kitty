@@ -23,6 +23,7 @@ create_intent:
   - "tests/core/test_mission_creation_decomposition.py"
 dependencies:
   - "WP02"
+  - "WP08"
 requirement_refs:
   - "FR-016"
   - "FR-017"
@@ -89,6 +90,7 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
 
 - **Read first**: `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/spec.md` (US5, FR-016, FR-017, FR-026), `plan.md` (Staging Strategy, IC-09, IC-13, IC-14), `research.md` (R-01, R-15, R-16 "Complexity"), `data-model.md` (Validator table: `resolve_owned_create_root`), `contracts/cli-owned-checkout-surface.md` (the `agent mission create` row) and `occurrence_map.yaml`.
 - **WP02 provides** `specify_cli.core.owned_mission.resolve_owned_create_root(repository_root, checkout) -> OwnedCreateRoot`, a typed, validated owned root for a mission that does not exist yet. WP02 pins its fields as `repository_root: Path` and `checkout: Path`. The name `owned_root` is deliberately avoided, because G5 bans it everywhere except on `OwnedCheckout`. Confirm the names against WP02's merged code before you start. It also provides the `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` refusal. Do not re-implement any claim logic here.
+- **WP08 provides** `cli/commands/_owned_checkout.py` with the shared `OwnedCheckoutOption` alias (WP10 depends on WP08 for exactly this). Use its actual name and signature.
 - **Charter authoring stays at the repository root checkout** (C-004 / #4250). Only *reads* at create time move to P. Do not touch `src/specify_cli/cli/commands/charter/**`.
 - **Repository-root-only concerns stay on R.** These keep reading R, unchanged:
   - project identity (`load_identity(resolved_root / ".kittify" / "config.yaml")`, `mission_creation.py:1188`);
@@ -98,11 +100,11 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
   Changing them is out of scope. If you think one of them is an owned read, stop and record it in the Activity Log for the reviewer. Do not silently move it.
 - **Staging rules** (tasks.md header):
   - Conversion is top-down.
-  - The six shared seams keep the dual keyword until WP18.
-  - The transitional `OwnedMission` alias lives until WP18.
+  - Transitional surfaces are the six shared seams plus every other function marked `TRANSITIONAL(WP18)`; each keeps its legacy form until WP18. Any legacy parameter you must keep carries `# TRANSITIONAL(WP18): <reason>`.
+  - The transitional `OwnedMission` legacy factory function lives until WP18.
   - Every WP leaves the tree green.
 
-  This WP does not touch any of the six seams.
+  This WP does not touch any of the six shared seams or any other function marked TRANSITIONAL(WP18).
 - **Campsite first**: the first *code* commit after the characterisation tests is the pure decomposition (T051). No functional change may ride in it.
 - **Terminology**: in new code, messages and help text, write "repository root checkout" and "owned checkout". Never use bare "primary" as a checkout alias, and never use `feature`. The existing `--owned-checkout` help text at `mission_create.py:757` says "must be the primary checkout or a validated linked worktree". Fix it in T055 to match the behaviour WP02's validator actually enforces.
 - **Occurrence map**: `code_symbols`, `import_paths` and `tests_fixtures` are renamed. `serialized_keys` must not change: the create JSON payload key `"owned_checkout"` (`mission_create.py:634-635`) stays byte-identical. `logs_telemetry` must not change: existing `OWNED_*` codes keep their exact strings.
@@ -219,7 +221,7 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
 
      Co-authored-by: Samuel Goff <samuel@defpix.com>
      ```
-     `tasks.md` names a `samuelgoff@users.noreply.github.com` address. The author email on every #5009 commit is `samuel@defpix.com` (`git show -s --format=%ae 1f42f76ea`). Use the address that appears on the carried commits, so that GitHub attributes the credit.
+     `samuel@defpix.com` is the author email on every #5009 commit (`git show -s --format=%ae 1f42f76ea`), so GitHub attributes the credit.
 - **Files**: `src/specify_cli/core/mission_creation.py`.
 - **Validation checklist**:
   - [ ] `tests/core/test_mission_creation_owned_charter.py` (T052) goes green in both parametrisations.
@@ -263,7 +265,7 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
   2. `create_mission_core(…, owned_checkout: Path | None)` (`:597`) and `_create_mission_core_impl(…, owned_checkout: Path | None)` (`:708`) are G5 offenders because the parameter is named `owned_checkout` and annotated `Path`.
      - Have the CLI resolve the typed create root: `_run_create_core_phase` (`mission_create.py:445`) calls `resolve_owned_create_root` once and passes the typed value down. `create_mission_core` then takes `owned_create_root: OwnedCreateRoot | None = None`.
      - Validation still happens exactly once per command (FR-003 spirit).
-     - The `_run_create_core_phase` parameter `owned_checkout: Path | None` (`mission_create.py:456`) is the raw, unvalidated CLI claim. Rename it `owned_checkout_claim: Path | None`, or move the resolution into `create_mission` itself, so that no parameter carries a validated owned root as a bare path.
+     - The `_run_create_core_phase` parameter `owned_checkout: Path | None` (`mission_create.py:456`) is the raw, unvalidated CLI claim. Annotate it with the shared `OwnedCheckoutOption` alias (G5 exempts `OwnedCheckoutOption`-annotated parameters by the named `CLI_CLAIM_INPUT_RULE`), or move the resolution into `create_mission` itself (renaming the parameter to dodge G5 is a gate evasion), so that no parameter carries a validated owned root as a bare path.
   3. Re-point the out-of-map callers that pass `owned_checkout=<Path>` to the new typed keyword. These are **declared out-of-map test re-points**, each with the one-line rationale "occurrence_map tests_fixtures: rename to the typed create root (WP10 T055)":
      - `tests/core/test_mission_create_checkout_restore.py:146`
      - `tests/core/test_mission_creation_unborn_head.py:206,209`
@@ -271,12 +273,13 @@ This WP makes `agent mission create --owned-checkout P` read its governance inpu
      - `tests/specify_cli/cli/commands/agent/test_mission_create_json_remediation.py:64`
 
      `src/specify_cli/tracker/origin.py:375` does not pass the keyword, so leave it untouched.
-  4. Fix the `--owned-checkout` help text (`mission_create.py:750-760`). Use canonical terms, and make it true for WP02's validator: if `resolve_owned_create_root` refuses the repository root checkout, the help must not say it is accepted. Keep the **inline** Typer option in this WP. WP10 does not depend on WP08, so the shared `OwnedCheckoutOption` is not yet available to it. See Risks.
+  4. **Option migration.** Replace the inline `--owned-checkout` Typer option (`mission_create.py:750-760`, plan IC-08's `mission_create.py:753`) with WP08's shared `OwnedCheckoutOption`. The user-visible flag name stays `--owned-checkout`. The help text comes from the shared option; confirm it uses canonical terms and is true for WP02's validator (the repository root checkout is refused with `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, a lane or coordination worktree with `OWNED_CHECKOUT_IS_MISSION_WORKTREE`). If the create command needs create-specific help wording, pass it through the option's documented override, never by re-declaring an inline option.
   5. Run the campsite check on `mission_create.py`: `_run_create_core_phase` is at complexity 12. If you touch its body (step 2), extract its error-funnel `except` arms into a helper first, in a separate commit, to bring it to ≤ 11.
 - **Files**: `src/specify_cli/core/mission_creation.py`, `src/specify_cli/cli/commands/agent/mission_create.py`, plus the declared out-of-map test re-points listed above.
 - **Validation checklist**:
   - [ ] The `agent mission create --owned-checkout P --json` payload key set is byte-identical to the planning base. Diff it with `tests/specify_cli/cli/commands/agent/test_mission_create_json_remediation.py` and the golden contract test.
-  - [ ] `grep -nE "owned_checkout: *Path|owned_root: *Path|checkout_root: *Path" src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py` returns nothing, except the raw Typer CLI option if you kept its name. Justify that exception in the Activity Log for WP18.
+  - [ ] `grep -nE "owned_checkout: *Path|owned_root: *Path|checkout_root: *Path" src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py` returns nothing (the CLI claim parameter is annotated `OwnedCheckoutOption`).
+  - [ ] `grep -n 'typer.Option("--owned-checkout"' src/specify_cli/cli/commands/agent/mission_create.py` returns nothing.
   - [ ] The e2e flow in `tests/e2e/test_worktree_owned_root_concurrency.py:395-431` (create with `--owned-checkout` + `lanes_with_coord`) still works. It is nightly `e2e`, so do not run it locally. Instead, reproduce its create call in-process once with `CliRunner` and record the result.
 - **Edge cases**: `create_mission_core` is also called by the ticket-first tracker flow and the test factory `tests/_factories.make_mission`. Keep `owned_create_root` optional with a `None` default, so those callers stay unchanged.
 
@@ -309,7 +312,7 @@ grep -rl "mission_creation\|create_mission_core" tests/ --include="*.py"   # add
 make test-fast
 .venv/bin/ruff check src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py tests/core/test_mission_creation_decomposition.py tests/core/test_mission_creation_owned_charter.py
 .venv/bin/ruff format --check src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py tests/core/test_mission_creation_decomposition.py tests/core/test_mission_creation_owned_charter.py
-.venv/bin/mypy src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py
+.venv/bin/mypy src/specify_cli/core/mission_creation.py src/specify_cli/cli/commands/agent/mission_create.py src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/core/owned_mission.py src/specify_cli/tracker/origin.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
 .venv/bin/python -m pytest -q tests/architectural/test_no_legacy_terminology.py   # help text touched
 ```
 
@@ -318,7 +321,7 @@ Do **not** run `make test-full` or the bare `tests/architectural/` directory (`N
 ## Risks & Mitigations
 
 - **Decomposition drift.** A 700-line function split into about 10 helpers can reorder side effects. Mitigation: T050 pins the order-sensitive facts (template before mkdir, events before commit, fan-out after commit). Review the T051 diff as a pure move.
-- **The `--owned-checkout` option is not yet on `OwnedCheckoutOption`.** WP10 depends only on WP02, while the shared option (`cli/commands/_owned_checkout.py`) is WP08's. Plan IC-08 lists `mission_create.py:753` among the eight declarations to move, and nothing in the WP graph schedules that move. Record in the Activity Log that the move is owed by WP18's closure sweep, as a declared out-of-map edit, unless the reviewer rebases WP10 after WP08.
+- **Option migration depends on WP08.** WP10 depends on WP08 so that `mission_create.py` moves onto `OwnedCheckoutOption` here (T055 step 4), closing plan IC-08's `mission_create.py:753` item. Nothing is owed to WP18 for this file.
 - **Rollback root.** A typed create root must still drive `create_mission_core`'s rollback snapshot (`:615`). Otherwise a failed owned create could restore the wrong checkout. `tests/core/test_mission_create_checkout_restore.py::test_failed_create_restores_owned_checkout_ref_and_index` guards this.
 - **Behaviour for R passed as `--owned-checkout` at create.** Today the claim primitive returns OWNED for R (`checkout_ownership.py:217-223`). If WP02's `resolve_owned_create_root` now refuses it with `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, that is an intended behaviour change (R-14). Update the help text, and add a one-line test in `test_mission_creation_owned_charter.py` that pins the refusal code through the CLI.
 
@@ -327,7 +330,7 @@ Do **not** run `make test-full` or the bare `tests/architectural/` directory (`N
 - Check that T050 precedes T051 in `git log`, and that T051's diff contains no functional change. Diff the characterisation run output before and after.
 - Confirm that `ruff.toml` lost exactly one line, and that `ruff check` on `mission_creation.py` passes with default config.
 - Confirm that the a37e9ee39 cherry-pick is verbatim (`-x` trailer and original author), and that the adaptation lives in its own commit.
-- Confirm the `Co-authored-by: Samuel Goff` trailer on the T053 commit.
+- Confirm the `Co-authored-by: Samuel Goff <samuel@defpix.com>` trailer on the T053 commit.
 - Confirm that charter-authoring suites are untouched and green (FR-017).
 - Confirm that the JSON key `owned_checkout` in the create payload is unchanged (serialized keys).
 - Confirm that the implementer ran mypy on both source files, in addition to pytest.

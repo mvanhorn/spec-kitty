@@ -76,14 +76,14 @@ Use language identifiers in code blocks: ````python`, ````bash`
 
 `agent mission finalize-tasks` must validate everything before its first write. A refusal must leave the checkout exactly as it was. An owned checkout under `.worktrees/` must finalize.
 
-1. **FR-015 / US4-AS3 (red on base).** A **lane dependency cycle** refusal leaves `git status --porcelain` in the finalized checkout identical to before. The fixture is WP01→WP02→WP03, with WP01 and WP03 sharing an owned file.
+1. **FR-015 / US4-AS3 (red on base).** A **lane dependency cycle** refusal leaves `git status --porcelain --ignored` (the FR-015 oracle, plan §Staging Strategy) in the finalized checkout identical to before. The fixture is WP01→WP02→WP03, with WP01 and WP03 sharing an owned file.
    - The oracle includes ignored files, so it covers `.kittify/derived/`.
    - The oracle also includes `HEAD` and the index.
    - Today, this refusal fires only after WP frontmatter, `tasks.md`, the issue matrix, `meta.json` and status events have been written (R-07).
    - Same-fixture control: a successful finalize does append events and rewrite WP files.
 2. **FR-015, every post-write refusal.** The ownership-manifest refusal (`mission_finalize.py:3489`), the stale-canceled refusal (`:3501`), the lane cycle and planning-commit pin refusals (`:2992`), and the lane glob re-validation all fire before the first write. They move into an in-memory **plan phase** that reuses the `--validate-only` path (INV-6).
 3. **FR-013 / O6 / US4-AS1.** For a valid owned single_branch P at `R/.worktrees/owned-a`, `finalize-tasks --owned-checkout P` exits 0 and appends the new events to P's `status.events.jsonl`. WP06 (surface resolver) and WP07 (`TransitionRequest.owned`, bootstrap) supply the enabling seams. This WP proves the behaviour end to end, and the refusal is not preceded by a partial write.
-4. **FR-007.** The finalize `--json` payload (success, validate-only and refusal) carries the top-level `stale_repository_root_copy: {"path", "mission_id"} | null`. With a stale copy of M in R, no path in the payload is under R.
+4. **FR-007.** In owned runs, the finalize `--json` payload (success, validate-only and refusal) carries the top-level `stale_repository_root_copy: {"path", "mission_id"} | null`. Non-owned payloads never carry the key and stay byte-identical. With a stale copy of M in R, no path in the payload is under R.
 5. **Single authority.** The `--owned-checkout` option moves onto WP08's `OwnedCheckoutOption`. Validation goes through `resolve_owned_or_adopt(…, LIFECYCLE_OWNED_TOPOLOGIES)`. This removes the direct `resolve_owned_mission` call at `:3327`, which is a G2 floor offender.
 
 **Done when:**
@@ -125,7 +125,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 
   Read their merged signatures before you start.
 - **Staging (top-down).**
-  - `finalize_tasks` holds the fact, and every helper in `mission_finalize.py` takes `owned: OwnedCheckout | None`. The six shared seams get `owned=` and keep their dual keyword until WP18.
+  - `finalize_tasks` holds the fact, and every helper in `mission_finalize.py` takes `owned: OwnedCheckout | None`. The six shared seams get `owned=` and keep their dual keyword until WP18 (transitional surfaces: the six shared seams plus every other function marked `TRANSITIONAL(WP18)`; mark any legacy parameter you keep).
   - **Do not change** the signature of `tasks_finalize_validation._read_transactional_wp_lane(..., effective_root=)` (`tasks_finalize_validation.py:95-110`). Its only caller is `tasks_move_task.py:568`, which WP16 owns and converts in parallel with this WP. Changing the callee before its caller breaks the top-down rule. Record it in the Activity Log for WP18's closure sweep (T097).
 - **Campsite first.** Extract these before any behaviour change, as the first commit after T070's tests: `finalize_tasks` (`:3217`, complexity 15 behind `# noqa: C901`), `_commit_finalize_artifacts` (`:2673`, 15) and `_run_bootstrap_loop` (`:1480`, 12). tasks.md lists `_run_bootstrap_loop` under WP11's T058, but the function lives here, so WP13 owns its extraction.
 - **Preserve the revert machinery.** The `SK3466` `meta.json` revert (`_revert_unpersisted_target_branch_override`, `:3097`; `_MetaBranchOverrideProgress`, `:3077`) still guards **apply-time** failures such as the git commit. Keep it, and keep its tests green.
@@ -265,7 +265,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
      - Rename the legacy attribute reads: `owned.root` → `owned.owned_root`, `owned.primary` → `owned.repository_root`, `owned.slug` → `owned.mission_slug`, `owned.directory` → `owned.mission_dir`, `owned.target` → `owned.target_branch`.
      - Convert the `"effective_root"` dict-key splats to `owned=owned` on the dual-keyword seams: `:929` (issue matrix), `:2056`, `:2593` (`placement_seam(owned.primary, owned.slug, effective_root=owned.root)` → `placement_seam(owned.repository_root, owned.mission_slug, owned=owned)`), `:2636`, `:2752`, `:3352`.
      - Where a callee is not yet owned-aware and lives outside this WP, use the bridging expression `effective_root=owned.owned_root if owned else None`, and comment which WP converts it.
-  4. **Stale-copy field (FR-007 / R-12).** When `owned` is set, call WP08's stale-copy reporter once after resolution. It detects without git calls by comparing the repository-root placement with `owned.mission_dir`. Add a top-level `stale_repository_root_copy` to the JSON of the success report (`_emit_success_report`, `:2788`), the validate-only report (`:1920-1934`) and the refusal envelope. In human mode, print the warning on stderr. The key is additive, and no existing key changes (serialized keys are `do_not_change`).
+  4. **Stale-copy field (FR-007 / R-12).** When `owned` is set, call WP08's stale-copy reporter once after resolution. It detects without git calls by comparing the repository-root placement with `owned.mission_dir`. Add a top-level `stale_repository_root_copy` to the JSON of the success report (`_emit_success_report`, `:2788`), the validate-only report (`:1920-1934`) and the refusal envelope. In human mode, print the warning on stderr. The key is additive and emitted only in owned runs (non-owned payloads stay byte-identical), and no existing key changes (serialized keys are `do_not_change`).
   5. `tasks_finalize_validation.py`: leave `_read_transactional_wp_lane`'s `effective_root` keyword and its `effective_root_kwargs` import in place (see Context). Add an Activity Log line for WP18.
 - **Files**: `src/specify_cli/cli/commands/agent/mission_finalize.py`, `src/specify_cli/cli/commands/agent/tasks_finalize_validation.py` (no signature change; comment only if needed).
 - **Validation checklist**:

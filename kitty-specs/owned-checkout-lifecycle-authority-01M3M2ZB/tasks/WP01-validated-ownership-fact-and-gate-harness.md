@@ -85,7 +85,7 @@ Use language identifiers in code blocks: ````python`,````bash`
 This WP lays the foundation every later WP builds on. It adds **no behaviour change** to any command.
 
 1. A new value object `mission_runtime.OwnedCheckout` exists. It is the *validated ownership fact* of spec §Key Entities and data-model.md §OwnedCheckout. It can only be constructed through a private `OwnedCheckout._mint(...)`; direct construction raises `TypeError`.
-2. `OwnedCheckout` carries the transitional legacy property names (`primary`, `root`, `directory`, `slug`, `target`) so WP02 can alias `OwnedMission = OwnedCheckout` without touching the ~104 attribute read sites. WP18 deletes these properties.
+2. `OwnedCheckout` carries the transitional legacy property names (`primary`, `root`, `directory`, `slug`, `target`), each marked `# TRANSITIONAL(WP18): <reason>`, so the object that WP02's transitional `OwnedMission` legacy factory function mints satisfies the ~104 attribute read sites untouched. WP18 deletes these properties (plan §Staging Strategy: the six shared seams plus every other function marked TRANSITIONAL(WP18)).
 3. `OwnedCheckout` is on the `mission_runtime` package root (`__all__`) and pinned in `_PUBLIC_SURFACE` of `tests/architectural/test_mission_runtime_surface.py` (MR-1/MR-2 forbid submodule imports).
 4. Carrier unit tests cover the invariants, `files()` containment (including symlink escape and symlink loops), one explicit symlink identity case and one case-variant identity case (NFR-006). The case-variant test is marked `windows_ci` and its file is added to the `ci-windows.yml` path filter.
 5. A reusable AST scanner, `tests/architectural/_owned_checkout_scan.py`, implements every rule of `contracts/architectural-gate.md` (G1–G6). WP18 builds the live-tree gate on it.
@@ -148,7 +148,7 @@ Constraints:
      - any `..` part is refused;
      - each candidate is resolved with `resolve_rejecting_loops` and must be inside `mission_dir`; a symlink loop is refused too.
      Refusals raise `OwnedCheckoutPathRefused`, a new subclass of `mission_runtime.resolution.ActionContextError` (`src/mission_runtime/resolution.py:116`) whose `code` is the existing `"OWNED_MISSION_PATH_REFUSED"`. Subclassing keeps every existing `except ActionContextError` caller working (logs_telemetry: `do_not_change`).
-  6. Add the **transitional legacy properties**. Each is a read-only `@property` whose docstring says "Transitional alias (WP01); deleted by WP18":
+  6. Add the **transitional legacy properties**. Each is a read-only `@property` carrying a `# TRANSITIONAL(WP18): legacy OwnedMission attribute name` comment on its `def` line, and a docstring saying "Transitional alias (WP01); deleted by WP18". WP18 T096 deletes exactly what `grep -rn "TRANSITIONAL(WP18)" src tests` finds, so an unmarked property would survive:
      - `primary` → `repository_root`
      - `root` → `owned_root`
      - `directory` → `mission_dir`
@@ -192,7 +192,7 @@ Constraints:
   - [ ] `pytest tests/architectural/test_layer_rules.py -q` is green, and the `mission_runtime` outbound ledger count is unchanged.
   - [ ] `pytest tests/architectural/test_no_dead_symbols.py -q`: see Edge cases.
 - **Edge cases**:
-  - **Dead-symbol gate.** `tests/architectural/test_no_dead_symbols.py` fails an `__all__` member that has no `src/` importer. The re-export from the parent package counts for the `owned_checkout` module declaration, but `mission_runtime.__all__` itself may be flagged until WP02 imports `OwnedCheckout` in `specify_cli/core/owned_mission.py`. If it goes red, do **not** add an allowlist entry. Record the finding in the Activity Log and tell the reviewer. The lane pairing WP01→WP02 resolves it; WP02's T006 is the first `src/` consumer.
+  - **Dead-symbol gate (judged at the lane tip).** `tests/architectural/test_no_dead_symbols.py` fails an `__all__` member that has no `src/` importer. The re-export from the parent package counts for the `owned_checkout` module declaration, but `mission_runtime.__all__` itself may be flagged until WP02 imports `OwnedCheckout` in `specify_cli/core/owned_mission.py`. If it goes red, do **not** add an allowlist entry. Record the finding in the Activity Log and tell the reviewer. The lane pairing WP01→WP02 resolves it; WP02's T006 is the first `src/` consumer.
   - MR-2 ignores `TYPE_CHECKING` imports (`test_ast_scan_ignores_type_checking_imports`, `:373`). A runtime import is still required here, because consumers use the class at runtime.
   - Consumers outside the package import the type as `from mission_runtime import OwnedCheckout`, never from `mission_runtime.owned_checkout`. Tests may import the submodule directly (for `OwnedCheckoutPathRefused` or the sentinel), because MR-1/MR-2 scan `src/` only. Say this in the `owned_checkout.py` module docstring, so later WPs do not "fix" a test import.
   - The package docstring already claims that "The root surface is exactly what `src/` consumers outside the package import". Until WP02 lands, `OwnedCheckout` has no such consumer. That is the same transient condition as the dead-symbol note above; do not reword the docstring to hide it.
@@ -229,7 +229,7 @@ Constraints:
          kwargs.update(over)
          return OwnedCheckout._mint(**kwargs)
      ```
-  7. Pin the transitional legacy names in **one** test (`test_legacy_properties_mirror_canonical_fields`). WP18 deletes that single test together with the properties, and its docstring must say so.
+  7. Pin the transitional legacy names in **one** test (`test_legacy_properties_mirror_canonical_fields`), marked `# TRANSITIONAL(WP18): pins the legacy properties`. WP18 deletes that single test together with the properties, and its docstring must say so.
 - **Files**: `tests/mission_runtime/test_owned_checkout.py` (new), `.github/workflows/ci-windows.yml`.
 - **Parallel?**: Yes with T002.
 - **Validation checklist**:
@@ -253,11 +253,13 @@ Constraints:
      - `mint_references(...)` (**G3**): any `Attribute(attr="_mint")` whose value names `OwnedCheckout`, including via an alias.
      - `effective_root_identifiers(...)` (**G4**): the identifier `effective_root` as a function argument (every arg kind), a `keyword.arg`, a class-body or local `AnnAssign` target, an `Attribute.attr` read or store, a `Name`, and a string `Constant == "effective_root"` used as a dict key, subscript or TypedDict key. **Docstrings and comments never count**: skip the first-statement `Expr(Constant(str))` of modules, classes and functions.
      - `bare_owned_root_paths(...)` (**G5**): parameters and class-body fields named `owned_root`, `owned_checkout`, `checkout_root` or `effective_root` whose annotation is `Path`, `pathlib.Path`, `Path | None`, `None | Path`, `Optional[Path]`, `Union[Path, None]`, `os.PathLike`, `os.PathLike[str]`, or the string form of any of these. Unwrap `Annotated[X, …]` to `X` so a typer option cannot evade the rule (see Risks).
-     - `owned_signature_pins(tree, rel_path, required: Mapping[str, str])` (**G6**): for each required qualname (a function or class), assert a parameter or field `owned` annotated `OwnedCheckout | None` (either spelling order, or the string form). A missing pin is an offender.
-  3. Encode the **exemptions** as named, documented rules, never as path lists of offenders:
-     - `CHARTER_MODULE_RULE`: modules under `src/charter/` are out of G4/G5 scope. Reason: the org-pack `effective_root` is a different concept (contract §G4).
-     - `ORG_PACK_METHOD_RULE`: a `Call` whose `func` is `Attribute(attr="effective_root")` (the `OrgPackConfig.effective_root(repo_root)` method, `src/charter/offering/drg/org_pack_config.py:374`) is exempt from G4 anywhere. An `effective_root` **attribute read that is not called** is still flagged. **Note:** the contract names this symbol `PackContext.effective_root`, but the real symbol is `OrgPackConfig.effective_root`; use the real one and record the correction in the Activity Log.
+     - `owned_signature_pins(tree, rel_path, required: Mapping[str, str])` (**G6**): for each required qualname (a function or class), assert a parameter or field `owned` annotated `OwnedCheckout | None` (either spelling order, or the string form). A missing pin is an offender. The consumer list is `contracts/owned-checkout-carrier.md` §7; the topology-agnostic review-base helper `claim_commit_for_wp(mission_dir: Path, wp_id: str)` is **not** in it.
+  3. Encode the **exemptions** as named, documented rules, never as path lists of offenders (`contracts/architectural-gate.md`):
+     - `ORG_PACK_MODULE_RULE`: one module-scoped rule, reason "`effective_root` here is the org-pack root `OrgPackConfig.effective_root` (`src/charter/offering/drg/org_pack_config.py:374`), a different concept". It covers exactly `src/charter/**`, `src/specify_cli/doctrine/**`, `src/specify_cli/cli/commands/_doctrine_collect.py` and `src/specify_cli/analysis_inputs.py`, and takes them out of G4/G5 scope. `src/specify_cli/charter_runtime/lint/checks/org_layer.py` is deliberately **not** covered: its walrus local is renamed by WP18 T097.
+     - `ORG_PACK_METHOD_RULE`: a `Call` whose `func` is `Attribute(attr="effective_root")` (the `OrgPackConfig.effective_root(repo_root)` method) is exempt from G4 anywhere. An `effective_root` **attribute read that is not called** is still flagged.
      - `CARRIER_FIELD_RULE`: the fields of the class whose fully-qualified name is `mission_runtime.owned_checkout.OwnedCheckout` are exempt from G5. Key on module path plus class name, never on field name alone.
+     - `CLI_CLAIM_INPUT_RULE`: a parameter whose annotation is the name `OwnedCheckoutOption` (the CLI claim-input alias WP08 defines in `specify_cli/cli/commands/_owned_checkout.py`) is exempt from G5. Reason: it carries the raw, unvalidated `--owned-checkout` input to the minter, never an owned root. Also covered: the help-preserving form `Annotated[Path | None, owned_checkout_option(help=...)]` (an `Annotated` whose metadata is a `Call` to `owned_checkout_option`). Match the alias name (or `_owned_checkout.OwnedCheckoutOption`) or that exact call, never an arbitrary `Annotated[...]` or `typer.Option(...)`.
+     - `MIGRATIONS_CHECKOUT_ROOT_RULE`: modules under `src/specify_cli/upgrade/migrations/**` are excluded from G5's `checkout_root` name check (historical migrations; an unrelated sense). The other G5 names and G4 still apply there.
   4. Provide `iter_python_sources(root: Path) -> Iterator[tuple[Path, str]]` for WP18, yielding sorted `(path, rel_path)` pairs and skipping `__pycache__`. The live-tree traversal is **not** called by any WP01 test that asserts offenders.
   5. Add a module docstring that maps G1–G6 to `contracts/architectural-gate.md`, states the commit discipline (self-tests green here; assertions red-first in WP18), and lists the exemption rules with reasons.
   6. Suggested public surface (keep the names stable; WP18 imports them):
@@ -286,8 +288,8 @@ Constraints:
   - [ ] Each public function is ≤ 11 complexity: `.venv/bin/ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=11' tests/architectural/_owned_checkout_scan.py`.
   - [ ] Visitors are pure (no filesystem I/O except in `iter_python_sources`).
 - **Edge cases**:
-  - A local walrus `(effective_root := pack.effective_root(repo_root))` exists in `src/specify_cli/charter_runtime/lint/checks/org_layer.py:328-330`. The *method call* is exempt, but the *walrus target name* is not. That occurrence is outside every WP's owned files; flag it in the Activity Log for WP18's closure sweep (renaming the local, e.g. to `pack_root`).
-  - `checkout_root: Path` in `src/specify_cli/upgrade/migrations/m_4_0_0rc5_heal_template_set_provenance.py:104,133` is a non-owned sense that G5 will flag. Record it for WP18. Do not add a path exemption.
+  - A local walrus `(effective_root := pack.effective_root(repo_root))` exists in `src/specify_cli/charter_runtime/lint/checks/org_layer.py:328-330`. The *method call* is exempt, but the *walrus target name* is not, and the module is not under `ORG_PACK_MODULE_RULE`. WP18 T097 **renames** the local (for example to `pack_root`); it is never exempted.
+  - `checkout_root: Path` in `src/specify_cli/upgrade/migrations/m_4_0_0rc5_heal_template_set_provenance.py:104,133` is a non-owned sense covered by `MIGRATIONS_CHECKOUT_ROOT_RULE`.
   - Unparseable input must raise `UnparseableSourceError`, never return an empty list.
 
 ### Subtask T005 – Gate self-mutation tests (green)
@@ -307,7 +309,9 @@ Constraints:
      - `def f(checkout_root: Path | None): ...` (G5, renamed parameter);
      - `OwnedCheckout._mint(...)` outside the minter (G3), including via `from mission_runtime import OwnedCheckout as OC; OC._mint(...)`;
      - a second class `class Other: owned_root: Path` (G5; the carrier exemption does not leak to other classes);
-     - `def cmd(owned_checkout: Annotated[Path | None, typer.Option("--owned-checkout")] = None)` (G5, via the `Annotated` unwrap);
+     - `def cmd(owned_checkout: Annotated[Path | None, typer.Option("--owned-checkout")] = None)` (G5, via the `Annotated` unwrap; the paired negative control below pins `CLI_CLAIM_INPUT_RULE`);
+     - `def f(checkout_root: Path | None): ...` with `rel_path="src/specify_cli/core/fake.py"` (G5), paired with the migrations negative control below;
+     - `(effective_root := pack.effective_root(repo_root))` with `rel_path="src/specify_cli/charter_runtime/lint/checks/org_layer.py"` (G4 on the walrus target; the call itself is not flagged);
      - `resolve_owned_mission(r, p, h)` in a non-allowed module (G2);
      - a G6 pin miss: a function `placement_seam(repo_root, mission_slug)` with no `owned` parameter.
   3. Negative controls (each must produce **zero** offenders):
@@ -315,7 +319,9 @@ Constraints:
      - a docstring that mentions `effective_root` and `resolve_ownership_claim`;
      - `pack.effective_root(repo_root)` (the org-pack method rule);
      - the carrier fields when the synthetic `rel_path` is `src/mission_runtime/owned_checkout.py` and the class is `OwnedCheckout`;
-     - an `effective_root` parameter when `rel_path` is under `src/charter/`;
+     - an `effective_root` parameter when `rel_path` is under `src/charter/`, `src/specify_cli/doctrine/`, or is `src/specify_cli/cli/commands/_doctrine_collect.py` or `src/specify_cli/analysis_inputs.py` (`ORG_PACK_MODULE_RULE`, one parametrised case per covered path);
+     - `def cmd(owned_checkout: OwnedCheckoutOption = None)` and `def cmd(owned_checkout: Annotated[Path | None, owned_checkout_option(help="x")] = None)` (`CLI_CLAIM_INPUT_RULE` self-mutation: the same parameter with the `typer.Option(...)` spelling is flagged above);
+     - `def f(checkout_root: Path | None): ...` with `rel_path` under `src/specify_cli/upgrade/migrations/` (`MIGRATIONS_CHECKOUT_ROOT_RULE`);
      - a G6 hit: `def placement_seam(repo_root, mission_slug, *, owned: OwnedCheckout | None = None)`.
   4. A **carrier-exemption self-mutation**: the same `OwnedCheckout` class body with `rel_path="src/specify_cli/core/fake.py"` **is** flagged. This pins that the exemption is by fully-qualified name.
   5. A fail-closed test: a syntactically broken synthetic source raises `UnparseableSourceError`.
@@ -323,7 +329,7 @@ Constraints:
 - **Files**: `tests/architectural/test_owned_checkout_gate_selftest.py` (new).
 - **Parallel?**: No.
 - **Validation checklist**:
-  - [ ] `pytest tests/architectural/test_owned_checkout_gate_selftest.py -q` is green, with ≥ 14 positive and ≥ 6 negative cases.
+  - [ ] `pytest tests/architectural/test_owned_checkout_gate_selftest.py -q` is green, with ≥ 16 positive and ≥ 10 negative cases.
   - [ ] Mutation sanity: comment out the `Annotated` unwrap in the scanner. The typer case must go red. Revert.
   - [ ] Mutation sanity: remove the docstring skip. The docstring control must go red. Revert.
 - **Edge cases**:
@@ -360,7 +366,7 @@ Do **not** run `make test-full` or the bare `tests/architectural/` directory (`N
 ## Risks & Mitigations
 
 - **Dead-symbol gate red until WP02.** See T002 Edge cases. Mitigation: record it, do not allowlist, and keep WP01→WP02 in one lane.
-- **Annotated typer parameters.** Unwrapping `Annotated` means every existing `owned_checkout: Annotated[Path | None, typer.Option(...)]` CLI parameter (for example `src/specify_cli/cli/commands/accept.py:763`, `agent/mission_finalize.py:3237`, `agent/tasks.py:782,916`) is a G5 offender. This is intended: the CLI claim parameter must be renamed when WP08 introduces `OwnedCheckoutOption`, for example to `owned_checkout_claim`. The user-visible flag `--owned-checkout` is set explicitly in `typer.Option`, so `cli_commands` stay unchanged. Flag the naming rule to WP08 in the Activity Log.
+- **Annotated typer parameters.** Unwrapping `Annotated` means every existing `owned_checkout: Annotated[Path | None, typer.Option(...)]` CLI parameter (for example `src/specify_cli/cli/commands/accept.py:763`, `agent/mission_finalize.py:3237`, `agent/tasks.py:782,916`) is a G5 offender. This is intended: each is migrated onto WP08's `OwnedCheckoutOption` alias or its help-preserving form `owned_checkout_option(help=...)`, both exempt by the named `CLI_CLAIM_INPUT_RULE`. Renaming the parameter to dodge the name list is a gate evasion. The user-visible flag `--owned-checkout` is set explicitly in `typer.Option`, so `cli_commands` stay unchanged.
 - **Legacy-property drift.** The legacy names must return exactly the canonical fields. The T003 happy-path test pins all five.
 - **Scanner false negatives.** Mitigated by the per-form self-mutation list and explicit negative controls.
 
@@ -369,11 +375,11 @@ Do **not** run `make test-full` or the bare `tests/architectural/` directory (`N
 - The sentinel makes direct construction impossible from `src/`, and `_mint` is the only I/O.
 - `owned_checkout.py` imports nothing from `specify_cli`; the layer ledger is unchanged.
 - `__all__` and `_PUBLIC_SURFACE` changed together; `OwnedCheckoutPathRefused` is not exported.
-- The scanner covers every reference form in `contracts/architectural-gate.md`. The exemptions are named rules with reasons (charter module, org-pack method call, carrier FQN). No path list of offenders exists.
+- The scanner covers every reference form in `contracts/architectural-gate.md`. The exemptions are named rules with reasons (`ORG_PACK_MODULE_RULE` over its four paths, the `OrgPackConfig.effective_root` method call, the carrier FQN, `CLI_CLAIM_INPUT_RULE`, `MIGRATIONS_CHECKOUT_ROOT_RULE`), each pinned by a self-mutation pair. No path list of offenders exists, and `org_layer.py` is not exempted.
 - **No live-tree offender assertion exists anywhere in this WP.**
 - The Windows marker and path filter are both present.
 - The implementer ran mypy `--strict` in addition to pytest, and diagnostics passed.
-- The legacy properties are transitional by design (plan §Staging Strategy). Do not reject them; confirm that their docstrings name WP18.
+- The legacy properties are transitional by design (plan §Staging Strategy). Do not reject them; confirm that each carries `# TRANSITIONAL(WP18)` and its docstring names WP18.
 
 ## Activity Log
 

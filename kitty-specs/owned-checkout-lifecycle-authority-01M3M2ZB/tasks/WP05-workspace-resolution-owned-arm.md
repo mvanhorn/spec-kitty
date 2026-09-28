@@ -15,6 +15,9 @@ owned_files:
   - "src/mission_runtime/checkout_identity.py"
   - "tests/runtime/test_workspace_context_unit.py"
   - "tests/specify_cli/workspace/test_owned_workspace_resolution.py"
+  - "src/specify_cli/core/stale_detection.py"
+  - "src/specify_cli/lanes/implement_support.py"
+  - "src/specify_cli/cli/commands/implement.py"
 authoritative_surface: "src/specify_cli/workspace/"
 create_intent:
   - "tests/specify_cli/workspace/test_owned_workspace_resolution.py"
@@ -92,7 +95,9 @@ Give WP workspace resolution an owned arm, per-checkout caches and an identity-g
 4. `enforce_checkout_identity` gains an `owned_checkout` arm: a WP-execution write whose invoking cwd is outside the owned checkout is refused (FR-011).
 5. `_resolve_wp_bearing_fields` (WP04's file) forwards the fact to the workspace resolver. This is a declared one-line out-of-map edit, so `agent context resolve` / `resolve_action_context` report `workspace_path` under P and `resolution_kind=owned_checkout` (FR-006, spec US2-AS1).
 
-**Staging.** `resolve_workspace_for_wp` is one of the six dual-keyword seams (plan §Staging Strategy). It gains `owned=` and a transitional legacy `effective_root=`, which only redirects WP-metadata and `lanes.json` reads and never produces the owned kind. WP18 deletes the legacy keyword.
+**Staging.** `resolve_workspace_for_wp` is one of the six shared dual-keyword seams (plan §Staging Strategy: the six shared seams plus every other function marked TRANSITIONAL(WP18)). It gains `owned=` and a transitional legacy `effective_root=`, which only redirects WP-metadata and `lanes.json` reads and never produces the owned kind. The legacy keyword carries `# TRANSITIONAL(WP18): <reason>`; WP18 deletes it.
+
+**Owned consumers.** This WP also owns the `resolution_kind` / `runs_in_checkout_root` consumers `core/stale_detection.py`, `lanes/implement_support.py` and `cli/commands/implement.py` (T023 step 6), including stale_detection's `resolve_workspace_for_wp(owned=)` pass-through that WP09's status command uses.
 
 **Done means**:
 - the red-first tests went red on base and are green now;
@@ -120,15 +125,9 @@ Give WP workspace resolution an owned arm, per-checkout caches and an identity-g
   - `_resolve_workspace_for_wp_impl` `:747-868`: arms for planning_artifact (`:761-800`), existing context (`:802-816`), planning lane (`:834-848`) and lane (`:850-868`). Lane paths are composed through `_seam_worktree_path(repo_root, …)` (`:863`; import at `:27`).
 - `src/mission_runtime/checkout_identity.py`: `_LANE_WORKSPACE_KIND` `:39`, `CheckoutIdentityError` `:42-74`, `_is_within` `:77-79`, `_checkout_root` `:82-99`, `enforce_checkout_identity` `:102-139`. The module deliberately has **zero spec-kitty imports** (`:26-33`); keep it that way.
 - The only callers passing `write_intent=True`: `cli/commands/implement.py:2064`, `cli/commands/agent/workflow.py:1449`, `cli/commands/agent/workflow_executor.py:1571`.
-- The consumers that branch on `resolution_kind` outside this file, which you must **not** edit here but must inventory for the downstream WPs (Risks):
-  - `cli/commands/implement.py:1480`
-  - `cli/commands/agent/tasks_parsing_validation.py:706`
-  - `cli/commands/agent/tasks_status_cmd.py:313`
-  - `cli/commands/agent/workflow.py:1450,1675`
-  - `cli/commands/agent/tasks_move_task.py:889`
-  - `cli/commands/agent/workflow_executor.py:1573,1834,1850,2203,2210`
-  - `core/stale_detection.py:485`
-  - `lanes/implement_support.py:146,270`
+- The consumers that branch on `resolution_kind` outside this file:
+  - **owned by this WP** (T023 step 6): `cli/commands/implement.py:1480`, `core/stale_detection.py:483-485`, `lanes/implement_support.py:146,270`;
+  - owned by downstream WPs, which you must **not** edit here but must inventory (Risks): `cli/commands/agent/tasks_parsing_validation.py:706`, `cli/commands/agent/tasks_status_cmd.py:313`, `cli/commands/agent/workflow.py:1450,1675`, `cli/commands/agent/tasks_move_task.py:889`, `cli/commands/agent/workflow_executor.py:1573,1834,1850,2203,2210`.
 
 **Complexity (measured on HEAD).** `.venv/bin/ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=8' src/specify_cli/workspace/context.py src/mission_runtime/checkout_identity.py` flags only `resolve_active_wp_for_branch` (9), which this WP does not touch. `_resolve_workspace_for_wp_impl` is under the threshold today, but adding an owned arm would push it over, so the extraction comes **first** (T026, done as the first commit).
 
@@ -166,7 +165,7 @@ Give WP workspace resolution an owned arm, per-checkout caches and an identity-g
 
        On base the P-side call has no keyword to reach P (`TypeError`), and a `repo_root=P` call collides with R's key through `get_main_repo_root`. Red either way.
   4. In the fix commit, re-point **the same tests** to `owned=` minted through the real minter `specify_cli.core.owned_mission.resolve_owned_mission(R, P, slug)`. The assertions must not change. The legacy keyword cannot produce the `owned_checkout` kind (see T023), so the diff between the red commit and the fix commit shows only the call-shape change. Reviewers verify this.
-  5. **Carry (#5009, plan §IC-13).** edaa9cd83 (author Samuel Goff) adds its tests to `tests/integration/test_explicit_checkout_commands.py`, a WP11-owned file. WP11 cherry-picks that commit (`git cherry-pick -x`). Here, **re-express** only the cache test, and put this trailer on the commit: `Co-authored-by: Samuel Goff <samuelgoff@users.noreply.github.com>` (tasks.md; the upstream commit's author address is `samuel@defpix.com`, so mention both in the PR provenance note).
+  5. **Carry (#5009, plan §IC-13).** edaa9cd83 (author Samuel Goff) adds its tests to `tests/integration/test_explicit_checkout_commands.py`, a WP11-owned file. WP11 cherry-picks that commit (`git cherry-pick -x`). Here, **re-express** only the cache test, and put this trailer on the commit: `Co-authored-by: Samuel Goff <samuel@defpix.com>` (the author address on every #5009 commit).
   6. Suggested module layout for the new test file, so later subtasks append in place:
      - `# --- builders ---`: `_owned_repo`, `_mint_plain` (a plain-dir fact via `OwnedCheckout._mint`);
      - `# --- T022 red-first (owned kind, cache isolation) ---`;
@@ -208,8 +207,11 @@ Give WP workspace resolution an owned arm, per-checkout caches and an identity-g
          )
      ```
      Define `_OWNED_CHECKOUT_KIND = "owned_checkout"` once in this module. The string is a `serialized_keys` value (it appears in `context resolve --json` as `resolution_kind`), so name it and never retype it.
-  5. `ResolvedWorkspace.exists` / `is_husk` (`:219-241`): the `owned_checkout` kind behaves like `repo_root`: it exists when the path exists, and it is never a husk. Add a small property `runs_in_checkout_root -> bool` (True for `repo_root` and `owned_checkout`) and use it in `exists`. Downstream WPs migrate their `== "repo_root"` comparisons to it (Risks). This WP does not edit those files.
-- **Files**: `src/specify_cli/workspace/context.py`; out-of-map: `src/mission_runtime/resolution.py` (one line).
+  5. `ResolvedWorkspace.exists` / `is_husk` (`:219-241`): the `owned_checkout` kind behaves like `repo_root`: it exists when the path exists, and it is never a husk. Add a small property `runs_in_checkout_root -> bool` (True for `repo_root` and `owned_checkout`) and use it in `exists`. Downstream WPs migrate their `== "repo_root"` comparisons to it (Risks).
+  6. **Owned consumers (in this WP's owned files).**
+     - `core/stale_detection.py::check_doing_wps_for_staleness` gains `*, owned: OwnedCheckout | None = None` and passes it through as `resolve_workspace_for_wp(main_repo_root, mission_slug, wp_id, owned=owned)` (`:483`). WP09 T045 passes `owned=st.owned`; nothing else changes.
+     - `cli/commands/implement.py:1480` and `lanes/implement_support.py:146,270`: replace `resolution_kind == "repo_root"` with `workspace.runs_in_checkout_root` where the intent is "runs in a checkout root, not a lane worktree"; leave a comparison unchanged where it really means "the repository root checkout only", and record each decision in the Activity Log. `implement` is not an owned command (FR-018), so behaviour for non-owned missions is unchanged; pin it with the existing tests below.
+- **Files**: `src/specify_cli/workspace/context.py`, `src/specify_cli/core/stale_detection.py`, `src/specify_cli/lanes/implement_support.py`, `src/specify_cli/cli/commands/implement.py`; out-of-map: `src/mission_runtime/resolution.py` (one line).
 - **Validation checklist**:
   - [ ] T022's `test_owned_workspace_is_owned_checkout` (the `owned=` form) is green, and `resolve_action_context(..., owned=fact)` shows the owned kind end to end.
   - [ ] A lane-mission positive control: on an ordinary non-owned lanes mission, `resolve_workspace_for_wp(R, slug, "WP01")` still returns `lane_workspace` with the same path as before. The existing tests at `tests/runtime/test_workspace_context_unit.py:447-559` cover it; confirm they are green unchanged.
@@ -354,17 +356,18 @@ uv run --frozen pytest tests/specify_cli/core/test_worktree_topology.py tests/in
 uv run --frozen pytest tests/next/test_decision_unit.py tests/next/test_runtime_bridge_unit.py tests/specify_cli/next/test_next_invocation_lifecycle_seam.py -q
 uv run --frozen pytest tests/integration/test_explicit_checkout_commands.py tests/integration/test_owned_checkout_mark_status.py tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py -q
 uv run --frozen pytest tests/architectural/test_mission_runtime_surface.py tests/architectural/test_layer_rules.py -q
+grep -rl "stale_detection\|implement_support\|commands.implement\b\|commands import implement" tests/ --include="*.py"   # run each hit (skip e2e/slow)
 make test-fast
-uv run --frozen ruff check src/specify_cli/workspace/context.py src/mission_runtime/checkout_identity.py src/mission_runtime/resolution.py tests/specify_cli/workspace/test_owned_workspace_resolution.py tests/runtime/test_workspace_context_unit.py
-uv run --frozen ruff format --check src/specify_cli/workspace/context.py src/mission_runtime/checkout_identity.py src/mission_runtime/resolution.py tests/specify_cli/workspace/test_owned_workspace_resolution.py tests/runtime/test_workspace_context_unit.py
-uv run --frozen mypy --strict src/specify_cli/workspace/context.py src/mission_runtime/checkout_identity.py
+uv run --frozen ruff check src/specify_cli/workspace/context.py src/mission_runtime/checkout_identity.py src/mission_runtime/resolution.py src/specify_cli/core/stale_detection.py src/specify_cli/lanes/implement_support.py src/specify_cli/cli/commands/implement.py tests/specify_cli/workspace/test_owned_workspace_resolution.py tests/runtime/test_workspace_context_unit.py
+uv run --frozen ruff format --check src/specify_cli/workspace/context.py src/mission_runtime/checkout_identity.py src/mission_runtime/resolution.py src/specify_cli/core/stale_detection.py src/specify_cli/lanes/implement_support.py src/specify_cli/cli/commands/implement.py tests/specify_cli/workspace/test_owned_workspace_resolution.py tests/runtime/test_workspace_context_unit.py
+uv run --frozen mypy --strict src/specify_cli/workspace/context.py src/mission_runtime/checkout_identity.py src/mission_runtime/resolution.py src/specify_cli/core/stale_detection.py src/specify_cli/lanes/implement_support.py src/specify_cli/cli/commands/implement.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
 ```
 
 No `make test-full`, and no bare `tests/architectural/`.
 
 ## Risks & Mitigations
 
-- **Consumers that branch on `resolution_kind == "repo_root"`** will treat `owned_checkout` as "not repo root", which in some places means "worktree". The sites are listed in Context. Mitigation: add `ResolvedWorkspace.runs_in_checkout_root`, and put an inventory table in the Activity Log naming the owning WP for each site: WP12 for `workflow_executor.py`; WP16 for `tasks_parsing_validation.py` and `tasks_move_task.py`; WP09 for `tasks_status_cmd.py` and `workflow.py`. **`core/stale_detection.py:485`, `lanes/implement_support.py` and `cli/commands/implement.py` are owned by no WP.** Flag them to the orchestrator; owned WPs reach them only through `implement`, which is not an owned command (FR-018 refuses `agent action implement`).
+- **Consumers that branch on `resolution_kind == "repo_root"`** will treat `owned_checkout` as "not repo root", which in some places means "worktree". The sites are listed in Context. Mitigation: add `ResolvedWorkspace.runs_in_checkout_root`, and put an inventory table in the Activity Log naming the owning WP for each site: WP12 for `workflow_executor.py`; WP16 for `tasks_parsing_validation.py` and `tasks_move_task.py`; WP09 for `tasks_status_cmd.py` and `workflow.py`. `core/stale_detection.py`, `lanes/implement_support.py` and `cli/commands/implement.py` are owned by **this** WP (T023 step 6).
 - **Coordination-topology owned `next`** depends on where lane paths are anchored. Mitigation: T023's characterisation test pins it, and the nightly e2e is the backstop.
 - **The out-of-map edit in `resolution.py`** could collide with WP04's in-flight changes. WP05 depends on WP04, so it lands after it; keep the edit to the single call.
 - **Cache-key migration breaks white-box tests.** The owned test file (`tests/runtime/test_workspace_context_unit.py`) is updated in the same commit.
@@ -376,7 +379,8 @@ No `make test-full`, and no bare `tests/architectural/`.
 - The owned kind appears only for a fact. The legacy keyword only redirects reads.
 - Lane-mission controls are unchanged; the identity guard refuses cwd=R for owned while still allowing it for lanes.
 - The out-of-map `resolution.py` line is declared.
-- The downstream `resolution_kind` consumer inventory is in the Activity Log, and the ownerless sites are flagged.
+- The downstream `resolution_kind` consumer inventory is in the Activity Log; the three consumers owned here (`stale_detection`, `implement_support`, `implement`) are converted, each comparison decision recorded.
+- The legacy `effective_root=` keyword carries `# TRANSITIONAL(WP18)`.
 - mypy `--strict` passed.
 
 ## Activity Log

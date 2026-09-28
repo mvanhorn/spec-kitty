@@ -148,7 +148,7 @@ There is no dependency decision, so the supply-chain adversarial pass does not a
 - **CLI duplication.** There are eight inline `--owned-checkout` declarations and a separate `_emit_checkout_ownership_error`. They are unified onto `_owned_checkout.py`, which builds on `json_contract.json_error`.
 - **Path safety.** `OwnedCheckout.files()` must keep the symlink and loop defence (`kernel.resolution.resolve_rejecting_loops`).
 - **Adoption.** `tasks_status_cmd.py:224`'s cwd root was falsified as a second adoption path, because the handle resolves against R first. The mission-surface-conflict refusal for different mission ids is preserved inside `adopt_owned_checkout`.
-- **Sizing.** About 400 edit sites and about 26 test files; see the plan's Scale/Scope. Staging is top-down, with a temporary dual keyword on six seams deleted in the closing WP (operator decision `01M3M713…`).
+- **Sizing.** About 400 edit sites and about 26 test files; see the plan's Scale/Scope. Staging is top-down, with transitional surfaces (the six shared seams plus every other function marked TRANSITIONAL(WP18)) deleted in the closing WP (operator decision `01M3M713…`).
 - **Gate.** G4/G5 were rewritten as an identifier ban plus a named carrier-field rule, and G1 covers all reference forms. G2's floor was corrected: `cli/commands/accept.py` is on the allowed path.
 - **R-snapshot.** It excludes exactly P's subtree, and covers the shared lock root, `SPEC_KITTY_HOME` and cwd ∈ {R, P, elsewhere}.
 - **#4867.** Only a zero-byte `commondir` reproduces it (a missing file or a lone newline gives rc 0). The stderr wording depends on the C library, so tests assert on `error_code` with a pre-assertion that the injected fault really breaks git, plus a subprocess-seam injection.

@@ -23,6 +23,9 @@ create_intent: []
 dependencies:
   - "WP04"
   - "WP07"
+  - "WP13"
+  - "WP14"
+  - "WP16"
 requirement_refs:
   - "FR-001"
   - "FR-022"
@@ -101,11 +104,11 @@ Done means:
 
   | Callee (this WP) | Caller passing the keyword | Caller's WP | Dependency of WP17? |
   |---|---|---|---|
-  | `scaffold_issue_matrix` | `cli/commands/agent/mission_finalize.py:922-930` (`**({"effective_root": owned.root} if owned else {})`) | WP13 | no |
-  | `create_rejected_review_cycle` | `cli/commands/agent/tasks_verdict_persistence.py:901, 936` | WP16 | no |
-  | `verify_pr_merge_evidence` | `cli/commands/accept.py:906` (`**scope`) | WP14 | no |
-  | `record_pr_merge_baseline_for_mission` | `cli/commands/accept.py:398-402` | WP14 | no |
-  | `stamp_accept_cutover` | `cli/commands/accept.py:346` (already passes `owned`) | WP14 | no (type-only change, no call break) |
+  | `scaffold_issue_matrix` | `cli/commands/agent/mission_finalize.py:922-930` (`**({"effective_root": owned.root} if owned else {})`) | WP13 | yes |
+  | `create_rejected_review_cycle` | `cli/commands/agent/tasks_verdict_persistence.py:901, 936` | WP16 | yes |
+  | `verify_pr_merge_evidence` | `cli/commands/accept.py:906` (`**scope`) | WP14 | yes |
+  | `record_pr_merge_baseline_for_mission` | `cli/commands/accept.py:398-402` | WP14 | yes |
+  | `stamp_accept_cutover` | `cli/commands/accept.py:346` (already passes `owned`) | WP14 | yes (type-only change, no call break) |
   | `resolve_subtasks_gate_dir` | `status/transition_pipeline.py:102` | WP07 | yes |
   | `safe_commit` | `coordination/commit_router.py:438`, `coordination/transaction.py:836` | WP07, WP06 | yes (WP06 via WP07) |
 
@@ -300,7 +303,7 @@ Planning-base identifier lines: `issue_matrix.py` 8, `review/cycle.py` 15, `cons
   - [ ] `tests/integration/test_explicit_checkout_commands.py::test_accept_commits_metadata_matrix_and_cutover_only_in_owned` passes unchanged.
   - [ ] `grep -nw "OwnedMission\|effective_root" src/specify_cli/migration/runtime_state_cutover.py src/specify_cli/migration/backfill_runtime_state.py` prints nothing.
 - **Edge cases**:
-  - `tests/migration/test_runtime_feature_dir_threading.py:16-38` constructs `OwnedMission(...)` directly and asserts `_runtime_feature_dir(owned.directory, owned) == owned.directory`. You do not own that file. If WP02's transitional alias still constructs an object exposing `mission_dir`, it keeps passing; if it goes red only because the alias object lacks `mission_dir`, report it as a WP02 alias gap in the Activity Log (do not edit the file). WP18/T097 re-points every remaining `OwnedMission` test construction when the alias is deleted.
+  - `tests/migration/test_runtime_feature_dir_threading.py:16-38` constructs `OwnedMission(...)` directly and asserts `_runtime_feature_dir(owned.directory, owned) == owned.directory`. You do not own that file. WP02's transitional `OwnedMission` legacy factory function mints a real `OwnedCheckout` (which exposes `mission_dir`), so it keeps passing; if it goes red, report it in the Activity Log (do not edit the file). WP18/T097 re-points every remaining `OwnedMission` test construction when the factory is deleted.
   - `_runtime_feature_dir` is called for both the PRIMARY and the status leg in `cutover_mission` (`:409-410`); both must stay anchored to `owned.mission_dir`.
   - The backfill's foreign-lane write refusal (`_invocation_write_refusal`) must keep returning the same checkout-naming message.
 
@@ -363,7 +366,7 @@ uv run --frozen mypy --strict $F src/specify_cli/coordination/commit_router.py s
 
 ## Risks & Mitigations
 
-- **Parallel-lane caller conflicts** (WP13, WP14, WP16 call into this WP's modules and are not dependencies). Mitigation: caller rule in Context; flagged to the planner as missing dependency edges.
+- **Cross-WP callers** (WP13, WP14, WP16 call into this WP's modules). They are now dependencies of this WP, so they are merged on your lane base; mitigation: the caller rule in Context (one-line declared out-of-map flips).
 - **Dead-parameter deletion touching two other WPs' files** (`safe_commit`). Mitigation: both owners (WP06, WP07) are merged prerequisites; each edit is one line with rationale.
 - **Review-cycle retry semantics** during the campsite extraction. Mitigation: separate refactor commit; `tests/review/test_cycle.py` and the verdict durability tests run after each commit.
 - **Alias-constructed test objects** (`OwnedMission(...)` in unowned test files). Mitigation: report, do not edit; WP18 owns the final re-point.

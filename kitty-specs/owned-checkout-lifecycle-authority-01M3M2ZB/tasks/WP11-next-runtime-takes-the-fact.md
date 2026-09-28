@@ -9,6 +9,8 @@ subtasks:
   - "T061"
   - "T062"
   - "T063"
+  - "T066"
+  - "T067"
 title: "next runtime takes the fact"
 task_type: "implement"
 phase: "Phase 3 - Commands and runtime"
@@ -24,6 +26,8 @@ owned_files:
   - "tests/next/test_runtime_bridge_unit.py"
   - "tests/specify_cli/cli/commands/test_next_answer_effective_root.py"
   - "tests/integration/test_owned_lifecycle_acceptance_next.py"
+  - "src/runtime/next/decision.py"
+  - "src/runtime/next/runtime_bridge_composition.py"
 authoritative_surface: "src/runtime/next/"
 create_intent:
   - "tests/integration/test_owned_lifecycle_acceptance_next.py"
@@ -93,14 +97,14 @@ Use language identifiers in code blocks: ````python`, ````bash`
 |---|---|---|
 | FR-002 / O9 | `next --owned-checkout` goes through `resolve_owned_or_adopt(…, NEXT_OWNED_TOPOLOGIES)` and gets branch and protection checks. A protected target is refused with `OWNED_BRANCH_REFUSED`. | CLI test with a protected target |
 | FR-023 | A `lanes_with_coord` mission is accepted by `next`, and the same mission is refused by a lifecycle command with `OWNED_TOPOLOGY_UNSUPPORTED`. | paired test |
-| FR-008 / O5 | `next --result success` at tasks→implement raises no traceback. The WP workspace is resolved **before** the advance is persisted, and the run is not wedged. | CLI test (see the T061 note on the prompt half) |
+| FR-008 / O5 | `next --result success` at tasks→implement raises no traceback. The WP workspace is resolved **before** the advance is persisted, and the run is not wedged. `decision._state_to_action` takes the fact (T067). | CLI test (runtime half green here; the full-prompt US3-AS1 assertion is a strict xfail that WP12 removes, declared) |
 | FR-009 | Composition policy, task-board resolution and the git-log working directory are read from P. | carried 1be5352ee composition test plus the board test |
 | FR-007 | With a stale copy of M in R, the `next` payload carries `stale_repository_root_copy`, and no workspace path is under R. | CLI test with the `stale_root_copy` fixture |
 | FR-012 / O8 | A failing coordination-workspace probe produces `error_code == "OWNED_COORDINATION_WORKSPACE_UNAVAILABLE"` and never a `commondir` fatal. The transient-lock retry is kept. | two deterministic injections |
 | FR-022 | Coordination-topology owned `next` still works. There is a per-PR in-process twin (owned `lanes_with_coord` create → `next`). | new twin plus the unchanged unit tests |
 | FR-003 | Exactly one ownership validation per `next` invocation. | call-count assertion |
 
-**Done when:** every row above has a red-first test committed before its fix; all targeted files are green; `_emit_checkout_ownership_error` and every `resolve_ownership_claim` call are gone from `next_cmd.py`; `next_cmd.py` and the `runtime/next` bridge modules owned here contain no `effective_root` parameter, field or keyword that this WP could convert (see T063 for the permitted bridging); ruff, format and mypy are clean; and `make test-fast` is green.
+**Done when:** every row above has a red-first test committed before its fix; all targeted files are green; `_emit_checkout_ownership_error` and every `resolve_ownership_claim` call are gone from `next_cmd.py`; `next_cmd.py`, `decision.py`, `runtime_bridge_composition.py` and the `runtime/next` bridge modules owned here contain no `effective_root` parameter, field or keyword that this WP could convert (see T063 for the permitted bridging into `prompt_builder.py`, and the six shared seams' `TRANSITIONAL(WP18)` dual keyword, which stays); ruff, format and mypy are clean; and `make test-fast` is green.
 
 ## Context & Constraints
 
@@ -115,7 +119,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 - **What the dependencies provide.** Read their merged code, not the plan, before you start.
   - **WP01**: `mission_runtime.OwnedCheckout` with `repository_root`, `owned_root`, `mission_dir`, `mission_slug`, `topology`, `target_branch`, plus transitional legacy properties.
   - **WP02**: `resolve_owned_mission(..., allowed_topologies)` and `NEXT_OWNED_TOPOLOGIES`; the shared fixtures `owned_checkouts`, `r_snapshot` and `stale_root_copy` in `tests/integration/conftest.py`.
-  - **WP04/WP05**: `placement_seam`, `mission_context_for`, `resolve_action_context`, `resolve_workspace_for_wp` and `locate_work_package` accept `owned=` (dual keyword until WP18). Workspace caches are keyed on the resolved tasks dir.
+  - **WP04/WP05**: `placement_seam`, `mission_context_for`, `resolve_action_context`, `resolve_workspace_for_wp` and `locate_work_package` accept `owned=` (dual keyword, marked `TRANSITIONAL(WP18)`, until WP18). Workspace caches are keyed on the resolved tasks dir.
   - **WP07**: `TransitionRequest.owned`.
   - **WP08**: `cli/commands/_owned_checkout.py` with `OwnedCheckoutOption`, `resolve_owned_or_adopt`, `emit_owned_refusal` and the stale-copy reporter. Use its **actual** signatures.
 - **Root discipline (the core rule of this WP).** The CLI hands the runtime `repo_root = owned.repository_root` (R) plus `owned`. Inside the runtime, when `owned` is set:
@@ -126,16 +130,17 @@ Use language identifiers in code blocks: ````python`, ````bash`
   Consequence: the run state, the lifecycle record and the coordination worktree stay where they live today for owned missions, which is under P.
 - **Staging (top-down).**
   - `next_cmd.py` gets the fact first and the runtime entry points take `owned`.
-  - Callees in files owned by **WP12** (`src/runtime/next/decision.py` and `src/runtime/next/prompt_builder.py`) are not converted here. They receive the bridging value that preserves today's behaviour: `owned.owned_root if owned else repo_root` as their existing `repo_root` argument, or `effective_root=owned.owned_root if owned else None` where the keyword already exists.
-  - **One declared out-of-map edit** is required in `src/runtime/next/decision.py::decide_next` (`:313-341`). It is the only path from `next_cmd` to `decide_next_via_runtime`. Change it to accept `owned: OwnedCheckout | None = None` and forward `owned=owned`, keeping `effective_root` only if another caller still needs it. The rationale line to record: "sole bridge between next_cmd (WP11) and decide_next_via_runtime (WP11); without it the runtime would re-derive ownership (FR-003). WP12 owns the rest of decision.py."
-  - The six seams keep their dual keyword until WP18. Do not remove `effective_root=` from them.
+  - **`src/runtime/next/decision.py` is owned by this WP** (T066 campsite `_state_to_action`, T067 takes the fact, including `decide_next`, the only path from `next_cmd` to `decide_next_via_runtime`). **`src/runtime/next/runtime_bridge_composition.py` is owned by this WP** too (composition policy reads and the presence-probe call site, T060).
+  - Callees in the file owned by **WP12** (`src/runtime/next/prompt_builder.py`) are not converted here. They receive the bridging value that preserves today's behaviour: `owned.owned_root if owned else repo_root` as their existing `repo_root` argument, each marked `# bridging: WP12 converts`.
+  - Transitional surfaces are the six shared seams plus every other function marked `TRANSITIONAL(WP18)`. Do not remove `effective_root=` from the six seams. Any legacy parameter you must keep for a not-yet-converted caller carries `# TRANSITIONAL(WP18): <reason>`.
 - **Campsite first.** Before changing their signatures, extract these functions (behaviour-preserving, in their own commit):
-  - `query_current_state` (`runtime_bridge.py:2661`, complexity 15);
-  - `next_step` (`next_cmd.py:119`, complexity 12);
-  - `_print_standard_human` (`next_cmd.py:1202`, complexity 14), but only if you touch it.
+  - `query_current_state` (`runtime_bridge.py:2661`, complexity 15), T058;
+  - `next_step` (`next_cmd.py:119`, complexity 12), T058;
+  - `_print_standard_human` (`next_cmd.py:1202`, complexity 14), T058;
+  - `_state_to_action` (`decision.py:394`, complexity 14), T066.
 
   Check with `.venv/bin/ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=11' <file>`.
-  - Note: tasks.md lists `_run_bootstrap_loop` under T058, but that function lives in `src/specify_cli/cli/commands/agent/mission_finalize.py:1480`, which WP13 owns. Leave it to WP13's T071.
+  - `_run_bootstrap_loop` lives in `src/specify_cli/cli/commands/agent/mission_finalize.py:1480` and is WP13's (T071). `_build_wp_prompt` is WP12's (T068).
 - **Terminology.** Use "repository root checkout" and "owned checkout" in code, messages and tests. Rename test locals `primary` to `repository_root` in any test you touch (the `tests_fixtures` rename). Do not use `feature` aliases.
 - **Error contract.** Refusals always carry `error_code`, one of the registered codes (NFR-004). Tests assert on `error_code` only, never on git's stderr wording.
 
@@ -159,7 +164,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
   1. Carry both commits verbatim, in order: `git cherry-pick -x edaa9cd83` then `git cherry-pick -x 1be5352ee` (from the local ref `pr-5009`). Author and date are preserved.
   2. Run them and record in the Activity Log why each is red. R-15 says edaa9cd83 is red only through a `TypeError` (`effective_root=` is not accepted), and 1be5352ee's composition test is a genuine red.
   3. **Adapt in a separate commit.** Change the call shape "`repo_root`=R, `effective_root`=P" to "`repo_root`=R, `owned`=fact", where the fact is minted by the **real validator**: `resolve_owned_mission(repository_root, owned, SLUG, allowed_topologies=NEXT_OWNED_TOPOLOGIES)`. Never construct `OwnedCheckout` directly.
-     - `test_finalized_owned_tasks_resolve_for_next_implementation` calls `runtime.next.decision._state_to_action(..., effective_root=owned)`. `decision.py` belongs to WP12, so re-point this test to the WP11-owned board authority that O5 actually goes through: `runtime_bridge._wp_iteration_action_and_state("implement", SLUG, "software-dev", owned / "kitty-specs" / SLUG, repository_root, owned=fact)`. Assert `(action, wp_id) == ("implement", "WP01")` and that the workspace is `fact.owned_root`. Leave a comment that WP12 T067 adds the direct `_state_to_action(owned=)` pin.
+     - `test_finalized_owned_tasks_resolve_for_next_implementation` calls `runtime.next.decision._state_to_action(..., effective_root=owned)`. `decision.py` is owned here, so re-point it to `_state_to_action("implement", SLUG, owned / "kitty-specs" / SLUG, repository_root, "software-dev", owned=fact)` (T067) and assert `("implement", "WP01", str(fact.owned_root))`. Add a second assertion through the board authority that O5 actually goes through: `runtime_bridge._wp_iteration_action_and_state("implement", SLUG, "software-dev", owned / "kitty-specs" / SLUG, repository_root, owned=fact)`.
      - The cache test calls `get_normalized_wp(..., effective_root=owned)`. Use the owned keyword that WP05 exposed. If WP05 did not add `owned=` to `get_normalized_wp`, assert the same isolation through `resolve_workspace_for_wp(repository_root, SLUG, "WP01", owned=fact)` and file the gap against WP05 in the Activity Log. Do not edit `workspace/context.py`.
      - Adapt the composition test: `context = SimpleNamespace(..., repo_root=repository_root, owned=fact, ...)`, the `advance` stub asserts `kwargs["owned"] is fact` and `kwargs["repo_root"] == repository_root`, and `inputs`/`execute` assert `repo_root == fact.owned_root`.
      - `test_owned_review_prompt_uses_owned_target_branch` stays as carried. Mark it `pytest.mark.xfail(strict=True, reason="WP12 T069: review assertion rewritten to the claim-commit contract (FR-025)")`. **WP12 owns that rewrite**, so do not rewrite the `{TARGET}..HEAD` assertion here.
@@ -193,7 +198,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
      - `workspace_path == str(P)`, `action == "implement"`, `wp_id == "WP01"`;
      - a following `next --owned-checkout P --json` query does **not** return the same unadvanced decision.
 
-     Add the full US3-AS1 row as a **separate** test: `kind == "step"` with an existing `prompt_file` whose workspace is P. Mark it `xfail(strict=True, reason="WP12 T068: prompt builder owned arm")`, because prompt building lives in `prompt_builder.py` (WP12). See Risks.
+     Add the full US3-AS1 row as a **separate** test: `kind == "step"` with an existing `prompt_file` whose workspace is P. Mark it `xfail(strict=True, reason="WP12 T068: prompt builder owned arm")`, because prompt building lives in `prompt_builder.py` (WP12). WP12 removes the marker as a declared out-of-map edit in this file. See Risks.
   5. **O8 / FR-012, two deterministic injections.** Assert only on `error_code == "OWNED_COORDINATION_WORKSPACE_UNAVAILABLE"`.
      - **(a) Zero-byte `commondir`.** Build an owned `lanes_with_coord` mission (step 6). Remove its coordination worktree directory. Add a sibling registered worktree with `git worktree add`, then truncate `<common-dir>/worktrees/<name>/commondir` to **zero bytes**. Pre-assert that `subprocess.run(["git", "-C", R, "worktree", "list", "--porcelain"]).returncode != 0`, and fail loudly with `pytest.fail` (never `skip`) if git tolerates it. R-16: a missing file or a lone newline gives rc 0.
      - **(b) Subprocess seam.** Monkeypatch `specify_cli.coordination.workspace.subprocess.check_output` with a wrapper that raises `subprocess.CalledProcessError(128, argv, output="", stderr="fatal: injected")` **only** when `argv` contains `"worktree", "list"`, and delegates to the real function otherwise. This is the probe at `coordination/workspace.py:163`.
@@ -213,7 +218,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
   - `next` is decorated with `_require_main_repo_unless_owned` (`next_cmd.py:80-98`). With `--owned-checkout`, the guard is bypassed. Run CliRunner with `cwd` = R, P and an unrelated directory (NFR-001 cwd matrix), using `monkeypatch.chdir`.
   - Set `SPEC_KITTY_ENABLE_SAAS_SYNC=0`. The integration conftest autouse fixture already does this.
 
-### Subtask T058 – Campsite: `query_current_state`, `next_step`
+### Subtask T058 – Campsite: `query_current_state`, `next_step`, `_print_standard_human`
 
 - **Purpose:** Standing Order 2. Functions at complexity ≥ 12 whose signature this WP changes are extracted first, without behaviour change.
 - **Steps:**
@@ -224,7 +229,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 
      Keep the `finally` rmtree of the ephemeral store in the outer function.
   2. **`next_step`** (`next_cmd.py:119-268`, complexity 12). Extract `_resolve_slug_or_exit(mission, repo_root, json_output, ...)`, which holds the five-arm `except` ladder at `:198-224` and its typed emitters, unchanged. Also extract the owned resolution block (`:159-178`) into `_resolve_next_owned(...)`, which T059 will rewrite.
-  3. Only if T063 touches it: **`_print_standard_human`** (`next_cmd.py:1202`, complexity 14). Split it by decision kind. Print the stale-copy warning at command level (T063), so you do not need to touch this function.
+  3. **`_print_standard_human`** (`next_cmd.py:1202`, complexity 14). Split it by decision kind (one small printer per kind, the outer function a dispatch). This campsite is assigned here, not to WP09. Print the stale-copy warning at command level (T063), not inside the printers.
   4. Commit: `refactor(next): campsite extractions before owned conversion (C901)`.
 - **Files:** `src/runtime/next/runtime_bridge.py`, `src/specify_cli/cli/commands/next_cmd.py`.
 - **Validation checklist:**
@@ -268,13 +273,12 @@ Use language identifiers in code blocks: ````python`, ````bash`
   5. `_dn_decision_materialize` (`:2242`) and `_map_runtime_decision` (`:3478`) thread `owned` down to the WP-iteration builders (T061).
   6. Update `next_invocation_lifecycle.py` in the same way: `pair_previous_lifecycle_record` (`:127`), `write_issuance_lifecycle_record` (`:225`) and `emit_mission_next_invoked` (`:316`) take `owned` and call `mission_context_for(..., owned=owned)` instead of the `effective_root` forks (`:167-178`, `:265-276`, `:341-352`).
   7. `runtime_bridge_io.py:1155`: the artifact-presence probe builds a second seam with `effective_root=repo_root`, which guesses at owned placement (R-16: "the presence probe folds into the fact"). Thread `owned` from `gather_artifact_presence` (`:1292`) callers (`runtime_bridge.py:907`, `runtime_bridge_composition.py:543`) into `_artifact_presence_seam` and build the owned seam with `owned=owned`. Remove the guess.
-     - `runtime_bridge_composition.py` is not owned by any WP. If its call site must pass `owned`, declare a one-line out-of-map edit with the rationale "threads the fact into the presence probe (IC-05)".
-     - If the call site can instead take the fact from a caller you own, prefer that and avoid the edit.
-- **Files:** `src/runtime/next/runtime_bridge.py`, `runtime_bridge_engine.py`, `runtime_bridge_io.py`, `next_invocation_lifecycle.py`.
+     - `runtime_bridge_composition.py` is owned by this WP. Thread `owned` into its presence-probe call site (`:543`) and make its composition-policy reads (`resolve_mission_type_context(repo_root, …)` `:189`, `:353`; `resolve_org_dirs(repo_root, …)` `:292`; `StepContractExecutor(repo_root=…)` `:654`) take the owned root through `config_root` when owned. Keep its public names stable (tests patch them).
+- **Files:** `src/runtime/next/runtime_bridge.py`, `runtime_bridge_engine.py`, `runtime_bridge_io.py`, `runtime_bridge_composition.py`, `next_invocation_lifecycle.py`.
 - **Validation checklist:**
   - [ ] The carried composition test (T056, adapted) is green.
   - [ ] Every existing `tests/next/test_runtime_bridge_unit.py` owned-threading test (`:1775-1990`) is re-pointed to `owned=` and green, including `_resolve_owned_coordination_workspace` retry tests at `:1789-1930`, which stay unchanged in behaviour.
-  - [ ] No `effective_root` remains in `runtime_bridge.py`, `runtime_bridge_engine.py`, `runtime_bridge_io.py` or `next_invocation_lifecycle.py`, except the bridging keyword into WP12-owned callees (T063).
+  - [ ] No `effective_root` remains in `runtime_bridge.py`, `runtime_bridge_engine.py`, `runtime_bridge_io.py`, `runtime_bridge_composition.py` or `next_invocation_lifecycle.py`, except `TRANSITIONAL(WP18)`-marked lines (T063).
 - **Edge cases:**
   - `answer_decision_via_runtime` (`:2858`) has no owned path today, and `_handle_answer` (`next_cmd.py:1074`) passes R. Thread `owned` into it too. Its `resolve_action_context(repo_root, …)` becomes `resolve_action_context(repo_root, …, owned=owned)`, and `get_or_start_run` uses the owned root.
   - Re-point `tests/specify_cli/cli/commands/test_next_answer_effective_root.py` to `owned`. Keep the filename (it is pinned) and update its docstring.
@@ -288,7 +292,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
   - the run is left at `implement` (the wedge).
 - **Steps:**
   1. `_resolve_wp_board_action(*, mission_slug, repo_root, owned=None)` (`:3081`) builds `placement_seam(repo_root, slug, owned=owned)` and `mission_context_for(repo_root, slug, owned=owned)`. `_resolve_wp_board_implement_action` (`:3032`) and `_resolve_wp_board_review_action` (`:3058`) call `resolve_workspace_for_wp(repo_root, slug, wp, owned=owned)`.
-  2. `_wp_iteration_action_and_state` (`:3172`) and `_build_wp_iteration_decision` (`:3204`) take `owned`. The `_state_to_action` fallback (`:3200`, `decision.py`, WP12) receives the bridging value `owned.owned_root if owned else repo_root` as `repo_root`. So do `_build_prompt_or_error` (`:3264`, `:3388`, `:3446`) and the sites at `:1913`, `:1923`, `:1978` and `:1986`.
+  2. `_wp_iteration_action_and_state` (`:3172`) and `_build_wp_iteration_decision` (`:3204`) take `owned`. The `_state_to_action` fallback (`:3200`) and `_build_prompt_or_error` (`:3264`, `:3388`, `:3446`), plus the sites at `:1913`, `:1923`, `:1978` and `:1986` (`_state_to_action`, `_build_prompt_or_error`, `_build_prompt_safe`), all live in `decision.py`, owned here: pass `repo_root=repo_root, owned=owned` (T067). No bridging into `decision.py` remains.
   3. **Resolve before persisting.** In `_dn_decision_materialize`, before calling `runtime_next_step`:
      - preview the next step read-only with `_engine_adapter.plan_next(snapshot, template, policy, live_template_path=…)`, exactly as `query_current_state` does;
      - if the previewed step is a WP-iteration step (`_is_wp_iteration_step`, `:657`), run `_wp_iteration_action_and_state(..., owned=ctx.owned)` **first**;
@@ -304,7 +308,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
   - [ ] The lane-mission and coordination-mission board tests in `tests/next/` stay green (positive control for the non-owned arm).
 - **Edge cases:**
   - Stale copy: with `owned` set, the board never consults R, so O4-style fold-back cannot occur. Assert it in T057 step 7.
-  - A pre-finalize owned mission (no finalized board) takes the `_state_to_action` fallback with root P, which is today's behaviour. That is acceptable until WP12.
+  - A pre-finalize owned mission (no finalized board) takes the `_state_to_action(owned=)` fallback (T067), which reads from P.
 
 ### Subtask T062 – #4867: `CoordinationWorkspaceUnavailable` → blocked `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`
 
@@ -331,27 +335,61 @@ Use language identifiers in code blocks: ````python`, ````bash`
 
 - **Purpose:** leave the WP11-owned files free of bare owned roots, carry the stale-copy field, and prepare for WP18's gate (G4/G5).
 - **Steps:**
-  1. Convert the remaining `effective_root` sites. Current counts on HEAD: `next_cmd.py` 45, `runtime_bridge.py` 22, `next_invocation_lifecycle.py` 9, `runtime_bridge_io.py` 1. Parameters and fields become `owned: OwnedCheckout | None`. Keyword arguments into the six seams become `owned=`. Keyword arguments into WP12-owned callees become the bridging expression.
+  1. Convert the remaining `effective_root` sites. Current counts on HEAD: `next_cmd.py` 45, `runtime_bridge.py` 22, `next_invocation_lifecycle.py` 9, `runtime_bridge_io.py` 1 (plus `decision.py`, handled in T067). Parameters and fields become `owned: OwnedCheckout | None`. Keyword arguments into the six seams become `owned=`. Arguments into WP12-owned `prompt_builder.py` become the bridging expression.
      - `_commit_owned_next_mutations(effective_root, mission_slug)` (`next_cmd.py:371-419`) becomes `_commit_owned_next_mutations(owned)`. It uses `owned.mission_dir` instead of `compose_meta_json_path(effective_root, slug).parent`, the owned root for `safe_commit(repo_root=…, worktree_root=…)`, and `mission_context_for(owned.repository_root, owned.mission_slug, owned=owned)` for the commit target.
      - `_resolve_mission_slug` (`:598-662`) with a fact returns `owned.mission_slug`; there is nothing to re-derive.
-     - `decide_next` (`next_cmd.py:59-72`, the patchable wrapper) forwards `owned=`, and so does `decision.decide_next` (the declared out-of-map edit; see Context).
-  2. **Stale-copy field (FR-007 / R-12).** After the decision is computed, and only when `owned` is set, call WP08's stale-copy reporter. Add the top-level `stale_repository_root_copy: {"path", "mission_id"} | null` to the `--json` decision output in `_print_decision` (`:1061`). In human mode, print the warning on **stderr** at command level. Detection compares the repository-root placement against `owned.mission_dir` and makes no git calls.
-  3. Update the golden JSON contract for `next`, if one pins the key set, by adding the new additive key. Serialized keys may be added but must not be renamed. The golden contract test files are owned by WP09. If the key set is pinned there, coordinate: this is an additive, declared out-of-map edit.
+     - `decide_next` (`next_cmd.py:59-72`, the patchable wrapper) forwards `owned=`, and so does `decision.decide_next` (T067).
+  2. **Stale-copy field (FR-007 / R-12).** After the decision is computed, and only when `owned` is set, call WP08's stale-copy reporter. Add the top-level `stale_repository_root_copy: {"path", "mission_id"} | null` to the `--json` decision output in `_print_decision` (`:1061`) in owned runs only; a non-owned run never emits the key, so its payload stays byte-identical (pin this with a non-owned control). In human mode, print the warning on **stderr** at command level. Detection compares the repository-root placement against `owned.mission_dir` and makes no git calls.
+  3. Update the golden JSON contract for `next`, if one pins the key set, by adding the new additive key. Serialized keys may be added but must not be renamed. The golden contract test files are owned by WP09. If the key set is pinned there, coordinate: this is an additive, declared out-of-map edit. The key is emitted only in owned runs (data-model §Payload field), so a non-owned `next` payload stays byte-identical and its golden needs no change.
   4. Commit the conversions separately from the functional fixes, so review can read them as mechanical.
-- **Files:** `src/specify_cli/cli/commands/next_cmd.py`, `src/runtime/next/runtime_bridge.py`, `runtime_bridge_io.py`, `next_invocation_lifecycle.py`, `tests/next/test_runtime_bridge_unit.py`, `tests/specify_cli/cli/commands/test_next_answer_effective_root.py`.
+- **Files:** `src/specify_cli/cli/commands/next_cmd.py`, `src/runtime/next/runtime_bridge.py`, `runtime_bridge_io.py`, `runtime_bridge_composition.py`, `next_invocation_lifecycle.py`, `tests/next/test_runtime_bridge_unit.py`, `tests/specify_cli/cli/commands/test_next_answer_effective_root.py`.
 - **Validation checklist:**
-  - [ ] `grep -n "effective_root" src/specify_cli/cli/commands/next_cmd.py src/runtime/next/runtime_bridge.py src/runtime/next/runtime_bridge_io.py src/runtime/next/next_invocation_lifecycle.py src/runtime/next/runtime_bridge_engine.py` lists only bridging keywords into `decision.py` / `prompt_builder.py` (WP12), each with a `# bridging: WP12 converts` comment.
+  - [ ] `grep -n "effective_root" src/specify_cli/cli/commands/next_cmd.py src/runtime/next/runtime_bridge.py src/runtime/next/runtime_bridge_io.py src/runtime/next/runtime_bridge_composition.py src/runtime/next/next_invocation_lifecycle.py src/runtime/next/runtime_bridge_engine.py src/runtime/next/decision.py` lists nothing except `TRANSITIONAL(WP18)`-marked lines. Bridging into `prompt_builder.py` (WP12) passes the owned root as `repo_root`, each call marked `# bridging: WP12 converts`.
   - [ ] T057's stale-copy row is green, and the field is `null` when R holds no copy.
   - [ ] mypy is clean on every touched file.
 - **Edge cases:** occurrence map: the JSON key `stale_repository_root_copy` is **new** (additive). No existing key or `OWNED_*` code string changes.
+
+### Subtask T066 – Campsite: `_state_to_action` (decision.py)
+
+- **Purpose:** Standing Order 2. `_state_to_action` (`decision.py:394-493`, complexity 14) changes signature in T067, so it is extracted first. (`_build_wp_prompt`'s campsite stays with WP12's T068.)
+- **Steps:**
+  1. Extract:
+     - `_implement_state_action(mission_slug, feature_dir, repo_root)` for the `state == "implement"` block (`:408-435`);
+     - `_review_state_action(...)` for the review block (`:440-444`);
+     - `_template_state_action(state, repo_root, mission_name)` for the generic template + `_ALIASES` resolution (`:451-493`).
+
+     The outer function becomes a 4-way dispatch.
+  2. Commit: `refactor(next): campsite extraction of decision._state_to_action (C901)`. No behaviour change; existing tests stay green unmodified.
+- **Files:** `src/runtime/next/decision.py`.
+- **Validation checklist:**
+  - [ ] `.venv/bin/ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=11' src/runtime/next/decision.py` no longer reports `_state_to_action`.
+  - [ ] `tests/next/` is green and unchanged. Grep `tests/` for the monkeypatch string `decision._state_to_action` and keep the name.
+- **Edge cases:** `_state_to_action` is imported by name in `runtime_bridge.py` and in the carried #5009 test. Keep the name and positional order. The in_review / for_review arbitration rules (FR-012a comments) survive the extraction unchanged.
+
+### Subtask T067 – `decision.py` takes the fact
+
+- **Purpose:** FR-008/FR-009. The pre-finalize fallback and the `decide_next` bridge in `decision.py` must stop folding to the repository root checkout (#5009 e6923bc97 is re-expressed here for `decision.py`, with a `Co-authored-by: Samuel Goff <samuel@defpix.com>` trailer).
+- **Steps:**
+  1. `decide_next` (`:313-341`): accept `owned: OwnedCheckout | None = None` and forward `owned=owned` to `decide_next_via_runtime`. It is the only path from `next_cmd` to the runtime; without it the runtime would re-derive ownership (FR-003). Drop its `effective_root` once no caller needs it (`grep -rn "decide_next(" src/ tests/`); if a caller still does, mark the keyword `# TRANSITIONAL(WP18): <caller>`.
+  2. `_state_to_action(state, mission_slug, feature_dir, repo_root, mission_name, *, owned: OwnedCheckout | None = None)`. Each `resolve_workspace_for_wp(repo_root, mission_slug, wp)` (`:425`, `:434`, `:443`) becomes `resolve_workspace_for_wp(repo_root, mission_slug, wp, owned=owned)`. `resolve_command(f"{state}.md", …)` and the alias variant use `owned.owned_root if owned else repo_root`, because a command template is a P-local governance read (e6923bc97).
+  3. `_build_prompt_safe` (`:496`) and `_build_prompt_or_error` (`:524`) take `owned`. The composed-action probe `resolve_mission_type_context(repo_root, …)` (`:559`) uses the owned root. Their calls into `prompt_builder.build_prompt` (WP12) pass the bridging value `repo_root=owned.owned_root if owned else repo_root`, marked `# bridging: WP12 converts`; WP12 switches them to `owned=` as a declared out-of-map edit.
+  4. **Typed refusal mapping (prepares WP12).** `_build_prompt_or_error` catches `ActionContextError` raised by `build_prompt` and returns `(None, message)` while carrying the error's `code` on the same typed attribute T062 uses for `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`, so `next`'s JSON gets `error_code` without parsing reason text. WP12 raises `ActionContextError("OWNED_REVIEW_BASE_UNAVAILABLE", …)` through this path. Pin it with a unit test that stubs `build_prompt` to raise `ActionContextError("OWNED_REVIEW_BASE_UNAVAILABLE", "x")`.
+  5. `_with_guard_failure_paths(decision, repo_root)` (`:344`): if guard paths must name owned artifacts, pass the owned root. Otherwise leave it unchanged and say why in the Activity Log.
+  6. Convert every `runtime_bridge.py` call site into `decision.py` (`:1913`, `:1923`, `:1978`, `:1986`, `:3200`, `:3264`, `:3388`, `:3436`, `:3446`) to `repo_root=repo_root, owned=…` (see T061).
+  7. Unit pin: `_state_to_action("implement", SLUG, P/kitty-specs/SLUG, repository_root, "software-dev", owned=fact)` returns `("implement", "WP01", str(fact.owned_root))`, with the fact minted by the real validator.
+- **Files:** `src/runtime/next/decision.py`, `src/runtime/next/runtime_bridge.py`, `tests/integration/test_explicit_checkout_commands.py`.
+- **Validation checklist:**
+  - [ ] `grep -n "effective_root" src/runtime/next/decision.py` lists nothing except `TRANSITIONAL(WP18)`-marked lines.
+  - [ ] `grep -n "bridging: WP12" src/runtime/next/decision.py` lists only the `build_prompt` calls.
+  - [ ] The non-owned behaviour of `tests/next/` (lane and coordination missions) is unchanged.
 
 ## Test Strategy
 
 Red-first order:
 1. T056 carried reds.
 2. T057 reds (commit before any `src/` edit).
-3. T058 campsite (green).
-4. T059 → T062 fixes (reds turn green).
+3. T058 and T066 campsites (green).
+4. T059 → T062 and T067 fixes (reds turn green).
 5. T063 conversion.
 
 Record exact commands and counts under *Tests run*:
@@ -363,12 +401,12 @@ PWHEADLESS=1 .venv/bin/python -m pytest -q \
   tests/next/test_runtime_bridge_unit.py \
   tests/specify_cli/cli/commands/test_next_answer_effective_root.py
 PWHEADLESS=1 .venv/bin/python -m pytest -q tests/next/            # owning subsystem
-grep -rl "next_cmd\|runtime_bridge\|next_invocation_lifecycle\|coordination.workspace\|CoordinationWorkspace" tests/ --include="*.py"  # run each hit not already covered (excluding e2e/slow)
+grep -rl "next_cmd\|runtime_bridge\|runtime.next.decision\|next_invocation_lifecycle\|coordination.workspace\|CoordinationWorkspace" tests/ --include="*.py"  # run each hit not already covered (excluding e2e/slow)
 PWHEADLESS=1 .venv/bin/python -m pytest -q tests/specify_cli/coordination/ tests/runtime/
 make test-fast
 .venv/bin/ruff check src/specify_cli/cli/commands/next_cmd.py src/runtime/next/ src/specify_cli/coordination/workspace.py tests/integration/test_owned_lifecycle_acceptance_next.py tests/integration/test_explicit_checkout_commands.py tests/next/test_runtime_bridge_unit.py
-.venv/bin/ruff format --check src/specify_cli/cli/commands/next_cmd.py src/runtime/next/runtime_bridge.py src/runtime/next/runtime_bridge_io.py src/runtime/next/next_invocation_lifecycle.py tests/integration/test_owned_lifecycle_acceptance_next.py tests/integration/test_explicit_checkout_commands.py tests/next/test_runtime_bridge_unit.py
-.venv/bin/mypy src/specify_cli/cli/commands/next_cmd.py src/runtime/next/runtime_bridge.py src/runtime/next/runtime_bridge_engine.py src/runtime/next/runtime_bridge_io.py src/runtime/next/next_invocation_lifecycle.py src/specify_cli/coordination/workspace.py
+.venv/bin/ruff format --check src/specify_cli/cli/commands/next_cmd.py src/runtime/next/runtime_bridge.py src/runtime/next/runtime_bridge_io.py src/runtime/next/runtime_bridge_composition.py src/runtime/next/decision.py src/runtime/next/next_invocation_lifecycle.py tests/integration/test_owned_lifecycle_acceptance_next.py tests/integration/test_explicit_checkout_commands.py tests/next/test_runtime_bridge_unit.py
+.venv/bin/mypy src/specify_cli/cli/commands/next_cmd.py src/runtime/next/runtime_bridge.py src/runtime/next/runtime_bridge_engine.py src/runtime/next/runtime_bridge_io.py src/runtime/next/runtime_bridge_composition.py src/runtime/next/decision.py src/runtime/next/prompt_builder.py src/runtime/next/next_invocation_lifecycle.py src/specify_cli/coordination/workspace.py src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/core/owned_mission.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
 .venv/bin/python -m pytest -q tests/architectural/test_layer_rules.py tests/architectural/test_mission_runtime_surface.py tests/architectural/test_cold_import_status_boundary.py  # the specific gates this WP implicates
 ```
 
@@ -378,7 +416,7 @@ make test-fast
 
 ## Risks & Mitigations
 
-- **FR-008's prompt half is owned by WP12.** `prompt_builder._build_wp_prompt` resolves `mission_context_for(repo_root, slug)` with no owned arm (`prompt_builder.py:162-170`). An owned WP prompt cannot be built until WP12 T068, and `step_or_blocked` (`runtime_bridge_cores.py:901`) will never issue `kind=step` without a prompt file. Mitigation: WP11 proves the runtime half (no wedge, workspace P, advance) and commits the full US3-AS1 row as a strict xfail; WP12 removes that marker (declared out-of-map one-line edit in this WP's test file). Flag this to the reviewer; do not paper over it with a `blocked` wrap.
+- **FR-008's prompt half is owned by WP12.** `prompt_builder._build_wp_prompt` resolves `mission_context_for(repo_root, slug)` with no owned arm (`prompt_builder.py:162-170`). An owned WP prompt cannot be built until WP12 T068, and `step_or_blocked` (`runtime_bridge_cores.py:901`) will never issue `kind=step` without a prompt file. Mitigation: WP11 proves the runtime half (no wedge, workspace P, advance, `decision.py` on the fact) and commits the full US3-AS1 row as a strict xfail; WP12 removes that marker (declared out-of-map one-line edit in this WP's test file). Flag this to the reviewer; do not paper over it with a `blocked` wrap.
 - **Coordination worktree placement.** For owned coordination-topology missions, the coordination worktree is created under the root passed to `CoordinationWorkspace.resolve`. Today that is P, because `repo_root` = P. The root discipline keeps it at P. If you pass R there, R's `.worktrees/` changes, and NFR-001 reddens.
 - **Monkeypatch churn.** Many tests patch `runtime_bridge.*` names. Keep names stable; change only keyword parameters.
 - **Validation count.** Adoption plus explicit validation must not both run. `resolve_owned_or_adopt` is the single call site, and the FR-003 counter guards it.
@@ -388,8 +426,9 @@ make test-fast
 
 - Verify the red-first commit order (T056/T057 before fixes) and the recorded red reasons.
 - Verify that both #4867 injections exist, that injection (a) pre-asserts git failure with `pytest.fail` (never `skip`), and that no assertion reads git stderr.
-- Verify that no `effective_root` survives in WP11-owned modules except the commented bridging into WP12 files.
-- Verify the declared out-of-map edits (`decision.decide_next`, optional `pyproject.toml`, optional `runtime_bridge_composition.py`), each with its one-line rationale in the PR description.
+- Verify that no `effective_root` survives in WP11-owned modules (including `decision.py` and `runtime_bridge_composition.py`) except `TRANSITIONAL(WP18)`-marked lines, and that the only bridging left targets `prompt_builder.py` (`# bridging: WP12 converts`).
+- Verify the declared out-of-map edits (optional `pyproject.toml`; the additive golden-contract key if pinned in WP09's files), each with its one-line rationale in the PR description.
+- Verify the `_state_to_action` (T066) and `_print_standard_human` (T058) campsite commits precede the signature changes.
 - Verify that resolution happens before `runtime_next_step` persists, and that the byte-identical snapshot oracle exists.
 - Verify that the implementer ran mypy on every touched source file.
 

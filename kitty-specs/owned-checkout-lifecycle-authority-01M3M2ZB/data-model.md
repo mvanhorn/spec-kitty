@@ -30,10 +30,11 @@
 | Function | Returns | Used by |
 |---|---|---|
 | `resolve_owned_mission(repository_root, checkout, handle, *, target_override=None, allowed_topologies=LIFECYCLE_OWNED_TOPOLOGIES)` | `OwnedCheckout` or raises `ActionContextError(code)` | every `--owned-checkout` command |
-| `resolve_owned_create_root(repository_root, checkout)` | `Path` (a validated owned root before the mission exists) | `agent mission create` |
+| `resolve_owned_create_root(repository_root, checkout)` | `OwnedCreateRoot` (typed, frozen; fields `repository_root: Path`, `checkout: Path`; a validated owned root before the mission exists, never a bare `Path`) | `agent mission create` |
 | `adopt_owned_checkout(repository_root, cwd, handle, *, allowed_topologies)` | `OwnedCheckout \| None` | flagless owned-capable commands (FR-021) |
 | `LIFECYCLE_OWNED_TOPOLOGIES` | `frozenset({SINGLE_BRANCH})` | ADR 2026-09-03-1 lifecycle commands |
 | `NEXT_OWNED_TOPOLOGIES` | `frozenset({SINGLE_BRANCH, LANES_WITH_COORD, COORD})` | `next` |
+| `OwnedMission(primary, root, directory, slug, target)` | `OwnedCheckout` | **transitional legacy factory function** marked `# TRANSITIONAL(WP18)`: accepts the old positional arguments, mints an `OwnedCheckout` (topology `SINGLE_BRANCH`) inside the minter module so G3 holds; deleted by WP18 |
 
 ## ResolvedWorkspace (extended)
 
@@ -49,20 +50,26 @@ The new `resolution_kind` value is `"owned_checkout"`:
 
 | Code | Status | Raised when |
 |---|---|---|
-| `OWNED_NO_OPT_IN` | existing | no opt-in claim |
+| `WORKTREE_INVOCATION_REFUSED` | existing (claim primitive, `UnownedNoOptInError`) | no opt-in claim |
+| `OWNERSHIP_NESTED` | existing (claim primitive, `NestedCheckoutError`) | the claimed checkout is nested inside another linked checkout |
+| `OWNERSHIP_FOREIGN` | existing (claim primitive, `ForeignOrMismatchedCheckoutError`) | the claimed checkout belongs to a different common repository |
+| `OWNERSHIP_BROKEN_POINTER` | existing (claim primitive, `BrokenPointerCheckoutError`) | the claimed checkout's git topology cannot be read safely |
 | `OWNED_MISSION_PATH_REFUSED` | existing | the mission dir or a path escapes P |
 | `OWNED_TOPOLOGY_UNSUPPORTED` | existing (semantics now per command) | the stored topology is outside the command's allowed set |
 | `OWNED_BRANCH_REFUSED` | existing | branch mismatch, detached HEAD, or a protected target |
 | `OWNED_INDEX_REFUSED` | existing | staged changes before a write operation |
 | `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` | **new** | `--owned-checkout` names the repository root checkout |
+| `OWNED_CHECKOUT_IS_MISSION_WORKTREE` | **new** | `--owned-checkout` names a lane worktree of the mission or a coordination worktree (flagless adoption returns `None` for the same checkouts instead of refusing) |
 | `OWNED_ACTION_UNSUPPORTED` | **new** | `agent action implement` / `agent action review` with `--owned-checkout` |
 | `OWNED_REVIEW_BASE_UNAVAILABLE` | **new** | no single claim commit, or no owned files |
 | `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE` | **new** | the coordination-workspace probe fails for owned `next` |
 | `WORK_PACKAGE_UNRESOLVED` | existing (now scoped to P for owned) | the WP is absent from the owned mission dir |
 
+The four claim-primitive codes are defined by the error classes in `src/specify_cli/core/checkout_ownership.py` and pass through the minter unchanged (`ActionContextError(error.error_code, str(error))`); their strings are `do_not_change` (occurrence map `logs_telemetry`). `emit_owned_refusal` (WP08) validates every emitted `error_code` against this whole table.
+
 ## Payload field (FR-007)
 
-`stale_repository_root_copy`: `{"path": str, "mission_id": str} | null`. It is a top-level key in the `--json` output of `agent tasks status`, `agent mission setup-plan`, `agent context resolve`, `next` and `agent mission finalize-tasks`. The human text goes to stderr, and to `warnings[]` where that list exists.
+`stale_repository_root_copy`: `{"path": str, "mission_id": str} | null`. It is a top-level key in the `--json` output of `agent tasks status`, `agent mission setup-plan`, `agent context resolve`, `next` and `agent mission finalize-tasks`, **emitted only in owned runs** (an `OwnedCheckout` fact is held, explicit or adopted): `null` when R holds no copy, the object when it does. Non-owned runs never emit the key, so their payloads stay byte-identical to the planning base (golden contracts unchanged for the non-owned shape). The human text goes to stderr, and to `warnings[]` where that list exists.
 
 ## Status event fact used by the review base (unchanged schema)
 

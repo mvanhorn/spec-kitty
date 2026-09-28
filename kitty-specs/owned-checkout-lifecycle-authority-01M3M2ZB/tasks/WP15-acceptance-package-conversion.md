@@ -20,6 +20,8 @@ create_intent: []
 dependencies:
   - "WP04"
   - "WP07"
+  - "WP13"
+  - "WP14"
 requirement_refs:
   - "FR-001"
   - "FR-022"
@@ -94,12 +96,12 @@ Done means:
   - WP07: `specify_cli.coordination.write_seam.write_artifact` converted to the fact (called from `matrix.py:524`).
 - **Callee rule (plan: Staging Strategy).** For each call you make **out of** the acceptance package, read the callee's current signature first:
   - takes `owned` → pass `owned=owned`;
-  - is one of the six dual-keyword seams → pass `owned=owned` (never the legacy keyword);
+  - is one of the six shared dual-keyword seams, or any other function whose legacy keyword is marked `TRANSITIONAL(WP18)` → pass `owned=owned` (never the legacy keyword);
   - still takes only `effective_root` → pass the bridging expression `effective_root=owned.owned_root if owned else None` as a plain keyword and log the site in the Activity Log for WP18/T097.
 - **Caller rule (cross-WP call sites).** Converting a public function breaks every caller that passes `effective_root=` to it. On the planning base those callers are **in other WPs' files**:
   - `src/specify_cli/cli/commands/accept.py` (WP14) → `collect_feature_summary` (`accept.py:679, 703` via `**scope`) and `normalize_feature_encoding` (`accept.py:695`);
   - `src/specify_cli/cli/commands/agent/mission_finalize.py:2636` (WP13) → `scaffold_acceptance_matrix(..., **({"effective_root": owned.root} if owned else {}))`.
-  Neither WP13 nor WP14 is a dependency of this WP. Before converting those two public entry points, check `git log --oneline` on your lane base for the WP13/WP14 merges. If the caller WP has merged, change that one call expression to `owned=owned` as a **one-line out-of-map edit**, with the rationale "WP15 converted the callee signature; caller already holds the fact" in the commit message and Activity Log. If it has not merged, do **not** edit the caller file (a parallel lane owns it): convert every private function and leave the public function's parameter for the last commit, then ask the orchestrator to sequence it after the caller WP (and say so in the Activity Log). Callers that do not pass the keyword (`orchestrator_api/commands.py:2135`, `consolidation/executor.py`, `cli/commands/agent/acceptance_verdict.py`, `acceptance/post_consolidation.py`) are unaffected because the new keyword defaults to `None`.
+  WP13 and WP14 are dependencies of this WP (operator sequencing), so both callers are merged on your lane base. Confirm with `git log --oneline`; since the caller WP has merged, change that one call expression to `owned=owned` as a **one-line out-of-map edit**, with the rationale "WP15 converted the callee signature; caller already holds the fact" in the commit message and Activity Log. If it has not merged, do **not** edit the caller file (a parallel lane owns it): convert every private function and leave the public function's parameter for the last commit, then ask the orchestrator to sequence it after the caller WP (and say so in the Activity Log). Callers that do not pass the keyword (`orchestrator_api/commands.py:2135`, `consolidation/executor.py`, `cli/commands/agent/acceptance_verdict.py`, `acceptance/post_consolidation.py`) are unaffected because the new keyword defaults to `None`.
 - **Occurrence map**: `code_symbols` rename; `serialized_keys` do_not_change (the acceptance summary JSON and `acceptance-matrix.json` keys stay byte-identical); `logs_telemetry` do_not_change.
 - **Terminology (C-008)**: new docstrings say "owned checkout" / "repository root checkout". Do not rewrite unrelated legacy docstrings; do update any docstring sentence that names the parameter you removed (for example `matrix.py:495-500`, `__init__.py:1204`).
 - **No suppressions**, complexity ≤ 15 for every touched function (none of the touched acceptance functions is ≥ 12 on the planning base; keep it that way).
@@ -310,7 +312,7 @@ Run mypy on the callee and caller files **in one invocation**: `pyproject.toml` 
 
 ## Risks & Mitigations
 
-- **Cross-WP caller breakage.** `accept.py` (WP14) and `mission_finalize.py` (WP13) pass the old keyword to two public functions here. Mitigation: the caller rule in Context; never edit a caller file whose WP has not merged.
+- **Cross-WP caller breakage.** `accept.py` (WP14) and `mission_finalize.py` (WP13) pass the old keyword to public functions here. Both are dependencies, so they are merged; mitigation: the caller rule in Context (one-line declared out-of-map flips).
 - **Seam asymmetries mistaken for bugs.** Several readers treat the owned arm differently from the non-owned arm on purpose (see T080 edge cases). Mitigation: behaviour-preserving means both arms keep their current logic; only the parameter type changes.
 - **Spy/monkeypatch compatibility.** Architectural tests spy on `declared_read_surface` and forward `**kwargs`. Mitigation: pass only keywords the real callee accepts.
 - **mypy blind spot** (`follow_imports = "skip"`). Mitigation: multi-file invocation above.

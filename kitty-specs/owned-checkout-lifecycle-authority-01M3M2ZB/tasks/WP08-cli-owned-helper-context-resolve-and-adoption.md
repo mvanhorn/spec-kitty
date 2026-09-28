@@ -128,7 +128,7 @@ Done means:
   - WP02: `resolve_owned_mission(..., allowed_topologies=)`, `adopt_owned_checkout(repository_root, cwd, handle, *, allowed_topologies)`, `LIFECYCLE_OWNED_TOPOLOGIES` / `NEXT_OWNED_TOPOLOGIES`, `resolve_owned_create_root`, the `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` refusal, and the fixtures `owned_checkouts`, `r_snapshot` and `stale_root_copy` in `tests/integration/conftest.py`. Read their docstrings first. They define exactly what the fixtures build: R, P, a sibling, and whether lane and coordination worktrees are included.
   - WP04 and WP05: `resolve_action_context(..., owned=)` and `resolve_workspace_for_wp(..., owned=)` produce `resolution_kind="owned_checkout"` with `lane_id=None` for an owned fact. This WP only passes the fact.
 - **Staging.**
-  - Call the six shared seams with `owned=` only; never add a new `effective_root=` call.
+  - Call the six shared seams, and every other function marked TRANSITIONAL(WP18), with `owned=` only; never add a new `effective_root=` call.
   - New code uses the canonical fact fields (`owned_root`, `repository_root`, `mission_dir`, `mission_slug`, `target_branch`) and never the transitional `OwnedMission` legacy names (`.root`, `.primary`, `.directory`, `.slug`, `.target`), which WP18 deletes.
 - **Envelope rule (occurrence map `serialized_keys: do_not_change`).**
   - `context resolve` keeps its existing envelope keys: `{"success": false, "error_code", "error"}` on error, and `{"success": true, ...context.to_dict(), "mission_dir"}` on success.
@@ -136,8 +136,8 @@ Done means:
   - The non-owned payload stays byte-identical, and that is the regression proof.
   - Record this convention in the helper's module docstring so WP09, WP11 and WP13 follow it.
 - **Error codes (NFR-004).**
-  - Use the data-model registry codes: `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, `OWNED_TOPOLOGY_UNSUPPORTED`, `OWNED_BRANCH_REFUSED`, `OWNED_MISSION_PATH_REFUSED` and `WORK_PACKAGE_UNRESOLVED`.
-  - Also use the claim codes the validator already emits through `error_for_claim` (`checkout_ownership.py:44-76`): `OWNERSHIP_NESTED`, `OWNERSHIP_FOREIGN`, `OWNERSHIP_BROKEN_POINTER` and `WORKTREE_INVOCATION_REFUSED`.
+  - Use the data-model registry codes: `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, `OWNED_CHECKOUT_IS_MISSION_WORKTREE` (a lane or coordination worktree passed as `--owned-checkout`), `OWNED_TOPOLOGY_UNSUPPORTED`, `OWNED_BRANCH_REFUSED`, `OWNED_MISSION_PATH_REFUSED` and `WORK_PACKAGE_UNRESOLVED`.
+  - Also use the claim codes the validator already emits through `error_for_claim` (`checkout_ownership.py:44-76`), now listed in the data-model registry: `OWNERSHIP_NESTED`, `OWNERSHIP_FOREIGN`, `OWNERSHIP_BROKEN_POINTER` and `WORKTREE_INVOCATION_REFUSED`.
   - Keep `MISSION_CONTEXT_CONFLICT` (`agent/context.py:154`) byte-identical.
   - Existing codes keep their exact strings (`logs_telemetry: do_not_change`).
 - **Terminology.** Help text and messages say "owned checkout" and "repository root checkout"; never bare "primary", never "feature".
@@ -212,7 +212,7 @@ Done means:
   2. Create `src/specify_cli/cli/commands/_owned_checkout.py`, with `__all__` declared (C-007) and a module docstring stating the envelope rule and the G2 constraint. Public surface:
      - `OWNED_CHECKOUT_HELP: str`: "Run against an owned checkout: a linked checkout that owns this mission. Refuses the repository root checkout, lane worktrees and coordination worktrees."
      - `OwnedCheckoutOption = Annotated[Path | None, typer.Option("--owned-checkout", help=OWNED_CHECKOUT_HELP)]` for new flags.
-     - `owned_checkout_option(help: str) -> Any`: returns a `typer.Option("--owned-checkout", help=help)`. Existing flags use it to keep their current help text byte-identical; `tasks.py:782,916` have committed `--help` golden fixtures.
+     - `owned_checkout_option(help: str) -> Any`: returns a `typer.Option("--owned-checkout", help=help)`. Existing flags use it to keep their current help text byte-identical; `tasks.py:782,916` have committed `--help` golden fixtures. **G5 note:** the named `CLI_CLAIM_INPUT_RULE` exempts parameters annotated with the `OwnedCheckoutOption` alias or with its help-preserving form `Annotated[Path | None, owned_checkout_option(help=...)]`; any other spelling (an inline `typer.Option("--owned-checkout", ...)`, or a renamed parameter) is a G5 offender or a gate evasion. Document this in the module docstring.
      - `resolve_owned_or_adopt(repository_root: Path, owned_checkout: Path | None, handle: str | None, *, cwd: Path, allowed_topologies: frozenset[MissionTopology]) -> OwnedCheckout | None`:
        - normalise `repository_root` with `get_main_repo_root` (the same normalisation `operation_context.py:83` performed);
        - with an explicit flag, return `resolve_owned_mission(...)`, which raises `ActionContextError` on refusal;
@@ -246,7 +246,7 @@ Done means:
 - **Parallel?**: can proceed alongside T042 (different files).
 - **Validation checklist**:
   - [ ] `.venv/bin/mypy src/specify_cli/cli/commands/_owned_checkout.py` is clean, with no `# type: ignore`.
-  - [ ] No bare-path owned parameters: the only `Path` parameters are `repository_root`, `owned_checkout` (the raw CLI input before validation) and `cwd`. G5 flags `owned_root` / `owned_checkout` / `checkout_root` **parameters** typed `Path | None`, so name the raw CLI input `owned_checkout_arg`, or confirm G5's name list with WP01's `tests/architectural/_owned_checkout_scan.py` before choosing.
+  - [ ] No bare-path owned parameters: the only `Path` parameters are `repository_root` and `cwd`; the raw CLI input `owned_checkout` of `resolve_owned_or_adopt` is annotated `OwnedCheckoutOption` (exempt from G5 by the named `CLI_CLAIM_INPUT_RULE`: it carries the raw, unvalidated `--owned-checkout` input to the minter). Confirm the rule name in WP01's `tests/architectural/_owned_checkout_scan.py`.
   - [ ] Every function has a focused test, because the diff-cover gate is ≥ 90%.
   - [ ] Any string used three or more times is a module constant (Sonar S1192).
 - **Edge cases**:
@@ -414,7 +414,7 @@ Done means:
 make test-fast
 .venv/bin/ruff check src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/cli/commands/agent/context.py tests/specify_cli/cli/commands/test_owned_checkout_helper.py tests/integration/test_owned_lifecycle_acceptance_context.py
 .venv/bin/ruff format --check <same files>
-.venv/bin/mypy src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/cli/commands/agent/context.py
+.venv/bin/mypy src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/cli/commands/agent/context.py src/specify_cli/core/owned_mission.py src/specify_cli/workspace/context.py  # callers and callees in ONE invocation (follow_imports = "skip" for specify_cli.*)
 ```
 
 Do not run `make test-full` or the bare `tests/architectural/` directory.
@@ -434,7 +434,7 @@ Do not run `make test-full` or the bare `tests/architectural/` directory.
 - `resolve_context` is ≤ 11, with the campsite commit ahead of the functional commit.
 - The error codes are registered, and `MISSION_CONTEXT_CONFLICT` is unchanged.
 - mypy ran and is clean on both source files.
-- The transitional dual keywords on the six seams remain until WP18. Do not reject them.
+- Transitional surfaces (the six shared seams plus every other function marked `TRANSITIONAL(WP18)`) remain until WP18. Do not reject them.
 
 ## Activity Log
 

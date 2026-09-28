@@ -16,6 +16,7 @@ owned_files:
   - "tests/architectural/_baselines.yaml"
   - "tests/integration/test_owned_lifecycle_acceptance_e2e.py"
   - "tests/performance/test_owned_checkout_perf.py"
+  - "tests/architectural/test_ratchet_baselines.py"
 authoritative_surface: "tests/architectural/"
 create_intent:
   - "tests/architectural/test_owned_checkout_single_authority.py"
@@ -103,8 +104,8 @@ This is IC-11, the closing WP. It turns the mission's promise into an enforced i
 Done means:
 
 1. **Red first (T095).** The **first commit** of this WP adds `tests/architectural/test_owned_checkout_single_authority.py` with the G1–G6 assertions of `contracts/architectural-gate.md`, and they are **red** against the tree as it stands after WP01–WP17 (the transitional surfaces still exist). The commit message records the offender count per gate.
-2. **Transitional surfaces deleted (T096).** The legacy `effective_root=` keyword on the six dual-keyword seams, `effective_root_kwargs` / `_EffectiveRootKwargs`, the `OwnedMission` alias, and `OwnedCheckout`'s transitional legacy properties are gone, each deletion declared as an out-of-map closure edit with a one-line rationale.
-3. **Green (T097, FR-001 / SC-004).** Every G1–G6 assertion passes with an **empty** allowlist; `tests/architectural/_baselines.yaml` carries `owned_root_bare_path_params: 0` under a `test_owned_checkout_single_authority` section, and the ratchet meta-test enforces it.
+2. **Transitional surfaces deleted (T096).** The transitional surfaces are the six shared seams plus every other function marked TRANSITIONAL(WP18). T096 deletes **exactly** everything `grep -rn "TRANSITIONAL(WP18)" src tests` finds: the legacy `effective_root=` keyword on the six shared seams, `effective_root_kwargs` / `_EffectiveRootKwargs`, the `OwnedMission` legacy factory function, `OwnedCheckout`'s transitional legacy properties, their pinning tests, and any other marked parameter or field a WP kept. Each deletion is declared as an out-of-map closure edit with a one-line rationale. T097 asserts the grep is empty.
+3. **Green (T097, FR-001 / SC-004).** Every G1–G6 assertion passes with an **empty** allowlist; `grep -rn "TRANSITIONAL(WP18)" src tests` is empty (asserted by a test); `tests/architectural/_baselines.yaml` carries the section `test_owned_checkout_single_authority: {owned_root_bare_path_params: 0}`, and the ratchet meta-test (`tests/architectural/test_ratchet_baselines.py`, owned here) enforces it.
 4. **End to end (T098, SC-001 / NFR-001).** `tests/integration/test_owned_lifecycle_acceptance_e2e.py` walks the `quickstart.md` flow through the real CLI (create → spec-commit → setup-plan → status → finalize → `next` to implement WP01 → move-task claimed → in_progress → for_review → `next` review prompt → context resolve), for cwd ∈ {repository root checkout R, owned checkout P, an unrelated directory}, with and without a stale copy of the mission in R, with 0 errors and 0 R-snapshot differences.
 5. **Measurements (T099).** NFR-002 exactly-one validation per owned command (counted at `checkout_ownership.resolve_ownership_claim`) and 0 extra git subprocesses per owned status read, per PR; NFR-003 median-of-5 latency < 2 s for owned `agent tasks status`, `setup-plan` and `context resolve`, `performance`-marked (nightly).
 6. **Closure hygiene (T100, NFR-005).** Terminology guard green, docs freshness green, the targeted gate list green, `make test-fast` green, ruff check/format and `mypy --strict` clean on every file this WP touched.
@@ -112,14 +113,14 @@ Done means:
 ## Context & Constraints
 
 - **Authoritative contract**: `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/contracts/architectural-gate.md`. Read it in full before T095; this prompt restates it but the contract wins on any difference.
-- **Other mission docs**: `spec.md` (FR-001, SC-001, SC-004, NFR-001..NFR-003, NFR-005, C-008), `plan.md` (Staging Strategy — "the legacy keyword is deleted in the closing WP"; "The G1–G5 assertions are committed red as the first commit of the closing WP"; Test Layout and Markers; IC-11), `research.md` R-03 and R-16 (Gate, R-snapshot, Sizing), `contracts/owned-checkout-carrier.md` (§1 sole construction, §3 no bare owned roots, §7 the consumer list G6 pins), `quickstart.md` (the SC-001 script T098 automates), `data-model.md` (`stale_repository_root_copy` payload field; error-code registry), `occurrence_map.yaml` (note the `tests/architectural/_baselines.yaml` exception: "may only shrink or gain the new gate's zero cap; never loosen").
+- **Other mission docs**: `spec.md` (FR-001, SC-001, SC-004, NFR-001..NFR-003, NFR-005, C-008), `plan.md` (Staging Strategy — the `TRANSITIONAL(WP18)` convention; "The G1–G6 assertions are committed red as the first commit of the closing WP"; the mypy invocation discipline; the dead-symbol gate judged at the lane tip; Test Layout and Markers; IC-11), `research.md` R-03 and R-16 (Gate, R-snapshot, Sizing), `contracts/owned-checkout-carrier.md` (§1 sole construction, §3 no bare owned roots, §7 the consumer list G6 pins), `quickstart.md` (the SC-001 script T098 automates), `data-model.md` (`stale_repository_root_copy` payload field; error-code registry), `occurrence_map.yaml` (note the `tests/architectural/_baselines.yaml` exception: "may only shrink or gain the new gate's zero cap; never loosen").
 - **Prerequisite artefacts you build on** (all merged; read them first):
   - WP01 `tests/architectural/_owned_checkout_scan.py` — the AST scanner (reference forms, identifier ban, annotation forms, FQN exemption) — and its green self-mutation tests in `tests/architectural/test_owned_checkout_gate_selftest.py`. **Do not re-implement scanning.** The gate file composes the scanner's functions over `src/`; if a rule the contract needs is missing from the scanner, add it in the scanner as an out-of-map edit with a new self-mutation case in the self-test (rationale: "G<n> needs <rule>; scanner is WP01's single scanning authority").
   - WP02 fixtures in `tests/integration/conftest.py`: `owned_checkouts`, `r_snapshot`, `stale_root_copy` (self-tested in `tests/integration/test_owned_fixtures_selftest.py`). Use them; do not build parallel fixtures.
   - Per-concern acceptance files from WP08–WP13 (`tests/integration/test_owned_lifecycle_acceptance_{context,status,cli,next,review,finalize}.py`). The e2e file chains the steps they test individually; reuse their helpers by importing fixtures through `conftest.py`, never by importing test modules.
   - `tests/architectural/_ast_scan.py` (`parse_file`, `read_and_parse`, `qualname_by_line`) — the parser every gate uses; comments and docstrings never count as offenders.
-- **Out-of-map closure edits.** T096/T097 edit files owned by earlier WPs. This is sanctioned by the plan's Staging Strategy and the WP ownership notes ("declared as out-of-map closure edits, each with a one-line rationale"). Every such edit is listed in the commit message and the Activity Log as `<path>: <one-line rationale>`. Keep each edit to the deletion or the re-point it names; no opportunistic refactors in other WPs' files.
-- **No ledger, no allowlist.** Operator decision `01M3M65D…`: empty allowlists, no ratchet ledger. The only exemptions are the two named rules the contract defines (the `src/charter` module rule for the org-pack sense of `effective_root`, and the FQN rule for the fields of `mission_runtime.owned_checkout.OwnedCheckout`). Adding any other exemption is out of scope and will be rejected.
+- **Out-of-map closure edits.** T096/T097 edit files owned by earlier WPs. This is sanctioned by the plan's Staging Strategy and the WP ownership notes ("declared as out-of-map closure edits, each with a one-line rationale"). Every such edit is listed in the commit message and the Activity Log as `<path>: <one-line rationale>`. Keep each edit to the deletion or the re-point it names; no opportunistic refactors in other WPs' files. (`tests/architectural/test_ratchet_baselines.py` is owned by this WP, not out-of-map.)
+- **No ledger, no allowlist.** Operator decision `01M3M65D…`: empty allowlists, no ratchet ledger. The only exemptions are the named rules the contract defines, each already pinned by a WP01 self-mutation pair: `ORG_PACK_MODULE_RULE` (the org-pack sense `OrgPackConfig.effective_root`, `src/charter/offering/drg/org_pack_config.py:374`; covering `src/charter/**`, `src/specify_cli/doctrine/**`, `src/specify_cli/cli/commands/_doctrine_collect.py`, `src/specify_cli/analysis_inputs.py`), the `OrgPackConfig.effective_root` method-call rule, the FQN rule for the fields of `mission_runtime.owned_checkout.OwnedCheckout`, `CLI_CLAIM_INPUT_RULE` (parameters annotated `OwnedCheckoutOption`), and `MIGRATIONS_CHECKOUT_ROOT_RULE` (the `checkout_root` name under `src/specify_cli/upgrade/migrations/**`). `charter_runtime/lint/checks/org_layer.py` is **not** exempt: its walrus local is renamed (T097). Adding any other exemption is out of scope and will be rejected.
 - **Test policy (`NO_FULL_HEAVY_SUITES_IN_MISSION`)**: run the specific architectural gate files implicated (T100 lists them), never the bare `tests/architectural/` directory; the full sweep is CI's.
 - **Terminology (C-008)**: "repository root checkout", "owned checkout", "coordination worktree", "lane worktree", "Mission"; never bare "primary" as a checkout alias, never "feature".
 
@@ -147,22 +148,22 @@ Done means:
      - Planning-base floor: `coordination/status_transition.py:917`, `status/models.py:902`, `status/bootstrap.py:183`, `migration/backfill_runtime_state.py:1441`, `mission_runtime/resolution.py:1514`;
      - and the CLI commands `accept.py:342,732`, `tasks_mark_status.py:180`, `tasks_move_task.py:463`, `spec_commit_cmd.py:110`, `mission_check_prerequisites.py:599`, `mission_finalize.py:202`.
   4. **G3** — `OwnedCheckout._mint` is referenced only in `owned_mission.py`. WP01's self-mutation case covers the rule; here it runs over the real tree.
-  5. **G4** — the identifier `effective_root` appears nowhere in `src/` outside `src/charter`: not as a parameter, field, local annotation, local binding (including a walrus target), keyword argument, TypedDict key, or string dict key `"effective_root"`. Exactly two exemptions:
-     - the module rule `src/charter/**` (org-pack root, a different concept), with a written reason in the docstring;
-     - the **symbol** rule for org-pack method reads. The method is `OrgPackConfig.effective_root` (`src/charter/offering/drg/org_pack_config.py:374`); its `specify_cli` call sites are `analysis_inputs.py:207`, `charter_runtime/lint/checks/org_layer.py:330`, `cli/commands/_doctrine_collect.py:513`, `doctrine/config.py:42`, `doctrine/org_charter.py:700`, `doctrine/snapshot.py:719`. Implement it as "an `Attribute` named `effective_root` that is the `func` of a `Call`" (the owned sense is never a method), or with a stricter receiver check if WP01's scanner supports one; document the choice in the gate docstring.
-     The contract text calls the symbol `PackContext.effective_root`; the real class is `OrgPackConfig`. Use the real symbol and note the correction in the Activity Log.
+  5. **G4** — the identifier `effective_root` appears nowhere in `src/` outside the org-pack module rule: not as a parameter, field, local annotation, local binding (including a walrus target), keyword argument, TypedDict key, or string dict key `"effective_root"`. Exactly two exemptions, both WP01 scanner rules:
+     - `ORG_PACK_MODULE_RULE`: `src/charter/**`, `src/specify_cli/doctrine/**`, `src/specify_cli/cli/commands/_doctrine_collect.py`, `src/specify_cli/analysis_inputs.py` (the org-pack root `OrgPackConfig.effective_root`, a different concept), with a written reason in the docstring;
+     - the `OrgPackConfig.effective_root` method-call rule (`src/charter/offering/drg/org_pack_config.py:374`): an `Attribute` named `effective_root` that is the `func` of a `Call` (the owned sense is never a method). It keeps `charter_runtime/lint/checks/org_layer.py:330`'s call legal; that file's walrus **binding** is still an offender, renamed in T097.
   6. **G5** — no parameter or field carries an owned root as a path under any of `owned_root`, `owned_checkout`, `checkout_root`, `effective_root`, annotated `Path`, `pathlib.Path`, `Path | None`, `Optional[Path]`, `Union[Path, None]`, `os.PathLike`, or the string form of any of these.
-     - Only exemption: the fields of `mission_runtime.owned_checkout.OwnedCheckout`, by fully qualified class name.
+     - Exemptions (WP01 scanner rules): the fields of `mission_runtime.owned_checkout.OwnedCheckout`, by fully qualified class name; `CLI_CLAIM_INPUT_RULE` (a parameter annotated with the CLI claim-input alias `OwnedCheckoutOption` or its help-preserving form `owned_checkout_option(help=...)`, which carries the raw, unvalidated `--owned-checkout` input to the minter); `MIGRATIONS_CHECKOUT_ROOT_RULE` (the `checkout_root` name under `src/specify_cli/upgrade/migrations/**`); and `ORG_PACK_MODULE_RULE`.
      - Planning-base floor: `tasks_mark_status.py:114`, `tasks_move_task.py:248`, `mission_creation.py:127`.
   7. **G6** — positive signature pin: each consumer in `contracts/owned-checkout-carrier.md` §7 declares a parameter or field `owned: OwnedCheckout | None`:
      - `mission_runtime.placement_seam`, `mission_runtime.mission_context_for`, `mission_runtime.resolve_action_context` (defined in `src/mission_runtime/resolution.py`);
      - `specify_cli.task_utils.support.locate_work_package`, `specify_cli.workspace.context.resolve_workspace_for_wp`;
      - `specify_cli.coordination.status_service.EventLogReadContract`, `specify_cli.status.models.TransitionRequest`, `runtime.next.runtime_bridge.DecideNextContext`;
-     - the prompt-builder entry point in `src/runtime/next/prompt_builder.py` (pin the function WP12 converted; `build_prompt` at `:61` is the public entry on the planning base);
-     - the review-base helper `claim_commit_for_wp` in `src/mission_runtime/claim_commit.py` (WP12).
+     - the prompt-builder entry point in `src/runtime/next/prompt_builder.py` (pin the function WP12 converted; `build_prompt` at `:61` is the public entry on the planning base).
+
+     The review-base helper `claim_commit_for_wp(mission_dir: Path, wp_id: str)` is topology-agnostic and is **not** a G6 consumer (contract §7).
      Check by parsing the defining module, not by importing it, so the gate stays AST-only.
   8. For each gate, assert on the full offender list and print it in the failure message as `path:line kind detail`, so the red commit is self-describing.
-  9. Add a non-vacuity floor per gate: each gate must have evaluated at least one real candidate (for example G4 scanned ≥ 1 file under `src/specify_cli/`; G6 found all ten definitions), so an emptied scan root can never pass.
+  9. Add a non-vacuity floor per gate: each gate must have evaluated at least one real candidate (for example G4 scanned ≥ 1 file under `src/specify_cli/`; G6 found all nine definitions), so an emptied scan root can never pass.
   10. Expose the allowlist constant the ratchet reads in T097: `_OWNED_ROOT_BARE_PATH_ALLOWLIST: frozenset[str] = frozenset()`, and make G4/G5 fail on any offender not in it.
   11. Run the file; G1, G2, G4, G5 and G6 must be red, and G3 whatever the tree dictates. Commit **only this file**: `test(arch): owned-checkout single-authority gate G1–G6, committed red (WP18/T095)`, with a body line such as `Offenders at red: G1=<n> G2=<n> G3=<n> G4=<n> G5=<n> G6=<n missing pins>`.
 - **Files**:
@@ -172,14 +173,15 @@ Done means:
 - **Validation checklist**:
   - [ ] The commit contains exactly one file, it is red, and the counts are in the message; paste the pytest summary into the Activity Log.
   - [ ] Comments and docstrings containing `effective_root` are not counted (check against `specify_cli/doctrine/snapshot.py:93`).
-  - [ ] `src/charter/**` is excluded by module rule with a written reason.
+  - [ ] The org-pack paths are excluded by `ORG_PACK_MODULE_RULE` with a written reason; `org_layer.py` is not excluded.
 - **Edge cases**:
   - String annotations (`"Path | None"`) and `from __future__ import annotations` both appear; rely on the scanner's annotation normaliser.
   - TypedDict keys are class-body `AnnAssign`s; `**{"effective_root": x}` splats are `Dict` keys inside a `Call`'s `**` keyword; a walrus binding is a `NamedExpr` target.
 
-### Subtask T096 – Delete the dual keywords, `effective_root_kwargs`, the `OwnedMission` alias and the legacy properties
+### Subtask T096 – Delete exactly everything marked `TRANSITIONAL(WP18)`
 
-- **Purpose**: the plan's temporary scaffolding ends here. "The legacy keyword is deleted in the closing WP, together with `effective_root_kwargs`. Nothing ships in between." These deletions are most of what turns G4/G5 green.
+- **Purpose**: the plan's temporary scaffolding ends here. The transitional surfaces are the six shared seams plus every other function marked TRANSITIONAL(WP18); every WP marked each one with `# TRANSITIONAL(WP18): <reason>` (plan §Staging Strategy). These deletions are most of what turns G4/G5 green.
+- **The inventory is the grep, not this list.** Run `grep -rn "TRANSITIONAL(WP18)" src tests` on your lane base and save the output in the Activity Log. Delete **exactly** what it finds, no more and no less. The items below are the expected contents; if the grep finds a marked surface not listed here, delete it too (and note it); if an item below is not marked, stop and ask the orchestrator rather than guessing.
 - **Steps** (each numbered item is one out-of-map closure edit; list each in the commit message as `<path>: <rationale>`; line numbers are planning-base anchors, so re-locate them on your lane base):
   1. **`placement_seam` / `PlacementSeam`** — `src/mission_runtime/resolution.py:2491` (`placement_seam(repo_root, mission_slug, *, effective_root: Path | None = None)`) and the `PlacementSeam.effective_root` field (`:1981`). Delete the legacy keyword and field, and whatever WP04 added to reconcile them with `owned`. Rationale: "closing WP: dual keyword retired per Staging Strategy (WP04-owned)".
   2. **`mission_context_for`** — `resolution.py:1040-1046`. Same deletion, same rationale.
@@ -196,17 +198,21 @@ Done means:
      - the `TYPE_CHECKING` import at `:24-26`.
      Rationale: "closing WP: dual field retired (WP07-owned)".
   7. **`effective_root_kwargs` / `_EffectiveRootKwargs`** — `src/specify_cli/core/owned_mission.py:41-47`. Rationale: "closing WP: bridging helper retired (WP02-owned)".
-  8. **`OwnedMission` alias** — `src/specify_cli/core/owned_mission.py` (the transitional alias WP02/T010 left at the former class site `:18`) and any re-export. Rationale: "closing WP: rename complete, no alias (occurrence_map `code_symbols: rename`)".
-  9. **`OwnedCheckout` transitional legacy properties** (`primary`, `root`, `directory`, `slug`, `target`) — `src/mission_runtime/owned_checkout.py` (WP01/T001). Rationale: "closing WP: legacy attribute names retired (WP01-owned)". If WP01 listed them anywhere in the `mission_runtime` public surface (`_PUBLIC_SURFACE`, `tests/architectural/test_mission_runtime_surface.py`), remove them there too.
+  8. **`OwnedMission` legacy factory function** — `src/specify_cli/core/owned_mission.py` (the `TRANSITIONAL(WP18)` factory WP02/T010 left at the former class site) and any re-export, plus its pinning test `tests/core/test_owned_mission_minter.py::test_transitional_factory_mints_the_fact` and `test_effective_root_kwargs_accepts_fact`. Rationale: "closing WP: rename complete, no alias (occurrence_map `code_symbols: rename`)". The unowned tests that still call `OwnedMission(...)` are re-pointed in T097 step 3.
+  9. **`OwnedCheckout` transitional legacy properties** (`primary`, `root`, `directory`, `slug`, `target`) — `src/mission_runtime/owned_checkout.py` (WP01/T001), plus their single pinning test `tests/mission_runtime/test_owned_checkout.py::test_legacy_properties_mirror_canonical_fields`. Rationale: "closing WP: legacy attribute names retired (WP01-owned)". If WP01 listed them anywhere in the `mission_runtime` public surface (`_PUBLIC_SURFACE`, `tests/architectural/test_mission_runtime_surface.py`), remove them there too.
+  9a. **Every other `TRANSITIONAL(WP18)` hit** — for example a legacy keyword WP07/WP11/WP13 kept on a non-seam function for a not-yet-converted caller. Delete the legacy form and its marker. Rationale: "closing WP: TRANSITIONAL(WP18) surface retired (<owning WP>)".
   10. After each deletion, `grep -rn` for the removed name across `src/` **and** `tests/`, and collect the breakages for T097. Do not fix them inside this step, so the deletion commit stays reviewable.
-  11. Commit the deletions together: `refactor(owned-checkout): retire transitional dual keywords, bridging helper, alias and legacy properties (WP18/T096)`. The tree may be red between T096 and T097 inside this WP; the WP as a whole ends green.
+  11. Commit the deletions together: `refactor(owned-checkout): retire every TRANSITIONAL(WP18) surface (WP18/T096)`. The tree may be red between T096 and T097 inside this WP; the WP as a whole ends green.
 - **Files** (all out-of-map closure edits):
   - `src/mission_runtime/resolution.py`, `src/mission_runtime/owned_checkout.py`
   - `src/specify_cli/workspace/context.py`, `src/specify_cli/task_utils/support.py`
   - `src/specify_cli/status/models.py`, `src/specify_cli/core/owned_mission.py`
+  - the pinning tests `tests/core/test_owned_mission_minter.py`, `tests/mission_runtime/test_owned_checkout.py`
+  - every other file the `TRANSITIONAL(WP18)` grep names
 - **Parallel?**: No; after T095.
 - **Validation checklist**:
   - [ ] `grep -rnw "effective_root_kwargs\|_EffectiveRootKwargs\|OwnedMission" src/` prints nothing.
+  - [ ] `grep -rn "TRANSITIONAL(WP18)" src tests` prints nothing except lines inside tests that T097 re-points (record them); T097 makes it fully empty.
   - [ ] `grep -rn "def placement_seam\|def mission_context_for\|def resolve_action_context\|def resolve_workspace_for_wp\|def locate_work_package" -A8 src | grep effective_root` prints nothing.
   - [ ] `tests/architectural/test_mission_runtime_surface.py` passes (MR-1/MR-2 surface unchanged apart from removed transitional names).
   - [ ] `tests/architectural/test_compat_shims.py` passes (no shim left behind).
@@ -216,7 +222,7 @@ Done means:
   - If any deletion leaves a function above complexity 15 (it should only reduce complexity), fix it in place.
   - `tests/architectural/test_no_dead_symbols.py` may flag a helper that only the dual keyword used; delete it rather than allowlisting it.
 
-### Subtask T097 – Sweep leftover owned-root identifiers → gate green; `_baselines.yaml` cap 0
+### Subtask T097 – Sweep leftovers → gate green; TRANSITIONAL grep empty; `_baselines.yaml` section cap 0
 
 - **Purpose**: drive G1–G6 to green with an empty allowlist, keep every test green after the T096 deletions, and pin the zero with the ratchet meta-test.
 - **Steps**:
@@ -227,7 +233,8 @@ Done means:
      - mission_runtime / runtime / next: `tests/mission_runtime/test_builder_fs_free_identity.py`, `test_coord_read_seam_callers.py`, `test_owned_single_branch_ssot.py`, `test_resolution_target_branch.py`, `test_status_surface_dir_deleted_arm.py`; `tests/runtime/test_artifact_presence_placement.py`; `tests/next/test_decision_unit.py`, `test_runtime_bridge_unit.py`;
      - CLI / status / coordination: `tests/agent/test_context_validation_unit.py`; `tests/specify_cli/cli/commands/agent/test_owned_checkout_move_task.py`, `test_tasks_mark_status_recovery.py` (`OwnedMission(...)` fixture), `test_tasks_move_task_pre_review_identity_read.py` (`OwnedMission(...)` at `:182`); `tests/specify_cli/cli/commands/test_next_answer_effective_root.py`, `test_next_owned_commit_guard.py`; `tests/specify_cli/coordination/test_status_transition.py`; `tests/specify_cli/core/test_must_not_flip_anchors.py`; `tests/specify_cli/next/test_next_invocation_lifecycle_seam.py`; `tests/status/test_bootstrap.py`, `test_transition_pipeline.py`;
      - others: `tests/consolidation/test_pr_merge_baseline.py`, `tests/integration/test_explicit_checkout_commands.py`, `tests/migration/test_runtime_feature_dir_threading.py` (`OwnedMission(...)`).
-     Most will already have been re-pointed by their owning WPs. Fix only what is still red: re-point to `owned=` with a fact minted by the WP02 test helper, assertions unchanged, one rationale line each. The org-pack-sense test files (`tests/charter/test_pack_context.py`, `tests/doctrine/test_org_pack_*.py`, `tests/specify_cli/doctrine/*`, `tests/specify_cli/cli/commands/test_doctrine_collect.py`) must not change.
+     Most will already have been re-pointed by their owning WPs. Fix only what is still red: re-point to `owned=` with a fact minted by the WP02 test helper, assertions unchanged, one rationale line each.
+     **The `OwnedMission(...)` constructions** (six unowned tests; WP02/T010 recorded the full list in its Activity Log): `test_tasks_move_task_pre_review_identity_read.py:182`, `test_tasks_mark_status_recovery.py:41`, `tests/specify_cli/coordination/test_status_transition.py:1206`, `tests/status/test_bootstrap.py:542`, `tests/migration/test_runtime_feature_dir_threading.py:23`, plus any other hit of `grep -rn "OwnedMission(" tests`. Re-point each to `OwnedCheckout._mint(...)` (tests may call it; G3 scans `src/`) with **valid** paths, assertions unchanged, one rationale line each: "WP18 deleted the TRANSITIONAL(WP18) `OwnedMission` factory; the test mints the fact". The org-pack-sense test files (`tests/charter/test_pack_context.py`, `tests/doctrine/test_org_pack_*.py`, `tests/specify_cli/doctrine/*`, `tests/specify_cli/cli/commands/test_doctrine_collect.py`) must not change.
   4. **Ratchet leaf.** Add to `tests/architectural/_baselines.yaml`, following its schema (top-level section = gate test-module name, integer leaf, `# justification:` comment):
      ```yaml
      # tests/architectural/test_owned_checkout_single_authority.py — owned-checkout
@@ -238,19 +245,21 @@ Done means:
        owned_root_bare_path_params: 0  # justification: empty allowlist by construction; never grows.
      ```
      A top-level scalar is refused by `test_yaml_leaves_refuses_a_scalar_section`, so the section/leaf shape is mandatory.
-  5. **Meta-test wiring (out-of-map).** `tests/architectural/test_ratchet_baselines.py` fails any YAML leaf without a `_SIZE_RATCHETS` row (`test_every_baseline_leaf_is_enforced_by_a_size_ratchet`) and pins the section count (`test_size_ratchet_table_meets_floor`: `assert len(_REQUIRED_TOP_LEVEL_KEYS) == 14`).
+  5. **Meta-test wiring (owned by this WP).** `tests/architectural/test_ratchet_baselines.py` fails any YAML leaf without a `_SIZE_RATCHETS` row (`test_every_baseline_leaf_is_enforced_by_a_size_ratchet`) and pins the section count (`test_size_ratchet_table_meets_floor`: `assert len(_REQUIRED_TOP_LEVEL_KEYS) == 14`).
      - Add the row `_SizeRatchet("test_owned_checkout_single_authority", "owned_root_bare_path_params", "tests.architectural.test_owned_checkout_single_authority", "_OWNED_ROOT_BARE_PATH_ALLOWLIST")`.
      - Bump the floor assertion to 15 and extend its comment.
-     - No WP in this mission owns that file: declare it as an out-of-map closure edit ("register the new gate's zero cap with the ratchet meta-test, as every `_baselines.yaml` leaf must be").
+     - This WP owns that file (frontmatter `owned_files`); record the rationale "register the new gate's zero cap with the ratchet meta-test, as every `_baselines.yaml` leaf must be" in the commit body.
+  5a. **TRANSITIONAL grep is empty.** Add `test_no_transitional_wp18_markers_remain` to `tests/architectural/test_owned_checkout_single_authority.py`: it walks `src/` and `tests/` (text scan, skipping `__pycache__` and this test file's own literal) and asserts no line contains `TRANSITIONAL(WP18)`. Red-first: it belongs to the T095 commit's red set if you add it there, or commit it red before step 3's re-points.
   6. Run the gate and the ratchet meta-test until green. Commit: `fix(owned-checkout): sweep residual owned roots; single-authority gate green (WP18/T097)`.
 - **Files**:
-  - Owned: `tests/architectural/_baselines.yaml`, `tests/architectural/test_owned_checkout_single_authority.py`.
-  - Out-of-map: `tests/architectural/test_ratchet_baselines.py`, `src/specify_cli/charter_runtime/lint/checks/org_layer.py`, any residual source file from step 1, the still-red test files from step 3.
+  - Owned: `tests/architectural/_baselines.yaml`, `tests/architectural/test_owned_checkout_single_authority.py`, `tests/architectural/test_ratchet_baselines.py`.
+  - Out-of-map: `src/specify_cli/charter_runtime/lint/checks/org_layer.py` (walrus local renamed, never exempted), any residual source file from step 1, the still-red test files from step 3 (including the six `OwnedMission(...)` re-points).
 - **Parallel?**: No; after T096.
 - **Validation checklist**:
   - [ ] `uv run --frozen pytest tests/architectural/test_owned_checkout_single_authority.py tests/architectural/test_ratchet_baselines.py tests/architectural/test_owned_checkout_gate_selftest.py -q` is green.
   - [ ] `_OWNED_ROOT_BARE_PATH_ALLOWLIST` is empty and the YAML leaf is 0.
-  - [ ] `grep -rnw "effective_root" src --include=*.py | grep -v "^src/charter/"` prints only org-pack method calls (`.effective_root(`) and docstrings/comments.
+  - [ ] `grep -rnw "effective_root" src --include=*.py | grep -v "^src/charter/\|^src/specify_cli/doctrine/\|_doctrine_collect.py\|analysis_inputs.py"` prints only org-pack method calls (`.effective_root(`) and docstrings/comments.
+  - [ ] `grep -rn "TRANSITIONAL(WP18)" src tests` prints nothing (and `test_no_transitional_wp18_markers_remain` is green).
   - [ ] Every out-of-map edit appears in the commit message with its rationale.
 - **Edge cases**:
   - `occurrence_map.yaml` marks `_baselines.yaml` `manual_review` ("may only shrink or gain the new gate's zero cap; never loosen"); touch no other leaf.

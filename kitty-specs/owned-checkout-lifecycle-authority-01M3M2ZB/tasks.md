@@ -9,11 +9,14 @@
 
 **Staging rules for every WP** (plan: Staging Strategy):
 - Conversion is top-down.
-- The six shared seams keep a temporary dual keyword (`owned=` plus legacy `effective_root=`) until WP18.
-- The transitional `OwnedMission` alias and its legacy attribute names live until WP18.
+- Transitional surfaces are the six shared seams plus every other function marked TRANSITIONAL(WP18). The six shared seams keep a temporary dual keyword (`owned=` plus legacy `effective_root=`) until WP18.
+- **`TRANSITIONAL(WP18)` convention:** every transitional legacy parameter, field, property, alias or factory anywhere in `src/` or `tests/` carries a `# TRANSITIONAL(WP18): <reason>` comment. WP18 T096 deletes exactly everything `grep -rn "TRANSITIONAL(WP18)" src tests` finds; T097 asserts that grep is empty.
+- The transitional `OwnedMission` is a legacy factory **function** in `core/owned_mission.py` (the minter module, so G3 holds). It accepts the old positional arguments and mints an `OwnedCheckout`; it and the legacy `OwnedCheckout` property names are marked `TRANSITIONAL(WP18)` and live until WP18.
+- mypy runs with `follow_imports = "skip"` for `specify_cli.*`: type-check callers and callees of a changed signature in the same invocation.
+- The dead-symbol gate (`tests/architectural/test_no_dead_symbols.py`) is judged at the lane tip, not per intermediate WP.
 - Every WP leaves the tree green: its targeted tests, ruff check/format and mypy all pass.
 
-**Carried prior art (#5009)**: commits carried with `git cherry-pick -x <sha>` keep author Samuel Goff. Re-expressed fixes carry a `Co-authored-by: Samuel Goff <samuelgoff@users.noreply.github.com>` trailer.
+**Carried prior art (#5009)**: commits carried with `git cherry-pick -x <sha>` keep author Samuel Goff. Re-expressed fixes carry a `Co-authored-by: Samuel Goff <samuel@defpix.com>` trailer.
 
 ## Subtask Index
 
@@ -27,8 +30,8 @@
 | T006 | `resolve_owned_mission` returns the fact; `allowed_topologies`; topology sets | WP02 | |
 | T007 | `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` refusal | WP02 | [P] |
 | T008 | `resolve_owned_create_root` → typed `OwnedCreateRoot` | WP02 | [P] |
-| T009 | `adopt_owned_checkout` (exclusions, mission-surface-conflict preserved) | WP02 | |
-| T010 | Transitional `OwnedMission` alias plus `effective_root_kwargs` accepting the fact | WP02 | |
+| T009 | `adopt_owned_checkout` (exclusions, mission-surface-conflict preserved); `OWNED_CHECKOUT_IS_MISSION_WORKTREE` for an explicit lane/coordination worktree | WP02 | |
+| T010 | Transitional `OwnedMission` legacy factory function plus `effective_root_kwargs` accepting the fact, marked TRANSITIONAL(WP18); annotation retype | WP02 | |
 | T011 | Shared integration fixtures (`owned_checkouts`, `r_snapshot`, `stale_root_copy`) with self-tests | WP02 | |
 | T012 | Amend ADR 2026-09-03-1 | WP03 | [P] |
 | T013 | Amend ADR 2026-08-12-1 | WP03 | [P] |
@@ -63,7 +66,7 @@
 | T042 | Campsite: `resolve_context` (15) | WP08 | [P] |
 | T043 | Re-home the `operation_context` tests | WP08 | |
 | T044 | Red-first acceptance: O1, O2, US1, US6 | WP09 | |
-| T045 | `agent tasks status --owned-checkout` plus stale-copy field; campsite `_print_standard_human` | WP09 | |
+| T045 | `agent tasks status --owned-checkout` plus stale-copy field; campsite `_st_load_work_packages` / `setup_plan` | WP09 | |
 | T046 | `setup-plan --owned-checkout` commits in P | WP09 | |
 | T047 | `agent action implement`/`review` refusal `OWNED_ACTION_UNSUPPORTED` | WP09 | [P] |
 | T048 | `tasks.py` options onto `OwnedCheckoutOption`; golden contracts | WP09 | |
@@ -73,10 +76,10 @@
 | T052 | Carry #5009 a37e9ee39 (red) | WP10 | |
 | T053 | Governance reads from the owned root through `resolve_owned_create_root` (re-express 1f42f76ea) | WP10 | |
 | T054 | Template-marker test plus charter-authoring ratchet (FR-017) | WP10 | |
-| T055 | Remaining conversions in `mission_creation` / `mission_create` | WP10 | |
+| T055 | Remaining conversions in `mission_creation` / `mission_create`; `mission_create.py` onto `OwnedCheckoutOption` | WP10 | |
 | T056 | Carry #5009 edaa9cd83 and 1be5352ee; adapt the call shape | WP11 | |
 | T057 | Red-first: O5, O8 (both injections), O9, stale-copy board, lanes_with_coord in-process twin | WP11 | |
-| T058 | Campsite: `query_current_state`, `next_step`, `_run_bootstrap_loop` | WP11 | |
+| T058 | Campsite: `query_current_state`, `next_step`, `_print_standard_human` | WP11 | |
 | T059 | `next_cmd` through `resolve_owned_or_adopt(NEXT_OWNED_TOPOLOGIES)` | WP11 | |
 | T060 | `DecideNextContext.owned`, `_dn_*`, composition policy, git cwd | WP11 | |
 | T061 | Board authority with the fact; resolve before persisting the advance | WP11 | |
@@ -84,12 +87,12 @@
 | T063 | Remaining conversions in the `runtime/next` bridge modules and `next_cmd` | WP11 | |
 | T064 | Red-first: non-owned review base; owned review AS4/AS5 | WP12 | |
 | T065 | `claim_commit_for_wp` helper plus uniqueness pin | WP12 | |
-| T066 | Campsite: `_state_to_action`, `_build_wp_prompt` | WP12 | |
-| T067 | `decision.py` takes the fact | WP12 | |
-| T068 | `prompt_builder` takes the fact; scoped review diff; fail closed | WP12 | |
+| T066 | Campsite: `_state_to_action` (decision.py) | WP11 | |
+| T067 | `decision.py` takes the fact | WP11 | |
+| T068 | Campsite `_build_wp_prompt`; `prompt_builder` takes the fact; scoped review diff; fail closed | WP12 | |
 | T069 | Replace and delete the three commit-subject matchers | WP12 | |
 | T070 | Red-first: lane-cycle post-write refusal; O6 end-to-end | WP13 | |
-| T071 | Campsite: `finalize_tasks`, `_commit_finalize_artifacts` | WP13 | |
+| T071 | Campsite: `finalize_tasks`, `_commit_finalize_artifacts`, `_run_bootstrap_loop` | WP13 | |
 | T072 | Finalize plan phase in memory | WP13 | |
 | T073 | Finalize apply phase; owned status read | WP13 | |
 | T074 | Option migration, owned-root conversions, stale-copy field | WP13 | |
@@ -114,8 +117,8 @@
 | T093 | Convert `git/commit_helpers.py`, `missions/_read_path_resolver.py` | WP17 | [P] |
 | T094 | Convert `migration/runtime_state_cutover.py`, `migration/backfill_runtime_state.py` | WP17 | [P] |
 | T095 | Commit the G1–G6 gate assertions red (record offender counts) | WP18 | |
-| T096 | Delete the dual keywords, `effective_root_kwargs`, the `OwnedMission` alias and the legacy properties | WP18 | |
-| T097 | Sweep any leftover owned-root identifier → gate green; `_baselines.yaml` cap 0 | WP18 | |
+| T096 | Delete exactly everything `grep -rn "TRANSITIONAL(WP18)" src tests` finds (the six shared seams' dual keyword plus every other marked surface) | WP18 | |
+| T097 | Sweep leftovers (re-point `OwnedMission(...)` tests, rename `org_layer.py` walrus) → gate green; TRANSITIONAL grep empty; `_baselines.yaml` section cap 0 | WP18 | |
 | T098 | SC-001 end-to-end walkthrough test (quickstart), incl. stale copy and cwd matrix | WP18 | |
 | T099 | NFR-002 / NFR-003 measurements (`performance` marker) | WP18 | |
 | T100 | Terminology guard, docs freshness, final targeted validation | WP18 | |
@@ -153,7 +156,7 @@ T006 `resolve_owned_mission` returns the fact; `allowed_topologies` (WP02)
 T007 `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` (WP02)
 T008 `resolve_owned_create_root` typed (WP02)
 T009 `adopt_owned_checkout` (WP02)
-T010 Transitional alias (WP02)
+T010 Transitional `OwnedMission` factory function (WP02)
 T011 Shared integration fixtures (WP02)
 
 ### Dependencies
@@ -196,6 +199,7 @@ T016–T021 (WP04)
 **Independent Test**: owned kind with a null lane; the same slug in R and P gives distinct WP sets in one process; a mismatched fact is refused.
 **Prompt**: `tasks/WP05-workspace-resolution-owned-arm.md`
 **Requirement Refs**: FR-006, FR-011, FR-019
+**Owned consumers**: also `core/stale_detection.py`, `lanes/implement_support.py` and `cli/commands/implement.py` (the `resolution_kind` / `runs_in_checkout_root` consumers, including stale_detection's `resolve_workspace_for_wp(owned=)` pass-through).
 
 ### Included Subtasks
 T022–T026 (WP05)
@@ -268,38 +272,38 @@ T044–T049 (WP09)
 T050–T055 (WP10)
 
 ### Dependencies
-- Depends on WP02. **Estimated prompt size**: ~500 lines.
+- Depends on WP02, WP08 (`mission_create.py` uses `OwnedCheckoutOption`). **Estimated prompt size**: ~500 lines.
 
 ## Work Package WP11: `next` runtime takes the fact (Priority: P0)
 
-**Goal**: `next --owned-checkout` validates through the minter, crosses tasks→implement, and uses P's composition policy and task board. It survives #4867, and coordination-topology owned `next` stays supported.
-**Independent Test**: O5, O8, O9, the stale-copy board, and the lanes_with_coord in-process twin.
+**Goal**: `next --owned-checkout` validates through the minter, crosses tasks→implement, and uses P's composition policy and task board. `decision.py` takes the fact. It survives #4867, and coordination-topology owned `next` stays supported.
+**Independent Test**: O5 (runtime half green; the full-prompt US3-AS1 assertion is a strict xfail that WP12 removes), O8, O9, the stale-copy board, and the lanes_with_coord in-process twin.
 **Prompt**: `tasks/WP11-next-runtime-takes-the-fact.md`
 **Requirement Refs**: FR-002, FR-007, FR-008, FR-009, FR-012, FR-022, FR-023
 
 ### Included Subtasks
-T056–T063 (WP11)
+T056–T063, T066, T067 (WP11)
 
 ### Dependencies
 - Depends on WP05, WP07, WP08. **Estimated prompt size**: ~650 lines.
 
-## Work Package WP12: Decision, prompt building and unified review base (Priority: P1)
+## Work Package WP12: Prompt building and unified review base (Priority: P1)
 
-**Goal**: the decision and prompt builder take the fact, and one claim-commit helper serves every review path. The three subject matchers are deleted.
-**Independent Test**: FR-025 non-owned red→green; US3-AS4/AS5.
+**Goal**: the prompt builder takes the fact, and one topology-agnostic claim-commit helper, `claim_commit_for_wp(mission_dir, wp_id)`, serves every review path. The three subject matchers are deleted.
+**Independent Test**: FR-025 non-owned red→green; US3-AS4/AS5; WP11's strict-xfail US3-AS1 full-prompt row turns green.
 **Prompt**: `tasks/WP12-decision-prompt-and-unified-review-base.md`
 **Requirement Refs**: FR-008, FR-009, FR-010, FR-025
 
 ### Included Subtasks
-T064–T069 (WP12)
+T064, T065, T068, T069 (WP12)
 
 ### Dependencies
-- Depends on WP11. **Estimated prompt size**: ~550 lines.
+- Depends on WP11. **Estimated prompt size**: ~400 lines.
 
 ## Work Package WP13: Atomic finalize-tasks (Priority: P1)
 
 **Goal**: every finalize refusal happens before any write; owned finalize works under `.worktrees/`.
-**Independent Test**: lane-cycle refusal leaves `git status --porcelain` unchanged; O6 is green end to end.
+**Independent Test**: lane-cycle refusal leaves `git status --porcelain --ignored` unchanged; O6 is green end to end.
 **Prompt**: `tasks/WP13-atomic-finalize-tasks.md`
 **Requirement Refs**: FR-007, FR-013, FR-015
 
@@ -335,7 +339,7 @@ T075–T079 (WP14)
 T080–T083 (WP15)
 
 ### Dependencies
-- Depends on WP04, WP07. **Estimated prompt size**: ~300 lines.
+- Depends on WP04, WP07, WP13, WP14. **Estimated prompt size**: ~300 lines.
 
 ## Work Package WP16: Task command conversion (Priority: P2)
 
@@ -348,7 +352,7 @@ T080–T083 (WP15)
 T084–T089 (WP16)
 
 ### Dependencies
-- Depends on WP07, WP08. **Estimated prompt size**: ~400 lines.
+- Depends on WP07, WP08, WP09. **Estimated prompt size**: ~400 lines.
 
 ## Work Package WP17: History and support module conversion (Priority: P2)
 
@@ -361,13 +365,13 @@ T084–T089 (WP16)
 T090–T094 (WP17)
 
 ### Dependencies
-- Depends on WP04, WP07. **Estimated prompt size**: ~350 lines.
+- Depends on WP04, WP07, WP13, WP14, WP16. **Estimated prompt size**: ~350 lines.
 
 ## Phase 5 — Closure
 
 ## Work Package WP18: Single-authority gate closure and end-to-end proof (Priority: P0)
 
-**Goal**: commit the gate red, delete every transitional surface, turn the gate green, and prove SC-001 end to end.
+**Goal**: commit the gate red, delete every transitional surface (the six shared seams plus every other function marked TRANSITIONAL(WP18)), turn the gate green, and prove SC-001 end to end.
 **Independent Test**: `tests/architectural/test_owned_checkout_single_authority.py` goes red→green; the quickstart walkthrough passes with 0 R-snapshot differences.
 **Prompt**: `tasks/WP18-gate-closure-and-end-to-end-proof.md`
 **Requirement Refs**: FR-001, NFR-001, NFR-002, NFR-003, NFR-005
@@ -383,13 +387,16 @@ T095–T100 (WP18)
 ## Dependency Graph
 
 ```
-WP01 → WP02 → {WP04, WP06, WP10}
+WP01 → WP02 → {WP04, WP06}
 WP04 → WP05 → WP08
 {WP04, WP06} → WP07
-{WP07, WP08} → {WP09, WP13, WP16}
+{WP02, WP08} → WP10
+{WP07, WP08} → {WP09, WP13}
 {WP05, WP07, WP08} → WP11 → WP12
 {WP07, WP08, WP10} → WP14
-{WP04, WP07} → {WP15, WP17}
+{WP07, WP08, WP09} → WP16
+{WP04, WP07, WP13, WP14} → WP15
+{WP04, WP07, WP13, WP14, WP16} → WP17
 WP03: independent
 all → WP18
 ```
@@ -397,11 +404,12 @@ all → WP18
 **Parallel waves**:
 1. {WP01, WP03}
 2. {WP02}
-3. {WP04, WP06, WP10}
-4. {WP05}
-5. {WP07, WP08}
-6. {WP09, WP11, WP13, WP14, WP15, WP16, WP17}
-7. {WP12}
-8. {WP18}
+3. {WP04, WP06}
+4. {WP05, WP07}
+5. {WP08}
+6. {WP09, WP10, WP11, WP13}
+7. {WP12, WP14, WP16}
+8. {WP15, WP17}
+9. {WP18}
 
 **MVP**: WP01–WP09 deliver #3449, #4252 and #5026 end to end for status, planning and context. The rest completes the lifecycle, the defect-class closure and the ratchet removal.

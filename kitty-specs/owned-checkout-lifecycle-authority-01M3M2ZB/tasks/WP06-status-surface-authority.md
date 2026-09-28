@@ -105,8 +105,8 @@ Done means all of the following hold:
   - WP02 makes `resolve_owned_mission` return that fact. It also adds the shared fixtures `owned_checkouts`, `r_snapshot` and `stale_root_copy` to `tests/integration/conftest.py`. Read their docstrings before writing tests.
 - **Staging rules (binding, plan: Staging Strategy).**
   - Conversion is top-down: change a signature to `owned: OwnedCheckout | None` only once its callers hold the fact.
-  - The six shared seams keep a transitional dual keyword until WP18: `placement_seam`, `mission_context_for`, `resolve_action_context`, `resolve_workspace_for_wp`, `locate_work_package` and `TransitionRequest`. Do not remove the legacy keyword on any of them here.
-  - The transitional `OwnedMission` alias and its legacy attribute names (`.root`, `.primary`, `.directory`, `.slug`, `.target`) live until WP18. **New code in this WP uses only the canonical field names.** WP18 deletes the legacy properties, and any new use of them would break there.
+  - Transitional surfaces are the six shared seams plus every other function marked TRANSITIONAL(WP18). The six shared seams keep a transitional dual keyword until WP18: `placement_seam`, `mission_context_for`, `resolve_action_context`, `resolve_workspace_for_wp`, `locate_work_package` and `TransitionRequest`. Do not remove the legacy keyword on any of them here.
+  - The transitional `OwnedMission` legacy factory function (marked `TRANSITIONAL(WP18)`) and the legacy attribute names (`.root`, `.primary`, `.directory`, `.slug`, `.target`) live until WP18. **New code in this WP uses only the canonical field names.** WP18 deletes the legacy properties, and any new use of them would break there.
 - **Occurrence map.**
   - `code_symbols` and `tests_fixtures`: rename.
   - `serialized_keys` and `logs_telemetry`: do not change. This covers `StatusReadSource` / `EventLogWriteTarget` values, `StatusContractError` message strings, and existing `OWNED_*` codes.
@@ -149,7 +149,7 @@ Done means all of the following hold:
      - `test_finalize_and_read_owned_mission_below_worktrees`: red. The finalize exit is non-zero with a "coordination worktree" refusal (O6).
      - `test_owned_contract_validates_root_and_mission`: red, `AttributeError`.
      - `test_primary_contract_still_rejects_coordination_shaped_path` (both params): green.
-  4. Adaptation commit (trailer `Co-authored-by: Samuel Goff <samuelgoff@users.noreply.github.com>`):
+  4. Adaptation commit (trailer `Co-authored-by: Samuel Goff <samuel@defpix.com>`):
      - Delete `test_owned_contract_validates_root_and_mission` entirely, with a module comment: "parallel `owned_checkout` status source dropped per C-002; the owned read is a `primary_checkout` contract carrying the validated fact."
      - Re-point the fixture. The file imports `checkouts`, `git`, `invoke` and `snapshot` from the **test module** `tests.integration.test_explicit_checkout_commands`, and the plan forbids importing shared fixtures from test modules. Replace this with the WP02 fixtures: `from tests.integration.conftest import owned_checkouts, r_snapshot` (re-exported through `__all__`, as the carried file already does for `checkouts`). A conftest in `tests/integration/` is not visible to `tests/specify_cli/coordination/`, so the explicit import is required. If ruff reports F811 on the fixture parameter, keep the `__all__` re-export pattern rather than adding `noqa`.
      - Replace the `invoke("finalize-tasks", inside)` helper with an explicit `CliRunner().invoke(mission_app, ["finalize-tasks", "--mission", <slug>, "--owned-checkout", str(inside), "--json"])`.
@@ -367,7 +367,7 @@ Do **not** run `make test-full` or the bare `tests/architectural/` directory (`N
 - Confirm the `status_transition.py` edits are exactly hunks (a)-(c), each declared in a commit body.
 - Confirm no new use of the legacy `OwnedMission` attribute names.
 - Confirm the implementer ran mypy (not only pytest) on the touched files, and that it passed.
-- The transitional dual keywords on the six shared seams are expected until WP18. Do not reject them.
+- Transitional surfaces (the six shared seams plus every other function marked `TRANSITIONAL(WP18)`) are expected until WP18. Do not reject them.
 
 ## Activity Log
 

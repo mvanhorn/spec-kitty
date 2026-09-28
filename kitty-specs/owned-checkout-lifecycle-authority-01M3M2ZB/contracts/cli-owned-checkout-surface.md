@@ -14,6 +14,10 @@
 
 **Flagless.** Owned-capable commands run without the flag call `adopt_owned_checkout` on cwd. The result is either a fact or the unchanged repository-root behaviour (FR-021). If the same selector resolves to different mission ids in cwd's checkout and in R, the command keeps today's mission-surface-conflict refusal (US7-AS5).
 
+**Stale-copy key.** `stale_repository_root_copy` is emitted only in owned runs (explicit or adopted fact). A non-owned run's JSON payload is byte-identical to the planning base.
+
+**Option.** Every `--owned-checkout` declaration uses the shared alias `OwnedCheckoutOption`; gate G5 exempts parameters annotated with it (or with its help-preserving form `Annotated[Path | None, owned_checkout_option(help=...)]`) by the named `CLI_CLAIM_INPUT_RULE` (they carry the raw, unvalidated claim input to the minter).
+
 **Refusals.** `emit_owned_refusal` keeps each command's existing JSON envelope keys. `error_code` is always one of the registered codes (data-model.md). No refusal writes to P or R.
 
 **Help text.** It uses "repository root checkout" and "owned checkout"; never bare "primary" and never "feature".
