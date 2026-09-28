@@ -7,7 +7,7 @@
 
 ## Summary
 
-`_render_kind_references`/`_build_references_from_service` in `src/charter/activation/compiler.py` look up every DRG-backed activated reference against `_raw_kind_repository`, which strips only the *activation-config* filter — the underlying per-kind repository was already constructed with `active_languages=infer_repo_languages(repo_root)` baked in, so a language/scope-filtered id (present on disk, excluded by scope) misses the lookup exactly like a genuinely nonexistent id. The miss is recorded as an opaque `"Unresolved reference: <kind>/<id>"` diagnostics-list string and the reference silently vanishes from `catalog.references` (#5257 / #5253). This mission makes that loss impossible: every activated id is uniformly preserved as a reason-bearing placeholder `CharterReference` (never a silent omission, never a second fail-closed code path), the reason distinguishes never-existed from scope-filtered by reusing the already-built `charter.activation._catalog_miss` classifiers, the `--json` output gains an additive structured `unresolved_references` field so automated callers stop string-matching prose, and a generator-to-parity regression test (extending `tests/charter/test_active_languages_idempotency.py`'s fixture precedent) pins the fix at the real `compile_charter`/`charter generate` entry point. A related pre-existing swallow bug in the preflight auto-refresh path (`references_refresh.py`) — a targeted `generate` subprocess whose outcome is never inspected, masking a genuine references-parity failure behind an unconditional manifest re-stamp — is folded in as a bounded, same-defect-class fix per operator doctrine (silent-success is this mission's own acceptance bar).
+`_render_kind_references`/`_build_references_from_service` in `src/charter/activation/compiler.py` look up every DRG-backed activated reference against `_raw_kind_repository`, which strips only the *activation-config* filter — the underlying per-kind repository was already constructed with `active_languages=infer_repo_languages(repo_root)` baked in, so a language/scope-filtered id (present on disk, excluded by scope) misses the lookup exactly like a genuinely nonexistent id. The miss is recorded as an opaque `"Unresolved reference: <kind>/<id>"` diagnostics-list string and the reference silently vanishes from `catalog.references` (#5257 / #5253). This mission makes that loss impossible: a scope-filtered activated id (present on disk, excluded solely by language/scope — the actual #5257/#5253 defect) is uniformly preserved as a reason-bearing placeholder `CharterReference` (never a silent omission, never a second fail-closed code path), while a genuinely-nonexistent id stays on the pre-existing, currently-tested diagnostics-only path (`Contract C4`, issue #4785 — deliberately not superseded, see "WP-CORE reconciliation" below) with its diagnostic now made reason-bearing too; the reason distinguishes never-existed from scope-filtered by reusing the already-built `charter.activation._catalog_miss` classifiers, the `--json` output gains an additive structured `unresolved_references` field so automated callers stop string-matching prose, and a generator-to-parity regression test (extending `tests/charter/test_active_languages_idempotency.py`'s fixture precedent) pins the fix at the real `compile_charter`/`charter generate` entry point. A related pre-existing swallow bug in the preflight auto-refresh path (`references_refresh.py`) — a targeted `generate` subprocess whose outcome is never inspected, masking a genuine references-parity failure behind an unconditional manifest re-stamp — is folded in as a bounded, same-defect-class fix per operator doctrine (silent-success is this mission's own acceptance bar).
 
 ## Technical Context
 
@@ -27,7 +27,7 @@
 
 ### Seams this mission touches (both named explicitly — DIRECTIVE_001 architectural alignment)
 
-1. **`src/charter/activation/compiler.py`** (the `charter` package / doctrine-compiler seam) — the core FR-001/FR-002/FR-003/FR-004 fix. `_render_kind_references` and `_build_references_from_service` change so every DRG-backed activated id (directive/tactic/styleguide/toolguide/procedure/agent_profile) that misses the raw-repository lookup is preserved as a reason-bearing placeholder `CharterReference` rather than silently dropped, and the reason is classified via the existing `charter.activation._catalog_miss` primitives.
+1. **`src/charter/activation/compiler.py`** (the `charter` package / doctrine-compiler seam) — the core FR-001/FR-002/FR-003/FR-004 fix. `_render_kind_references` and `_build_references_from_service` change so every DRG-backed activated id (directive/tactic/styleguide/toolguide/procedure/agent_profile) that misses the raw-repository lookup is classified via the existing `charter.activation._catalog_miss` primitives: a `SCOPE_FILTERED` miss is preserved as a reason-bearing placeholder `CharterReference` (never silently dropped); a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` miss stays on the pre-existing diagnostics-only path (Contract C4, #4785 — see "WP-CORE reconciliation" below), also made reason-bearing.
 2. **`src/specify_cli/charter_runtime/preflight/` (`references_refresh.py` + `runner.py::_attempt_auto_refresh`)** (the `specify_cli` / CLI-orchestration seam) — the auto-refresh fold-in decided below (Edge Cases "Mid-flight missions").
 
 No CLI command reaches past a service into kernel internals here: `references_refresh.py` calls `charter generate` only via `subprocess.run` (already the existing pattern — this mission changes what the CALLER does with the `CompletedProcess`, not the invocation mechanism), and the compiler fix stays entirely inside `charter.activation`/`charter.offering`, never reaching into `specify_cli`. No unguarded core-loop → sync coupling is introduced: the preflight fold-in only tightens an existing synchronous subprocess-result check: it does not add a new sync dependency.
@@ -74,9 +74,22 @@ Already captured on this branch's base commit `af847be71d97c8a126e91c31a7d05629c
 ```
 .venv/bin/python -m pytest -q tests/doctrine/test_activation_parity_guard.py \
   tests/charter/test_active_languages_idempotency.py \
-  tests/charter/test_context_catalog_miss.py
+  tests/charter/test_context_catalog_miss.py \
+  tests/charter/test_catalog_completeness_4785.py
 ```
-→ **51 passed, 0 failed, 1 warning (71.15s)**.
+→ **56 passed, 0 failed, 1 warning (75.20s)**.
+
+`tests/charter/test_catalog_completeness_4785.py` (issue #4785, mission `charter-catalog-coherence-01M2XQQF`)
+is added to this baseline because it pins **Contract C4** ("Recompiled catalog is complete and
+stable", `kitty-specs/charter-catalog-coherence-01M2XQQF/contracts/behavior-contracts.md`) directly
+against `_render_kind_references` — the exact function WP-CORE rewrites — via
+`test_render_kind_references_routes_genuine_miss_to_diagnostics_not_placeholder`, which asserts a
+genuinely-nonexistent id produces `references == []` (diagnostics-only, never a placeholder row).
+WP-CORE's design (see "WP-CORE reconciliation: Contract C4 scope and placeholder text format" below)
+scopes the new placeholder mechanism to the `SCOPE_FILTERED` cause specifically so this contract is
+preserved, not superseded — this file's inclusion in the baseline is what lets WP-CORE's own
+green-bar re-check actually catch a regression against it, rather than silently missing it the way
+the original (pre-review) 51-test command would have.
 
 No pre-existing red in the relevant shards — nothing needs a Pre-existing Failure Reporting Rule issue for this mission's blast radius. This is stated plainly and will not be re-run at plan time.
 
@@ -129,14 +142,28 @@ src/
 tests/
 ├── charter/
 │   ├── test_active_languages_idempotency.py  # Precedent read for FR-005's fixture scaffolding
+│   ├── test_catalog_completeness_4785.py     # UNCHANGED (Contract C4, #4785) — added to WP-CORE's
+│   │                                          #   blast-radius/baseline command (see "The baseline"
+│   │                                          #   above); pins that a genuine miss stays
+│   │                                          #   diagnostics-only, never a placeholder row. WP-CORE
+│   │                                          #   scopes its new placeholder mechanism to the
+│   │                                          #   SCOPE_FILTERED cause specifically so this file
+│   │                                          #   stays green, not red.
 │   └── test_charter_generate_scoped_reference_parity.py  # NEW — FR-005 regression test (separate,
 │                                                            #   failing-first commit, ATDD C-011)
 ├── doctrine/
 │   └── test_activation_parity_guard.py       # UNCHANGED (C-001) — the existing coherence oracle
 │                                              #   FR-005's new test also drives via run_consistency_check
-└── specify_cli/charter_runtime/preflight/
-    └── test_references_refresh.py            # Extended (or new sibling test) for the auto-refresh
-                                                #   fold-in's red-first regression case
+└── specify_cli/charter_runtime/
+    └── test_references_parity_refresh.py     # EXTENDED — the REAL, already-built test module for
+                                                #   preflight.references_refresh (WP06's test home; it
+                                                #   already ships _git_init, _make_generate_subprocess_fake,
+                                                #   and _seed_baseline_repo fixture machinery). The
+                                                #   auto-refresh fold-in's red-first regression case is
+                                                #   added here — adapt _make_generate_subprocess_fake so
+                                                #   the faked `generate` invocation returns a non-zero
+                                                #   returncode/stderr — NOT a new preflight/ subdirectory
+                                                #   (no such directory exists in the current test tree).
 ```
 
 **Structure Decision**: Single Python package, existing module layout unchanged — no new top-level directories, no new packages. All changes land inside the two already-existing seams named above.
@@ -155,15 +182,59 @@ tests/
 
 The FR-005 generator-to-parity regression test — `tests/charter/test_charter_generate_scoped_reference_parity.py`, extending `tests/charter/test_active_languages_idempotency.py`'s `_git_init`/`_invoke_generate`/`_read_catalog` helper precedent (that module was read in full during this planning phase; its helpers already build a real `tmp_path` git repo and drive the real `charter_app` `generate` CLI via `typer.testing.CliRunner`, which is exactly what User Story 2's Acceptance Scenario 1 requires) — lands as a **separate, committed, failing-first commit BEFORE any implementation commit** touches `compiler.py`. The reviewer verifies RED on this mission's `planning_base_branch` (`af847be71d97c8a126e91c31a7d05629c69c93ba`) and GREEN on the lane's final commit. This is stated here in the phasing section, not merely mentioned in passing, per the charter's ATDD-First Discipline section.
 
-The auto-refresh fold-in (below) gets its OWN separate red-first test (`tests/specify_cli/charter_runtime/preflight/test_references_refresh.py` extension) — it is a distinct defect class from FR-001–FR-005 and must not be conflated into the same red/green pair; conflating them would make it impossible for a reviewer to verify each fix independently caused its own test to flip.
+The auto-refresh fold-in (below) gets its OWN separate red-first test (an extension to `tests/specify_cli/charter_runtime/test_references_parity_refresh.py` — the real, existing test module for `preflight.references_refresh`; NOT a new `preflight/` subdirectory, which does not exist in the current test tree) — it is a distinct defect class from FR-001–FR-005 and must not be conflated into the same red/green pair; conflating them would make it impossible for a reviewer to verify each fix independently caused its own test to flip.
 
 ## Phasing & Sequencing
 
 1. **WP-ATDD — FR-005 regression test (failing-first, committed alone).** Author `tests/charter/test_charter_generate_scoped_reference_parity.py`: build a `tmp_path` git repo fixture whose `.kittify/config.yaml` activates the six #5257 ids (`styleguide/java-conventions`, `toolguide/maven-review-checks`, `toolguide/typescript-mutation-tools`, `agent-profile/frontend-freddy`, `agent-profile/java-jenny`, `agent-profile/node-norris`) plus at least one additional, differently language-scoped id (per C-002, proving the general mechanism, not six special cases — e.g. a language-filtered `tactic` or `procedure`, chosen at implementation time from an artifact under `packs/built-in/` whose `applies_to_languages` excludes whatever this fixture's `infer_repo_languages` detects). Drive the real `charter_app` `generate` CLI (`_invoke_generate` precedent), then feed the resulting repo through `ProjectContext.from_repo()` + `run_consistency_check` directly (spec's Acceptance Scenario 3 — NOT the hardcoded-`_REPO_ROOT` `test_this_project_charter_pack_is_coherent`, which cannot be conditioned on an arbitrary fixture path). Assert: (a) every fixture id is present in `catalog.references`; (b) `run_consistency_check` reports coherent; (c) pre-fix, this test is RED (verified by running it against `af847be71` before the compiler fix lands — the reviewer's own verification step). Commit alone.
-2. **WP-CORE — FR-001/FR-002/FR-003 compiler fix.** In `src/charter/activation/compiler.py`: replace the two duplicated `diagnostics.append(f"Unresolved reference: ...")` sites with a single shared classify-and-placeholder helper that (a) checks `raw_id in repository.scope_filtered_ids` (the raw per-kind repository already exposes this via `BaseDoctrineRepository.scope_filtered_ids`) to route to `classify_scope_filtered_miss` (`CatalogMissCause.SCOPE_FILTERED`) vs. falls through to `classify_catalog_miss(raw_id, available_ids)` (`TYPO_SUSPECTED`/`MISSING_ARTIFACT`) for the never-existed case; (b) ALWAYS preserves the id as a placeholder `CharterReference` (uniform mechanism, per FR-001's cardinality-agnostic requirement — never a second fail-closed exit branch); (c) records a reason-bearing diagnostic string (`"Unresolved reference: {kind}/{id} ({cause}): {detail}"` — extends, does not replace, the existing free-text format) into the existing `diagnostics: list[str]`; (d) additionally records a structured `(kind, id, cause, detail)` record that flows through to FR-004's `unresolved_references` JSON field. `--force` (FR-003) touches nothing in this path — it already only gates catalog-file overwrite permission upstream of `_build_references`, never reference resolution, so FR-003 is verified by a paired same-fixture run with/without `--force` producing identical diagnostic/placeholder content (no code change required for FR-003 itself, only a test assertion). Verify the WP-ATDD test now passes GREEN, and the existing 51-test baseline (`test_activation_parity_guard.py` + `test_active_languages_idempotency.py` + `test_context_catalog_miss.py`) stays green (NFR-001, C-001, FR-006).
+2. **WP-CORE — FR-001/FR-002/FR-003 compiler fix.** In `src/charter/activation/compiler.py`: replace the two duplicated `diagnostics.append(f"Unresolved reference: ...")` sites with a single shared classify-and-placeholder helper that (a) checks `raw_id in repository.scope_filtered_ids` (the raw per-kind repository already exposes this via `BaseDoctrineRepository.scope_filtered_ids`) to route to `classify_scope_filtered_miss` (`CatalogMissCause.SCOPE_FILTERED`) vs. falls through to `classify_catalog_miss(raw_id, available_ids)` (`TYPO_SUSPECTED`/`MISSING_ARTIFACT`) for the never-existed case; (b) **for the `SCOPE_FILTERED` cause only**, ALWAYS preserves the id as a placeholder `CharterReference` (uniform mechanism *within that cause*, per FR-001's cardinality-agnostic requirement — never a second fail-closed exit branch for scope-filtered misses); **for `MISSING_ARTIFACT`/`TYPO_SUSPECTED`, stays on the EXISTING Contract-C4-compatible diagnostics-only path — no placeholder row, `references` unchanged at `[]` for that id** (see "WP-CORE reconciliation: Contract C4 scope and placeholder text format" below — this scoping is a deliberate, reviewed decision, not an oversight); (c) records a reason-bearing diagnostic string (`"Unresolved reference: {kind}/{id} ({cause}): {detail}"` — extends, does not replace, the existing free-text format) into the existing `diagnostics: list[str]` **for both causes** (FR-002/NFR-002's reason-bearing requirement applies whether or not the id also gets a placeholder row); (d) additionally records a structured `(kind, id, cause, detail)` record for every cause that flows through to FR-004's `unresolved_references` JSON field, so a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` miss is still machine-readable even though it has no placeholder row. `--force` (FR-003) touches nothing in this path — it already only gates catalog-file overwrite permission upstream of `_build_references`, never reference resolution, so FR-003 is verified by a paired same-fixture run with/without `--force` producing identical diagnostic/placeholder content (no code change required for FR-003 itself, only a test assertion). Verify the WP-ATDD test now passes GREEN, and the existing 56-test baseline (`test_activation_parity_guard.py` + `test_active_languages_idempotency.py` + `test_context_catalog_miss.py` + `test_catalog_completeness_4785.py`, per "The baseline" above) stays green (NFR-001, C-001, FR-006) — `test_catalog_completeness_4785.py` specifically proves Contract C4 (the `MISSING_ARTIFACT`/`TYPO_SUSPECTED` diagnostics-only path) is undisturbed by this change.
 3. **WP-JSON — FR-004 structured diagnostics.** In `src/specify_cli/cli/commands/charter/generate.py`'s `--json` emit block: thread the structured unresolved-reference records from `compiled` (via a new field on the compiler's own result type carrying the list WP-CORE built) into the new `unresolved_references` key, alongside the unchanged `diagnostics` list. Add/extend `contracts/charter-generate-json-diagnostics.md`. Test: Acceptance Scenario 2 (id + reason present machine-readably in `--json` output).
 4. **WP-AUTOREFRESH — preflight auto-refresh swallow fold-in.** Bounded fix to `references_refresh.py`/`runner.py`'s `_attempt_auto_refresh` (full design in tracer-design-decisions.md and restated below) — its own red-first test, its own commit, sequenced independently of WP-CORE/WP-JSON (touches a disjoint file set, no ordering dependency either direction).
 5. **WP-CLEANUP-VERIFY** (folded into WP-CORE/WP-JSON's own commits, not a separate step): re-run `make ci-parity` against the real `src/` diff once WP-CORE/WP-JSON/WP-AUTOREFRESH land, to confirm the actual module-shard/architectural-heavy/diff-cover selection (deferred — cannot be predicted at plan time, stated explicitly above).
+
+## WP-CORE reconciliation: Contract C4 scope and placeholder text format
+
+Two design decisions, made during this planning phase in response to adversarial plan-review
+findings, bind WP-CORE's implementation. Full reasoning lives in `tracer-design-decisions.md`
+(two new decision entries); this section states the resolutions plainly so an implementing agent
+does not have to reconstruct them from the tracer.
+
+**1. Contract C4 is NOT superseded — WP-CORE's placeholder path is scoped to `SCOPE_FILTERED` only.**
+`_render_kind_references` (`src/charter/activation/compiler.py:1096`) is also the function a prior,
+COMPLETED mission (`charter-catalog-coherence-01M2XQQF`, issue #4785) pinned as **Contract C4**
+("Recompiled catalog is complete and stable",
+`kitty-specs/charter-catalog-coherence-01M2XQQF/contracts/behavior-contracts.md`): "Given a directive
+id with genuinely no bundled definition, Then it surfaces through the `graph.unresolved` diagnostics
+channel, not as a silent placeholder `catalog.references` row." This is pinned today by
+`tests/charter/test_catalog_completeness_4785.py::test_render_kind_references_routes_genuine_miss_to_diagnostics_not_placeholder`,
+currently green (5 passed on this branch). An always-placeholder design — regardless of cause — would
+flip that test red. **Decision: option (b), narrow the scope.** WP-CORE's new placeholder mechanism
+applies ONLY to the `SCOPE_FILTERED` cause (the actual #5257/#5253 defect: an id present on disk,
+excluded solely by language/scope). A `MISSING_ARTIFACT`/`TYPO_SUSPECTED` miss (genuinely no bundled
+definition) stays on the existing Contract-C4-compatible diagnostics-only path — Contract C4 and its
+pinning test are **not modified**. FR-001's disjunctive "preserve OR loudly report" bar is still met
+for the genuinely-missing case: a reason-bearing diagnostics-list entry (FR-002/NFR-002 apply to this
+path too) is the "loudly report" branch; it does not also need to become a placeholder row.
+Consequence: `tests/charter/test_catalog_completeness_4785.py` is added to WP-CORE's blast-radius
+baseline command (see "The baseline" above, now 56 tests) so this contract's continued health is
+actually verified, not assumed.
+
+**2. `SCOPE_FILTERED` placeholder summary text — extend the existing baseline string, don't replace
+it.** NFR-002 requires the new `SCOPE_FILTERED` placeholder's `summary` to name the reason category.
+The current baseline text (`_doctrine_yaml_reference`'s fallback, `compiler.py:1505`:
+`"Definition unavailable in bundled doctrine."`, already committed verbatim in this repo's own
+`.kittify/charter/charter.yaml` for the still-unresolved ids) names no reason at all, and spec.md's
+Edge Case requires a repo already carrying that baseline to "not further diverge from" it on
+regeneration. **Decision: option (a), extend as a stable prefix.** The new placeholder's `summary`
+keeps `"Definition unavailable in bundled doctrine."` verbatim as a prefix and appends a
+reason-bearing suffix sourced from `classify_scope_filtered_miss`'s own suggestion text:
+`"Definition unavailable in bundled doctrine. Reason: scope_filtered — <suggestion>"`. This satisfies
+NFR-002 (reason category + detail present) without diverging from the Edge Case's existing
+convention (the literal prefix is preserved byte-for-byte). WP-CORE adds one concrete test: regenerate
+a fixture seeded with today's exact baseline row shape for a still-unresolvable `SCOPE_FILTERED` id
+and assert the post-fix `summary` matches this prefix+suffix format exactly (placed alongside the
+other WP-CORE unit-level assertions in `tests/charter/test_charter_generate_scoped_reference_parity.py`
+or a narrower `compiler.py`-level unit test, implementer's choice — either satisfies IC-01/IC-04).
 
 ## Auto-refresh fail-closed swallow — decision: FOLD IN (bounded)
 
@@ -171,33 +242,33 @@ The auto-refresh fold-in (below) gets its OWN separate red-first test (`tests/sp
 
 - `references_refresh.refresh_references_if_needed` (lines 145–189) spawns `subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=..., check=False)`, binds the `CompletedProcess` to a discarded expression (no variable capture of the return value at all — confirmed: line 175's `subprocess.run(...)` call result is not assigned), catches only `(OSError, subprocess.TimeoutExpired)` at debug-log level, and **unconditionally `return`s `True`** (line 189) regardless of whether the subprocess exited 0 or non-zero.
 - Its caller, `runner.py::_attempt_auto_refresh` (lines 724–759), receives that `True` as `references_refreshed` and — with no outcome information available — unconditionally re-runs `spec-kitty charter synthesize` (the manifest re-stamp, lines 749–759) to re-stamp `synthesized_drg`'s stored content-hash against whatever is CURRENTLY in `charter.yaml`. Per the module's own "post-#2759 retirement" docstring note, `synthesized_drg` staleness is fundamentally "does the manifest's stored hash match a hash of charter.yaml's CURRENT content" — so restamping over a `charter.yaml` that `generate` FAILED to actually reconcile makes the recompute at lines 763–765 see `synthesized_drg="fresh"` even though the underlying references-parity condition was never actually resolved.
-- **This is confirmed live in the current code, independent of whether this mission's own FR-001 fix ever triggers a fail-closed `generate` exit** (per the plan's placeholder-always design above, `generate` itself should now essentially never need a fail-closed non-zero exit for the scoped-reference defect class specifically — but the swallow is reachable for ANY reason `generate` exits non-zero at this call site: a crash, a lock conflict, a schema error, disk-full, etc.), so it is a real pre-existing defect this mission's own investigation surfaced, not a hypothetical.
+- **This is confirmed live in the current code, independent of whether this mission's own FR-001 fix ever triggers a fail-closed `generate` exit** (per the plan's placeholder-for-`SCOPE_FILTERED` design above, `generate` itself should now essentially never need a fail-closed non-zero exit for the scoped-reference defect class specifically — but the swallow is reachable for ANY reason `generate` exits non-zero at this call site: a crash, a lock conflict, a schema error, disk-full, etc.), so it is a real pre-existing defect this mission's own investigation surfaced, not a hypothetical.
 
 **Bounded design (verified sound, adopted as proposed by the phase agent orchestrating this plan, with the verification checks above confirming each of its load-bearing claims):**
 
 1. Widen `references_refresh.refresh_references_if_needed`'s return contract from `bool` to a small frozen outcome type — `RefreshOutcome(attempted: bool, succeeded: bool, detail: str | None)` (a `NamedTuple` or `@dataclass(frozen=True)`, implementation's choice) — where `succeeded` reflects `completed.returncode == 0` (now the `CompletedProcess` IS bound to a name and inspected) and `detail` is a short excerpt (e.g. last non-empty stderr line, or stdout if stderr is empty) on failure. This is an internal signature confined to this one module and its one in-repo caller (`runner.py`'s `refresh_references_if_needed` wrapper, lines 553–582, and `_attempt_auto_refresh`, ~line 733) — NOT a change to `CharterPreflightResult` or any documented/public contract.
 2. In `runner.py::_attempt_auto_refresh`: when the outcome is `attempted and not succeeded`, return `CharterPreflightResult(passed=False, checks=initial_checks, auto_refresh_applied=True, auto_refresh_actions=actions, blocked_reason=f"references-parity refresh failed: {detail}")` **immediately, skipping the manifest-restamp step entirely** — restamping over content that was not actually regenerated is precisely the masking mechanism being removed. When `not attempted` or `attempted and succeeded`, the existing restamp+recompute flow (lines 749–773) is unchanged, byte-for-byte.
-3. Red-first test (`tests/specify_cli/charter_runtime/preflight/test_references_refresh.py`, extended): monkeypatch/mock the `generate` subprocess invocation inside the auto-refresh path to return a non-zero exit. Assert (a) BEFORE the fix, the swallow means the failure never reaches an actionable `blocked_reason` — `passed` can report `True` despite the underlying `generate` failure (demonstrating the bug is real, RED on `af847be71`); (b) AFTER the fix, `passed=False` and `blocked_reason` names the failure detail (GREEN).
+3. Red-first test (`tests/specify_cli/charter_runtime/test_references_parity_refresh.py`, extended — the real, existing test module for `preflight.references_refresh`, which already ships `_git_init`, `_make_generate_subprocess_fake`, and `_seed_baseline_repo` fixture machinery directly reusable here; NOT the nonexistent `tests/specify_cli/charter_runtime/preflight/` path): adapt `_make_generate_subprocess_fake` so the faked `generate` subprocess invocation inside the auto-refresh path returns a non-zero returncode/stderr instead of success. Assert (a) BEFORE the fix, the swallow means the failure never reaches an actionable `blocked_reason` — `passed` can report `True` despite the underlying `generate` failure (demonstrating the bug is real, RED on `af847be71`); (b) AFTER the fix, `passed=False` and `blocked_reason` names the failure detail (GREEN).
 
 **Why this qualifies as "bounded" under operator doctrine** (fold-in, not defer-to-follow-up, not HALT): one call site (`_attempt_auto_refresh`'s post-`refresh_references_if_needed` branch), one function's return-type widening confined to a module and its single caller, testable red-first in isolation, **no contract change** to `CharterPreflightResult`/`contracts/charter-preflight-json.md` beyond reusing the field that already exists (`blocked_reason: str | None`) in exactly the pattern the function already uses elsewhere in the same branch (lines 686–692, 704–709 already return `blocked_reason=reason` with `auto_refresh_applied=True` for a failed refresh step — this fold-in makes the references-parity step behave consistently with every OTHER step in the same sequence, rather than being the one step whose failure is invisible). It does not reach into `charter generate`'s own exit-code contract, does not touch the CLI's `--json` output shape, and does not touch any file outside the two named preflight modules. This clears the fold-in bar; a HALT-for-operator framing is not warranted here.
 
 ## Implementation Concern Map
 
-### IC-01 — Uniform placeholder-preservation for unresolved DRG-backed references
+### IC-01 — Placeholder-preservation for `SCOPE_FILTERED` unresolved DRG-backed references
 
-- **Purpose**: Close the silent-drop defect (FR-001) by making every activated-but-unresolvable id a placeholder `CharterReference` instead of a dropped one, uniformly regardless of cardinality (one id or every id of a kind).
+- **Purpose**: Close the silent-drop defect (FR-001) by making every activated-but-unresolvable id whose cause is `SCOPE_FILTERED` a placeholder `CharterReference` instead of a dropped one, uniformly regardless of cardinality (one scope-filtered id or every scope-filtered id of a kind). `MISSING_ARTIFACT`/`TYPO_SUSPECTED` misses stay on the existing Contract-C4-compatible diagnostics-only path (never a placeholder row) — see "WP-CORE reconciliation: Contract C4 scope and placeholder text format" above; this is a deliberate cause-conditioned scoping, not an unconditional "every unresolved id" rule.
 - **Relevant requirements**: FR-001, FR-003, NFR-001, NFR-002, C-001, C-002, SC-001, SC-004, SC-005.
 - **Affected surfaces**: `src/charter/activation/compiler.py` (`_render_kind_references`, `_build_references_from_service`, new private classify-and-placeholder helper).
 - **Sequencing/depends-on**: Follows WP-ATDD (the FR-005 test must exist and be RED first).
-- **Risks**: The existing diagnostic string format (`"Unresolved reference: <kind>/<id>"`) is extended, not replaced — implementation must grep the test suite for any exact-string assertion on the OLD format before changing it, to avoid an unrelated test regression outside this mission's stated scope.
+- **Risks**: (1) The existing diagnostic string format (`"Unresolved reference: <kind>/<id>"`) is extended, not replaced — implementation must grep the test suite for any exact-string assertion on the OLD format before changing it, to avoid an unrelated test regression outside this mission's stated scope. (2) Regression risk against **Contract C4**: `tests/charter/test_catalog_completeness_4785.py` (added to the baseline command above) must stay green — a `MISSING_ARTIFACT`/`TYPO_SUSPECTED` id must never fall through to the placeholder branch; the `scope_filtered_ids` cause-check must run BEFORE any placeholder-construction code, not after.
 
 ### IC-02 — Reason classification reusing `_catalog_miss` primitives
 
 - **Purpose**: Satisfy FR-002/NFR-002 by distinguishing never-existed from filtered-by-language-scope, reusing `CatalogMissCause`/`classify_catalog_miss`/`classify_scope_filtered_miss` rather than inventing a second classification scheme (DIRECTIVE_044).
 - **Relevant requirements**: FR-002, NFR-002, SC-003 (User Story 3 acceptance scenarios).
-- **Affected surfaces**: `src/charter/activation/compiler.py` (consumes `charter.activation._catalog_miss` and `BaseDoctrineRepository.scope_filtered_ids`, neither of which is itself modified).
+- **Affected surfaces**: `src/charter/activation/compiler.py` — consumes `charter.activation._catalog_miss` and `BaseDoctrineRepository.scope_filtered_ids` (neither is itself modified), AND requires threading a new `active_languages: list[str] | None` parameter across three call levels: `compile_charter` already computes `active_languages` at line 424 but currently does not pass it to `_build_references` (line ~460); `_build_references` (line 1045) must accept and forward it to `_build_references_from_service` (line 1144); `_build_references_from_service` must forward it to the new classify-and-placeholder helper so `classify_scope_filtered_miss(artifact_id, active_languages=...)` can produce its richer, language-set-naming suggestion (`src/charter/activation/_catalog_miss.py:261-305`) instead of falling back to the generic, language-set-less message. `contracts/charter-generate-json-diagnostics.md`'s own worked example (the `detail` string naming `('python')`) depends on this threading actually happening.
 - **Sequencing/depends-on**: IC-01 (same commit/WP — the classify step and the placeholder-build step are one cohesive change, not separable without circularity, per the Campsite-clean decision above).
-- **Risks**: None identified — the reused primitives are already tested (`tests/charter/test_context_catalog_miss.py`, part of the 51-test baseline) and this mission does not modify them.
+- **Risks**: Without the `active_languages` threading above, FR-002/NFR-002's minimum bar (a reason category is present) still passes, but the emitted `detail`/suggestion text is the weaker, generic fallback rather than the contract doc's documented example — implementation must not skip the threading on the assumption that the reused primitives being "already tested" (`tests/charter/test_context_catalog_miss.py`, part of the baseline) makes the plumbing itself unnecessary. Add one assertion (WP-ATDD or WP-JSON, implementer's choice) that the emitted detail/suggestion text for a `SCOPE_FILTERED` case names the actual active language set, matching the contract doc's worked example.
 
 ### IC-03 — Machine-readable `--json` diagnostics
 
@@ -219,7 +290,7 @@ The auto-refresh fold-in (below) gets its OWN separate red-first test (`tests/sp
 
 - **Purpose**: Close the pre-existing silent-success masking bug in `_attempt_auto_refresh`'s references-parity step, per operator doctrine (fold bounded same-defect-class fixes rather than defer).
 - **Relevant requirements**: Edge Cases "Mid-flight missions" (spec.md), this mission's own NFR-002/FR-001 silent-success bar applied reflexively to the preflight seam.
-- **Affected surfaces**: `src/specify_cli/charter_runtime/preflight/references_refresh.py`, `src/specify_cli/charter_runtime/preflight/runner.py` (`_attempt_auto_refresh` only — no other function in this module changes), `tests/specify_cli/charter_runtime/preflight/test_references_refresh.py`.
+- **Affected surfaces**: `src/specify_cli/charter_runtime/preflight/references_refresh.py`, `src/specify_cli/charter_runtime/preflight/runner.py` (`_attempt_auto_refresh` only — no other function in this module changes), `tests/specify_cli/charter_runtime/test_references_parity_refresh.py` (the real, existing test module for `preflight.references_refresh` — extended with the fold-in's red-first case via its own `_make_generate_subprocess_fake` helper, not a new `preflight/` subdirectory).
 - **Sequencing/depends-on**: None — independent of IC-01–IC-04 (disjoint file set, no shared state).
 - **Risks**: Must not alter `_attempt_auto_refresh`'s behavior for any OTHER step in the sequence (source-remediation, synthesize, bundle-validate) — the change is scoped exclusively to the branch immediately following `refresh_references_if_needed`'s call.
 
