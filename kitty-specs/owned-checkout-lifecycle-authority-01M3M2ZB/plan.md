@@ -43,10 +43,16 @@ Local runs are targeted files plus `make test-fast`; the full and architectural 
 - `mission_runtime` public surface gates MR-1/MR-2 (`test_mission_runtime_surface.py`).
 - Complexity ≤ 15; ruff, format and mypy clean; diff coverage ≥ 90%.
 - No shims (`test_compat_shims` burn-down).
-**Scale/Scope**:
-- about 92 parameter conversions across about 45 source files, plus about 27 files for the `OwnedMission` rename;
-- 5 CLI entry points gain `--owned-checkout`;
-- about 10 existing owned-checkout test files are re-pointed.
+**Scale/Scope** (measured by the post-plan squad; about 3× the first estimate):
+- 94 bare owned-root params and fields in 30 files;
+- 126 `effective_root=` keyword call sites in 40 files, 21 of them `**effective_root_kwargs` splats;
+- 46 `effective_root_kwargs(...)` calls in 13 files;
+- 19 `"effective_root"` dict-key sites;
+- 104 `OwnedMission` attribute reads;
+- 87 monkeypatches of the core seams in 27 test files;
+- about 26 test files to re-point.
+
+In total, about **400 edit sites**. On top of that, 5 CLI entry points gain `--owned-checkout`, and two functions are decomposed (`accept` 59 → ≤15, `_create_mission_core_impl` 40 → ≤15).
 
 ## Charter Check
 
@@ -128,160 +134,208 @@ docs/
 
 Not needed; there are no Charter Check violations.
 
+## Staging Strategy (operator decision `01M3M713…`)
+
+**Top-down conversion.** A function's signature changes to `owned: OwnedCheckout | None` only once its callers hold the fact. Its not-yet-converted callees receive the bridging expression `effective_root=owned.owned_root if owned else None`, which is not a new signature.
+
+**Temporary dual keyword on six shared seams.** From the seam WP until the closing WP, these accept both `owned=` and the legacy `effective_root=`:
+- `placement_seam`
+- `mission_context_for`
+- `resolve_action_context`
+- `resolve_workspace_for_wp`
+- `locate_work_package`
+- `TransitionRequest`
+
+The legacy keyword is **deleted in the closing WP**, together with `effective_root_kwargs`. Nothing ships in between: the PR contains only the final state, so this is not a shipped shim. Reviewers must not reject the transitional keyword before the closing WP.
+
+**Every WP leaves the tree green.** The gate's self-mutation and floor tests land green in the foundation WP. The G1–G5 assertions are committed red as the **first commit of the closing WP** and turn green within it (red-first inside that WP).
+
+**One owning WP per shared file** (tasks must honour this):
+
+| File | Owner concern |
+|---|---|
+| `next_invocation_lifecycle.py`, `next_cmd.py`, `prompt_builder.py` | IC-05 |
+| `agent_tasks_ports.py` | IC-04 |
+| `cli/commands/accept.py` | IC-10a |
+| `mission_finalize.py` | IC-07 |
+| `core/owned_mission.py` | IC-01 (it holds `adopt_owned_checkout` and `resolve_owned_create_root` as well) |
+
+**Campsite first.** The first commit of each owning WP is a behaviour-preserving extraction for any touched function at complexity ≥ 12:
+- `finalize_tasks` (15, `noqa`)
+- `_commit_finalize_artifacts` (15)
+- `query_current_state` (15)
+- `resolve_context` (15)
+- `_state_to_action` (14)
+- `_build_wp_prompt` (14)
+- `_print_standard_human` (14)
+- `next_step`, `create_rejected_review_cycle`, `_run_bootstrap_loop` (12)
+
+## Test Layout and Markers
+
+- **One acceptance file per WP**: `tests/integration/test_owned_lifecycle_acceptance_{status,context,next,review,finalize,cli,create}.py`, marked `integration` + `git_repo` (in-process CliRunner).
+- **Shared fixtures** (`owned_checkouts`, `r_snapshot`, `stale_root_copy`) live in `tests/integration/conftest.py`, not imported from test modules.
+- **Seam unit tests** are marked `unit` + `fast`. **Gates** are marked `architectural`.
+- **Tests that build with `spec-kitty init` or an installed CLI** are marked `e2e` + `slow` (nightly). The per-PR guard for coordination-topology owned `next` is the in-process twin (FR-022).
+- **NFR-002 counts** patch at `checkout_ownership.resolve_ownership_claim` and clear the workspace caches first.
+- **NFR-003** is `performance` (nightly).
+- **Windows case-variant test**: its file is added to the `ci-windows.yml` path filter.
+
 ## Implementation Concern Map
 
 > Concerns are not work packages. `/spec-kitty.tasks` decomposes them.
 
 ### IC-01 — Validated ownership fact and sole minter
-- **Purpose**: one value object and one minting module, so ownership is decided once per command.
-- **Relevant requirements**: FR-001, FR-002, FR-003, FR-020, FR-023, C-001, C-003, NFR-002, NFR-006.
+- **Purpose**: one value object and one minting module.
+- **Relevant requirements**: FR-001, FR-002, FR-003, FR-020, FR-021 (helper), FR-023, C-001, C-003, NFR-002, NFR-006.
 - **Affected surfaces**:
-  - new `src/mission_runtime/owned_checkout.py` and the `mission_runtime/__init__.py` re-export;
-  - `src/specify_cli/core/owned_mission.py`: `resolve_owned_mission(..., allowed_topologies)`, `LIFECYCLE_OWNED_TOPOLOGIES` / `NEXT_OWNED_TOPOLOGIES`, `resolve_owned_create_root`, `adopt_owned_checkout`; delete `OwnedMission`, `_EffectiveRootKwargs` and `effective_root_kwargs`;
-  - `core/checkout_ownership.py`: refuse the repository root checkout itself with `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`;
-  - `test_mission_runtime_surface.py` `_PUBLIC_SURFACE`.
-- **Sequencing/depends-on**: none (foundation).
+  - New `src/mission_runtime/owned_checkout.py`, re-exported from `mission_runtime/__init__.py` and added to `_PUBLIC_SURFACE`:
+    - `OwnedCheckout.files()` reuses `kernel.resolution.resolve_rejecting_loops` to keep the symlink and loop defence of today's `ensure_within_directory`;
+    - containment reuses `mission_runtime.checkout_identity._is_within`;
+    - Windows case-folding goes through `kernel.paths.is_windows()`.
+  - `core/owned_mission.py`:
+    - `resolve_owned_mission(..., allowed_topologies)`, with `LIFECYCLE_OWNED_TOPOLOGIES` / `NEXT_OWNED_TOPOLOGIES`;
+    - `resolve_owned_create_root`, which returns a typed `OwnedCreateRoot` value rather than a bare `Path`;
+    - `adopt_owned_checkout`: excludes R, other repositories, coordination worktrees (`classify_worktree_topology(...) is COORD_WORKTREE`), lane worktrees (via `lanes.json` membership) and rejected checkouts. It also re-expresses today's mission-surface-conflict refusal for different mission ids (US7-AS5).
+    - Delete `OwnedMission`, `_EffectiveRootKwargs` and `effective_root_kwargs` in the closing WP.
+  - `core/checkout_ownership.py`: add `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`.
+  - Rename the 104 attribute sites according to `occurrence_map.yaml`.
+  - The gate's self-mutation and floor tests land here, green.
+- **Sequencing**: foundation.
 - **Risks**:
-  - The rename of about 27 files must follow `occurrence_map.yaml`.
-  - The attribute renames `.primary`/`.root` are grep-hostile; mypy strict is the net.
-  - Canonical path identity needs one helper (`Path.resolve()` plus `os.path.normcase` on Windows).
+  - The attribute renames are grep-hostile; `mypy --strict` is the safety net.
+  - The contract note that "`LANE_WORKTREE` means registered non-coordination" is recorded in the carrier contract.
 
-### IC-02 — Placement seam and mission-runtime resolution take the fact
-- **Purpose**: close the fall-back to the repository root at its source: `placement_seam` / `get_main_repo_root` fold.
-- **Relevant requirements**: FR-006, FR-007, FR-009, FR-011.
+### IC-02 — Placement seam and mission-runtime resolution
+- **Purpose**: close the fold-back at its source.
+- **Relevant requirements**: FR-006, FR-007, FR-009, FR-011, FR-023.
 - **Affected surfaces**:
-  - `mission_runtime/resolution.py`: `placement_seam(owned=)`, `PlacementSeam.owned`, `mission_context_for(owned=)`, `resolve_action_context(owned=)`, `_resolve_wp_bearing_fields(owned)`, `_require_owned_single_branch` reading `owned.topology`;
-  - `task_utils/support.py::locate_work_package(owned=)`.
-- **Sequencing/depends-on**: IC-01.
-- **Risks**:
-  - The public `mission_runtime` API changes, and callers across `specify_cli` must move in lockstep.
-  - Primary-partition kinds must return `owned.mission_dir` without calling `get_main_repo_root`.
+  - `mission_runtime/resolution.py`: add the owned arm to `placement_seam` / `PlacementSeam.owned`, `mission_context_for`, `resolve_action_context` (target branch from the fact) and `_resolve_wp_bearing_fields`.
+  - **Delete `_require_owned_single_branch`** (`:1505,1596,2361`). Topology is decided once, at minting, so this is not a second topology authority.
+  - `task_utils/support.py::locate_work_package`.
+  - The dual keyword starts here.
+- **Sequencing**: IC-01.
 
-### IC-03 — Workspace resolution: owned arm, kind and cache
-- **Purpose**: owned WPs resolve to P with a distinct kind and no lane, and caches never mix checkouts.
+### IC-03 — Workspace resolution: owned arm, kind, cache
 - **Relevant requirements**: FR-006, FR-008, FR-011, FR-019.
 - **Affected surfaces**:
-  - `workspace/context.py`: owned first arm, `ResolvedWorkspace(resolution_kind="owned_checkout", lane_id=None, worktree_path=owned.owned_root)`; coordination-topology owned keeps the lane arm through the owned seam; `_FEATURE_WP_METADATA_*` keyed on the resolved read `tasks_dir`; `clear_workspace_resolution_caches` tests;
-  - `mission_runtime/checkout_identity.py` owned arm.
-- **Sequencing/depends-on**: IC-01, IC-02.
-- **Risks**:
-  - Consumers that assume `lane_id` ⇒ lane worktree (`prompt_builder`, `workflow`) must handle `owned_checkout`.
-  - Changing the cache key changes invalidation semantics.
+  - `workspace/context.py`:
+    - `resolution_kind="owned_checkout"` with `lane_id=None`;
+    - coordination-topology owned missions keep the lane arm through the owned seam;
+    - caches keyed on the resolved read `tasks_dir`, with `clear_workspace_resolution_caches` tests.
+  - `mission_runtime/checkout_identity.py`: owned arm.
+  - Carry the lookup and cache half of #5009 edaa9cd83.
+- **Sequencing**: IC-01, IC-02.
 
-### IC-04 — Status surfaces consume the fact
-- **Purpose**: owned single_branch checkouts under `.worktrees/` read status, and the status transaction stops re-validating.
+### IC-04 — Status surfaces and the status pipeline
 - **Relevant requirements**: FR-003, FR-013, FR-014, C-002.
 - **Affected surfaces**:
-  - `coordination/status_service.py`: `EventLogReadContract.owned`; the guard at `:163` delegates to the new `surface_resolver.primary_read_targets_coord_worktree(path, *, owned)`;
-  - `coordination/status_transition.py`: `:917` re-validation removed, `_read_contract_from_transaction_target`;
-  - `status/models.py`: `TransitionRequest.owned`;
-  - `agent_tasks_ports.MissionHandle.owned`;
-  - `acceptance/accept.py:342`.
-- **Sequencing/depends-on**: IC-01.
-- **Risks**: loosening the `.worktrees` shape guard. The same-path registered coordination worktree control (FR-014) must be added before the change. The #5009 test `test_owned_contract_validates_root_and_mission` is dropped because it pins a parallel source that C-002 forbids.
+  - `coordination/status_service.py`: **all six shape-guard sites** (`:159,166,221,228,340,347`, covering read, stream read and write-contract validation) route through the new `surface_resolver.primary_read_targets_coord_worktree(path, *, owned)`. `EventLogReadContract` and `EventLogWriteContract` each gain `owned`.
+  - `coordination/transaction.py:644`: replace the raw `".worktrees" in parts` check with `is_under_worktrees_segment`.
+  - `coordination/status_transition.py`: remove the `:903-917` re-validation.
+  - The status pipeline's `TransitionRequest` readers (`status/models.py`, `transition_pipeline`, `emit`, `bootstrap`, `transaction`, `commit_router`, `write_seam`) collapse `effective_root` and `owned_mission` into `owned`. This is the status half of the old IC-10.
+  - `agent_tasks_ports.py` (`MissionHandle.owned`).
+  - `cli/commands/accept.py:342`: stop re-validating (the edit is owned by IC-10a).
+  - Carry #5009 4ff6ff0c0 with its `test_owned_contract_validates_root_and_mission` dropped. Add a same-path **registered** coordination-worktree control (FR-014).
+- **Sequencing**: IC-02.
 
-### IC-05 — `next` runtime consumes the fact
-- **Purpose**: `next --owned-checkout` validates properly, crosses tasks→implement, uses P's composition policy and task board, and survives the #4867 probe fault.
-- **Relevant requirements**: FR-002, FR-007, FR-008, FR-009, FR-012, FR-023.
+### IC-05 — `next` runtime
+- **Relevant requirements**: FR-002, FR-007, FR-008, FR-009, FR-012, FR-022 (in-process twin), FR-023.
 - **Affected surfaces**:
-  - `cli/commands/next_cmd.py`: via `resolve_owned_or_adopt` with `NEXT_OWNED_TOPOLOGIES`; handle-less `next` resolves the handle in P first;
-  - `runtime/next/runtime_bridge.py`: `DecideNextContext.owned`, `_dn_bootstrap`, `decide_next_via_runtime`, `query_current_state`, `_build_finalized_override_query_decision`, `_mission_routes_through_coordination`, `_wrap_with_decision_git_log` (git cwd), `_dn_composition_dispatch`, `_resolve_wp_board_action` / `_implement_action` / `_review_action`;
-  - `runtime_bridge_engine.py`, `runtime_bridge_io.py:1155` (the presence probe folds into the fact), `decision.py`, `prompt_builder.py`, `next_invocation_lifecycle.py`;
-  - `coordination/workspace.py:163`: capture stderr on `git worktree list`, raise a typed `CoordinationWorkspaceUnavailable`, which the runtime maps to a `blocked` decision with `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`.
-- **Sequencing/depends-on**: IC-01, IC-02, IC-03.
-- **Risks**:
-  - `runtime_bridge.py` is a god-module, so campsite-extract first.
-  - O5's wedge: WP resolution must happen before the run state advances.
-  - The e2e lanes_with_coord owned test must stay green (FR-022).
+  - `next_cmd.py`: goes through `resolve_owned_or_adopt(NEXT_OWNED_TOPOLOGIES)`; resolves the handle in P for handle-less `next`; delete `_emit_checkout_ownership_error`.
+  - `runtime/next/runtime_bridge.py`:
+    - `DecideNextContext.owned` and the `_dn_*` helpers;
+    - the board authority `_resolve_wp_board_action`, `_implement_action` and `_review_action`;
+    - composition policy read from `owned.owned_root`;
+    - `_wrap_with_decision_git_log` cwd;
+    - resolve the WP workspace **before** persisting the advance (O5).
+  - `runtime_bridge_engine.py`, and `runtime_bridge_io.py:1155` (the presence probe folds into the fact).
+  - `decision.py`, `prompt_builder.py`, `next_invocation_lifecycle.py`.
+  - `coordination/workspace.py:163`: capture stderr, raise a typed `CoordinationWorkspaceUnavailable` (subclassing `CalledProcessError`, so the transient-lock retry still applies), and map it to a `blocked` decision with `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`.
+  - Carry #5009 edaa9cd83 (the `next` half) and 1be5352ee (the composition half). Re-express e6923bc97.
+- **Sequencing**: IC-02, IC-03, IC-04, IC-08 core.
+- **Risks**: god-module, so campsite-extract first. Consider splitting the runtime and the prompt/review work into separate WPs.
 
-### IC-06 — Owned review base
-- **Purpose**: a deterministic, subject-free claim commit and a WP-scoped diff, failing closed.
-- **Relevant requirements**: FR-010.
+### IC-06 — Unified review base (decision `01M3M70Y…`)
+- **Relevant requirements**: FR-010, FR-025.
 - **Affected surfaces**:
-  - `runtime/next/prompt_builder.py` (`_build_wp_prompt` review branch);
-  - `cli/commands/agent/workflow_executor.py:2236-2362` for the owned path;
-  - a new helper that finds the last `to_lane=claimed` event for the WP in P's `status.events.jsonl`, then runs `git -C P log --format=%H -S<event_id> HEAD -- <status.events.jsonl>`. The helper expects exactly 1 match; otherwise `OWNED_REVIEW_BASE_UNAVAILABLE`.
-- **Sequencing/depends-on**: IC-05.
-- **Risks**: the #5009 test 1be5352ee asserts `{TARGET}..HEAD` and must be rewritten to the claim-commit contract.
+  - A new helper, `claim_commit_for_wp(checkout_root, mission_slug, wp_id)`, in `mission_runtime`. It uses git through the kernel seam and fails closed.
+  - Used by both the `owned_checkout` and `repo_root` review paths.
+  - **Delete the three subject matchers**: `workflow_executor.py:2259`, `prompt_builder.py:255` and `core/worktree_topology.py:125`. The `prompt_builder` edit is owned by IC-05's WP, or the WP is split and sequenced after it.
+  - Rewrite #5009 1be5352ee's review assertion to the claim-commit contract.
+  - Pin that no later event cites a claim `event_id`: a test for the `-S` uniqueness assumption.
+- **Sequencing**: IC-05.
+- **Risks**: squash-rebasing P's branch folds the claim into implementation commits. This is documented, and the helper still fails closed.
 
 ### IC-07 — Atomic `finalize-tasks`
-- **Purpose**: every refusal happens before the first write.
-- **Relevant requirements**: FR-015, FR-013.
-- **Affected surfaces**: `cli/commands/agent/mission_finalize.py`:
-  - build the full in-memory plan (requirement mapping, ownership manifests `:3489`, stale-canceled `:3501`, lane computation and cycle `:2992`, pin classification, status-surface resolution) by reusing the `--validate-only` path;
-  - then apply the writes (`:3381` meta, `:3417` issue-matrix, `:3472` WP frontmatter, `:3478` tasks.md, `:3506` TasksStarted, `:2980–3020` pipeline) in one phase.
-- **Sequencing/depends-on**: IC-04 (the status-surface read inside the plan).
-- **Risks**:
-  - Spec US4-AS3's refusal is amended to a **lane dependency cycle** (WP01→WP02→WP03 where WP01 and WP03 share an owned file) or an ownership-manifest overlap. Dependency-graph cycles are already atomic on main (research R-07).
-  - Keep complexity ≤ 15 by extracting plan and apply phases.
+- **Relevant requirements**: FR-013, FR-015.
+- **Affected surfaces**: `cli/commands/agent/mission_finalize.py` and `tasks_finalize_validation.py`:
+  1. build the whole plan in memory first, reusing `--validate-only` (INV-6);
+  2. then apply all writes in one phase.
+- **Sequencing**: IC-04, IC-08 core.
+- **Risks**: the oracle is `git status --porcelain`, including `.kittify/derived/`.
 
 ### IC-08 — CLI owned surface and validated flagless adoption
-- **Purpose**: one option, one resolver, one refusal emitter and one stale-copy reporter for every owned-capable command.
 - **Relevant requirements**: FR-004, FR-005, FR-006, FR-007, FR-018, FR-020, FR-021, NFR-004.
 - **Affected surfaces**:
-  - new `cli/commands/_owned_checkout.py`: `OwnedCheckoutOption`, `resolve_owned_or_adopt(flag, cwd, handle, allowed_topologies)`, `emit_owned_refusal(code, message, json_output)`, `stale_repository_root_copy(fact)`;
-  - new flags on `agent tasks status` (`tasks.py:1361` → `tasks_status_cmd._do_status`), `setup-plan` (`mission_setup_plan.py:996`), `context resolve` (`agent/context.py:110`), `agent action implement` (`workflow.py:1336`) and `agent action review` (`workflow.py:1858`, refusal only, `OWNED_ACTION_UNSUPPORTED`);
-  - existing owned commands (move-task, mark-status, spec-commit, finalize, check-prerequisites, accept, next) moved onto the shared helper;
-  - delete `missions/operation_context.py` and `MissionSurfaceConflictError`;
-  - golden contracts `test_tasks_cli_contract.py` and `test_mission_cli_golden_contract.py`.
-- **Sequencing/depends-on**: IC-01; per-command wiring after IC-02/03/04.
-- **Risks**:
-  - Adoption must exclude the repository root checkout, lane worktrees (`lanes.json` / workspace context) and coordination worktrees (`surface_resolver.classify_worktree_topology`).
-  - The JSON error shapes differ per command today; the shared emitter must keep each command's existing envelope keys (serialized keys are `do_not_change`).
+  - New `cli/commands/_owned_checkout.py`: `OwnedCheckoutOption`, `resolve_owned_or_adopt`, `emit_owned_refusal` (built on `cli/json_contract.json_error`, keeping each command's envelope keys, always with `error_code`), and a stale-copy reporter.
+  - Move **all eight** inline `--owned-checkout` declarations onto the option:
+    - `tasks.py:782,916`
+    - `mission_finalize.py:3237`
+    - `mission_check_prerequisites.py:563`
+    - `next_cmd.py:132`
+    - `accept.py:763`
+    - `spec_commit_cmd.py:166`
+    - `mission_create.py:753`
+  - New flags:
+    - `agent tasks status`: `tasks.py:1361` / `tasks_status_cmd._do_status`
+    - `setup-plan`: `mission_setup_plan.py:996`
+    - `context resolve`: `agent/context.py:110`
+    - `agent action implement` / `agent action review`: `workflow.py:1336,1858`, refusal only
+  - Delete `missions/operation_context.py`.
+  - Update the golden contracts.
+- **Sequencing**: core helper after IC-01; per-command wiring after IC-02/03/04.
 
 ### IC-09 — Governance reads at owned create
-- **Purpose**: owned create reads charter activation, mission-type context and the spec template from P.
 - **Relevant requirements**: FR-016, FR-017.
-- **Affected surfaces**: `core/mission_creation.py:848` (now `resolve_owned_create_root`), and `:951`, `:963`, `:968` switching from `resolved_root` to the owned root.
-- **Sequencing/depends-on**: IC-01.
-- **Risks**: the charter authoring guard (#4785) must stay intact. Carry #5009 a37e9ee39 red-first and re-express 1f42f76ea.
+- **Affected surfaces**: `core/mission_creation.py` `:848`, `:951`, `:963`, `:968`. Carry a37e9ee39 and re-express 1f42f76ea.
+- **Sequencing**: IC-01, IC-14b (decomposition first).
 
-### IC-10 — Remaining `effective_root` conversion (all 92)
-- **Purpose**: no bare-path owned root anywhere in `src/` (operator decision `01M3M65D…`).
-- **Relevant requirements**: FR-001 (G4/G5), FR-003, FR-022.
-- **Affected surfaces**: every `effective_root` parameter or field not covered by IC-02..IC-09. That includes acceptance, the consolidation baseline, the review cycle, `commit_router`, `write_seam`, `agent_tasks_ports`, move-task, mark-status, spec-commit, check-prerequisites and `next_invocation_lifecycle`. The census is in research R-03. `src/charter`'s `effective_root` (org-pack root) is a different sense and is excluded.
-- **Sequencing/depends-on**: IC-01..IC-09 (last functional concern).
-- **Risks**:
-  - Largest blast radius. Each converted module's own tests plus FR-022's existing owned test files must pass unchanged.
-  - Where a caller only has a flagless repository root, it passes `owned=None`, never a synthesized fact.
+### IC-10 — Remaining conversion (all bare owned roots)
+- **IC-10a — acceptance.** `cli/commands/accept.py` and `acceptance/*`. Carries IC-14a.
+- **IC-10b — task commands and history.** `tasks_move_task`, `tasks_mark_status`, `tasks_shared`, `tasks_parsing_validation`, `tasks_verdict_persistence`, `spec_commit_cmd`, `mission_check_prerequisites`, `issue_matrix`, `review/cycle`, `consolidation/baseline`, `git/commit_helpers`, `missions/_read_path_resolver` and `migration/runtime_state_cutover`.
+- **Scope**: this also covers the renamed-carrier state fields (`owned_checkout: Path | None` at `tasks_mark_status.py:114`, `tasks_move_task.py:248` and `mission_creation.py:127`) and the `"effective_root"` dict-key splats (for example `mission_finalize.py:929` and `agent_tasks_ports.py:251`).
+- **Relevant requirements**: FR-001, FR-003, FR-022.
+- **Sequencing**: IC-04, IC-08 core.
 
-### IC-11 — Single-authority architectural gate
-- **Purpose**: make the defect class impossible by construction (SC-004).
+### IC-11 — Single-authority gate (closing)
 - **Relevant requirements**: FR-001, SC-004.
-- **Affected surfaces**: new `tests/architectural/test_owned_checkout_single_authority.py`:
-  - G1: `resolve_ownership_claim` only in `owned_mission.py`;
-  - G2: validator and adoption calls only from `cli/commands/**` and `owned_mission.py`;
-  - G3: `OwnedCheckout._mint` only in `owned_mission.py`;
-  - G4/G5: no `effective_root`/`owned_root` parameter or field typed `Path`/`Path | None` anywhere in `src/` except `src/charter`'s unrelated org-pack sense, which is excluded by an explicit module-scoped rule with a reason. The **allowlist is empty**;
-  - self-mutation tests.
-
-  The gate is committed red first, against the planning base.
-- **Sequencing/depends-on**: authored red at the start; green after IC-10.
-- **Risks**: the gate must not be vacuous. It asserts a concrete floor: ≥ 1 offender on the planning base for each of G1, G2 and G4.
+- **Affected surfaces**:
+  - `tests/architectural/test_owned_checkout_single_authority.py`, following `contracts/architectural-gate.md`: AST scans of all reference forms, an identifier ban, the carrier-field FQN rule and self-mutation cases.
+  - The closing WP commits the G1–G5 assertions red, then deletes the dual keywords, `effective_root_kwargs` and every remaining `effective_root` in `src/` outside `src/charter`, so the gate turns green.
+  - Add a `_baselines.yaml` cap of 0.
+- **Sequencing**: last.
 
 ### IC-12 — ADRs and glossary
-- **Purpose**: record the design and terminology.
-- **Relevant requirements**: FR-024, C-005, C-008.
-- **Affected surfaces**:
-  - `docs/adr/3.x/2026-09-03-1-explicit-owned-checkout-single-branch-lifecycle.md` (validated fact, per-command topology, `owned_checkout` kind, claim-commit review base, atomic finalize, stale-copy policy);
-  - `docs/adr/3.x/2026-08-12-1-checkout-ownership-for-mission-create-and-next.md` (`next` via validator, validated flagless adoption, create root);
-  - `docs/adr/3.x/2026-06-07-1-execution-state-canonical-surface.md` (public `OwnedCheckout` note);
-  - `docs/context/execution.md` ("owned checkout" entry).
-
-  Run the docs freshness, terminology and docs index tooling.
-- **Sequencing/depends-on**: none. Can land with IC-01.
-- **Risks**: none significant.
+- **Relevant requirements**: FR-024, C-005.
+- **Affected surfaces**: ADRs 2026-09-03-1, 2026-08-12-1 and 2026-06-07-1, and `docs/context/execution.md`. Run the docs index, freshness and terminology tooling.
+- **Sequencing**: none.
 
 ### IC-13 — #5009 provenance
-- **Purpose**: carry prior art with authorship.
-- **Relevant requirements**: C-006.
-- **Affected surfaces**: carry these `cherry-pick -x` onto the lane that owns their concern, keeping author Samuel Goff:
-  - a37e9ee39 (IC-09);
-  - edaa9cd83 (IC-03/05);
-  - 1be5352ee (IC-05/06, then rewrite the review assert);
-  - 4ff6ff0c0 (IC-04, drop `test_owned_contract_validates_root_and_mission`);
-  - 22f380055, if the engine file is still formatter-excluded.
+Each carried commit keeps author Samuel Goff (`cherry-pick -x`) and lands at the start of its concern's WP:
 
-  6d682dce3 is dropped (pins the forbidden parallel source). The fix commits 1f42f76ea, e6923bc97, b1a1693bf and 77aa62913 are re-expressed with `Co-authored-by: Samuel Goff`. The doc commits ea68d9a47, 5a9b708e3, 75f3339d6 and 965d7fd13 are dropped.
-- **Sequencing/depends-on**: each carried test lands red-first at the start of its IC.
-- **Risks**: the carried tests use the `repo_root=R, effective_root=P` call shape and are adapted to the fact in the same WP.
+| Commit | Destination | Handling |
+|---|---|---|
+| a37e9ee39 | IC-09 | carry |
+| edaa9cd83 | IC-03 / IC-05 | carry, split by file ownership |
+| 1be5352ee | IC-05 / IC-06 | carry, then adapt |
+| 4ff6ff0c0 | IC-04 | carry, then trim |
+| 22f380055 | pyproject | only if the engine file is still formatter-excluded |
+
+The fix commits are re-expressed with a `Co-authored-by: Samuel Goff` trailer. 6d682dce3 and the doc and style commits are dropped.
+
+### IC-14 — Complexity restoration (decision `01M3M718…`)
+- **IC-14a**: decompose `accept()` (59 → ≤15), behaviour-preserving, with focused tests.
+- **IC-14b**: decompose `_create_mission_core_impl` (40 → ≤15), behaviour-preserving, with focused tests.
+- Remove `C901` from the `ruff.toml` per-file ignores for `cli/commands/accept.py` and `core/mission_creation.py`. They are the only over-limit functions in those files.
+- **Relevant requirements**: FR-026.
+- **Sequencing**: IC-14a precedes the IC-10a conversions; IC-14b precedes IC-09. Both are pure refactors, done before the functional change (tidy-first).

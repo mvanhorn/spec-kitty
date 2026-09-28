@@ -140,3 +140,17 @@ There is no dependency decision, so the supply-chain adversarial pass does not a
 - Claim-commit definition: **changed** (R-05).
 - US4-AS3 refusal choice: **changed** (R-07).
 - Parallel status source from #5009: **accepted** (dropped).
+
+## R-16 Post-plan squad folds (randy-reducer, paula-patterns, debugger-debbie)
+- **Topology single authority.** `_require_owned_single_branch` (`resolution.py:1505,1596,2361`) is deleted. Topology is decided at minting only.
+- **Status shape guard.** It runs at six sites in `status_service.py`, and all six route through `surface_resolver`. `transaction.py:644`'s raw `.worktrees` check moves to `is_under_worktrees_segment`.
+- **Review-base duplication.** There are three subject matchers (`workflow_executor.py:2259`, `prompt_builder.py:255`, `core/worktree_topology.py:125`), broken for every mission since the event-only cutover. They are unified into `claim_commit_for_wp` for all review paths (operator decision `01M3M70Y…`).
+- **CLI duplication.** There are eight inline `--owned-checkout` declarations and a separate `_emit_checkout_ownership_error`. They are unified onto `_owned_checkout.py`, which builds on `json_contract.json_error`.
+- **Path safety.** `OwnedCheckout.files()` must keep the symlink and loop defence (`kernel.resolution.resolve_rejecting_loops`).
+- **Adoption.** `tasks_status_cmd.py:224`'s cwd root was falsified as a second adoption path, because the handle resolves against R first. The mission-surface-conflict refusal for different mission ids is preserved inside `adopt_owned_checkout`.
+- **Sizing.** About 400 edit sites and about 26 test files; see the plan's Scale/Scope. Staging is top-down, with a temporary dual keyword on six seams deleted in the closing WP (operator decision `01M3M713…`).
+- **Gate.** G4/G5 were rewritten as an identifier ban plus a named carrier-field rule, and G1 covers all reference forms. G2's floor was corrected: `cli/commands/accept.py` is on the allowed path.
+- **R-snapshot.** It excludes exactly P's subtree, and covers the shared lock root, `SPEC_KITTY_HOME` and cwd ∈ {R, P, elsewhere}.
+- **#4867.** Only a zero-byte `commondir` reproduces it (a missing file or a lone newline gives rc 0). The stderr wording depends on the C library, so tests assert on `error_code` with a pre-assertion that the injected fault really breaks git, plus a subprocess-seam injection.
+- **FR-022.** The coordination-topology owned `next` coverage was nightly-only, so an in-process per-PR twin is added.
+- **Complexity.** `accept` (59) and `_create_mission_core_impl` (40) are the only over-limit functions in their per-file-ignored files. Both are fully decomposed and their C901 ignores removed (operator decision `01M3M718…`).
