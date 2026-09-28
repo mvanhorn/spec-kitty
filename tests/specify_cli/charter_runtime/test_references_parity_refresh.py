@@ -152,9 +152,7 @@ def _seed_baseline_repo(repo: Path, seen_calls: list[list[str]]) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_references_parity_drift_recompiles_the_catalog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_references_parity_drift_recompiles_the_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen_calls: list[list[str]] = []
     charter_yaml_path = _seed_baseline_repo(tmp_path, seen_calls)
     charter_md_path = tmp_path / ".kittify" / "charter" / "charter.md"
@@ -172,18 +170,14 @@ def test_references_parity_drift_recompiles_the_catalog(
 
     charter_md_before = charter_md_path.read_bytes()
 
-    monkeypatch.setattr(
-        subprocess, "run", _make_generate_subprocess_fake(tmp_path, seen_calls)
-    )
+    monkeypatch.setattr(subprocess, "run", _make_generate_subprocess_fake(tmp_path, seen_calls))
 
     outcome = references_refresh.refresh_references_if_needed(tmp_path, cause="synthesized_drg")
 
     assert outcome.attempted is True
     assert outcome.succeeded is True
     assert outcome.detail is None
-    assert any(
-        tuple(c[:3]) == _GENERATE_CMD_PREFIX for c in seen_calls
-    ), seen_calls
+    assert any(tuple(c[:3]) == _GENERATE_CMD_PREFIX for c in seen_calls), seen_calls
 
     healed = _load_yaml(charter_yaml_path)
     healed_references = healed["catalog"]["references"]
@@ -199,23 +193,16 @@ def test_references_parity_drift_recompiles_the_catalog(
     # ("content reflects current activation" -- i.e. the SAME activated set
     # is recompiled, not left as the injected empty/truncated drift) without
     # coupling this test to that separate, out-of-scope defect.
-    assert {ref["id"] for ref in healed_references} == {
-        ref["id"] for ref in baseline_references
-    }, (
-        "references-parity refresh must recompile the catalog back to "
-        "current activation, not leave the drifted/truncated content"
+    assert {ref["id"] for ref in healed_references} == {ref["id"] for ref in baseline_references}, (
+        "references-parity refresh must recompile the catalog back to current activation, not leave the drifted/truncated content"
     )
     assert len(healed_references) == len(baseline_references)
 
     charter_md_after = charter_md_path.read_bytes()
-    assert charter_md_after == charter_md_before, (
-        "NFR-006: curated charter.md must be 0 bytes changed by the refresh"
-    )
+    assert charter_md_after == charter_md_before, "NFR-006: curated charter.md must be 0 bytes changed by the refresh"
 
 
-def test_references_parity_drift_recompiles_using_the_existing_mission_and_template_set(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_references_parity_drift_recompiles_using_the_existing_mission_and_template_set(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The targeted refresh must not silently reset a non-default mission
     type / template set to ``generate``'s hardcoded ``software-dev``
     fallback -- it reads the existing ``catalog.mission``/``template_set``
@@ -227,21 +214,14 @@ def test_references_parity_drift_recompiles_using_the_existing_mission_and_templ
     assert baseline["catalog"]["mission"] == "software-dev"
     assert baseline["catalog"]["template_set"]
 
-    monkeypatch.setattr(
-        subprocess, "run", _make_generate_subprocess_fake(tmp_path, seen_calls)
-    )
+    monkeypatch.setattr(subprocess, "run", _make_generate_subprocess_fake(tmp_path, seen_calls))
     references_refresh.refresh_references_if_needed(tmp_path, cause="synthesized_drg")
 
-    generate_call = next(
-        c for c in seen_calls if tuple(c[:3]) == _GENERATE_CMD_PREFIX
-    )
+    generate_call = next(c for c in seen_calls if tuple(c[:3]) == _GENERATE_CMD_PREFIX)
     assert "--mission-type" in generate_call
     assert generate_call[generate_call.index("--mission-type") + 1] == "software-dev"
     assert "--template-set" in generate_call
-    assert (
-        generate_call[generate_call.index("--template-set") + 1]
-        == baseline["catalog"]["template_set"]
-    )
+    assert generate_call[generate_call.index("--template-set") + 1] == baseline["catalog"]["template_set"]
 
 
 # ---------------------------------------------------------------------------
@@ -249,9 +229,7 @@ def test_references_parity_drift_recompiles_using_the_existing_mission_and_templ
 # ---------------------------------------------------------------------------
 
 
-def test_non_references_parity_cause_is_a_true_noop(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_non_references_parity_cause_is_a_true_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen_calls: list[list[str]] = []
     charter_yaml_path = _seed_baseline_repo(tmp_path, seen_calls)
 
@@ -261,21 +239,15 @@ def test_non_references_parity_cause_is_a_true_noop(
     drifted["catalog"]["references"] = []
     _dump_yaml(charter_yaml_path, drifted)
 
-    monkeypatch.setattr(
-        subprocess, "run", _make_generate_subprocess_fake(tmp_path, seen_calls)
-    )
+    monkeypatch.setattr(subprocess, "run", _make_generate_subprocess_fake(tmp_path, seen_calls))
 
-    outcome = references_refresh.refresh_references_if_needed(
-        tmp_path, cause="charter_source,synced_bundle"
-    )
+    outcome = references_refresh.refresh_references_if_needed(tmp_path, cause="charter_source,synced_bundle")
 
     assert outcome.attempted is False
     assert outcome.succeeded is False
     assert outcome.detail is None
     assert seen_calls == [], "a non-references-parity cause must never invoke generate"
-    assert _load_yaml(charter_yaml_path)["catalog"]["references"] == [], (
-        "no-op must leave the drifted content exactly as-is"
-    )
+    assert _load_yaml(charter_yaml_path)["catalog"]["references"] == [], "no-op must leave the drifted content exactly as-is"
 
 
 # ---------------------------------------------------------------------------
@@ -358,9 +330,7 @@ def test_read_catalog_mission_and_template_set_absent_charter_yaml(tmp_path: Pat
 # ---------------------------------------------------------------------------
 
 
-def _make_generate_failure_subprocess_fake(
-    seen_calls: list[list[str]], *, failure_detail: str
-) -> Any:
+def _make_generate_failure_subprocess_fake(seen_calls: list[list[str]], *, failure_detail: str) -> Any:
     """Like :func:`_make_generate_subprocess_fake`, but the faked
     ``spec-kitty charter generate`` invocation exits non-zero instead of
     routing to the real in-process command -- for pinning T019 (the WP04
@@ -375,17 +345,13 @@ def _make_generate_failure_subprocess_fake(
             return real_run(cmd, **kwargs)
         seen_calls.append(list(cmd))
         if tuple(cmd[:3]) == _GENERATE_CMD_PREFIX:
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=1, stdout="", stderr=f"{failure_detail}\n"
-            )
+            return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr=f"{failure_detail}\n")
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     return fake_run
 
 
-def test_auto_refresh_reports_failure_when_generate_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_auto_refresh_reports_failure_when_generate_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Pins the pre-existing swallow bug at ``_attempt_auto_refresh``'s
     references-parity extension point (``runner.py`` ~line 733): today,
     ``refresh_references_if_needed`` never inspects the targeted `generate`
@@ -428,9 +394,7 @@ def test_auto_refresh_reports_failure_when_generate_fails(
     monkeypatch.setattr(
         runner_module,
         "compute_freshness",
-        lambda _repo_root: CharterFreshness(
-            charter_source=all_fresh, synced_bundle=all_fresh, synthesized_drg=all_fresh
-        ),
+        lambda _repo_root: CharterFreshness(charter_source=all_fresh, synced_bundle=all_fresh, synthesized_drg=all_fresh),
     )
 
     fresh = FreshnessSubState(state="fresh", last_change=None, remediation=None)
@@ -439,9 +403,7 @@ def test_auto_refresh_reports_failure_when_generate_fails(
         last_change=None,
         remediation="spec-kitty charter synthesize",
     )
-    freshness = CharterFreshness(
-        charter_source=fresh, synced_bundle=fresh, synthesized_drg=stale_drg
-    )
+    freshness = CharterFreshness(charter_source=fresh, synced_bundle=fresh, synthesized_drg=stale_drg)
     initial_checks = [
         CharterPreflightCheck(name="charter_source", state="fresh", detail="ok", remediation=None),
         CharterPreflightCheck(name="synced_bundle", state="fresh", detail="ok", remediation=None),
@@ -455,20 +417,13 @@ def test_auto_refresh_reports_failure_when_generate_fails(
 
     result = runner_module._attempt_auto_refresh(tmp_path, freshness, initial_checks)
 
-    assert any(tuple(c[:3]) == _GENERATE_CMD_PREFIX for c in seen_calls), (
-        f"fixture sanity: the targeted generate must actually be invoked; saw {seen_calls!r}"
-    )
+    assert any(tuple(c[:3]) == _GENERATE_CMD_PREFIX for c in seen_calls), f"fixture sanity: the targeted generate must actually be invoked; saw {seen_calls!r}"
     assert result.auto_refresh_applied is True
-    assert result.passed is False, (
-        "a failed targeted `generate` must not let the boundary heal report "
-        "success -- the swallow bug lets `passed` report True here"
-    )
+    assert result.passed is False, "a failed targeted `generate` must not let the boundary heal report success -- the swallow bug lets `passed` report True here"
     assert result.blocked_reason is not None
     assert failure_detail in result.blocked_reason, result.blocked_reason
 
-    synthesize_calls = [
-        c for c in seen_calls if tuple(c[:3]) == ("spec-kitty", "charter", "synthesize")
-    ]
+    synthesize_calls = [c for c in seen_calls if tuple(c[:3]) == ("spec-kitty", "charter", "synthesize")]
     assert len(synthesize_calls) == 1, (
         "the manifest restamp must be skipped when the targeted generate "
         "failed -- restamping over unregenerated content is exactly the "
