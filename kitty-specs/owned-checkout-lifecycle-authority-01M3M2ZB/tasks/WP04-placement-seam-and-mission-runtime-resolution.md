@@ -454,3 +454,92 @@ No `make test-full`, and no bare `tests/architectural/`.
 ### Updating Status
 
 Status is managed via `status.events.jsonl`. Use `spec-kitty agent tasks move-task <WPID> --to <status>` to change WP status.
+- 2026-09-28T21:56:58Z – unknown – Review cycle 1 fix — Activity Log (F6, consolidated per T016/T019/T021).
+
+RED RUN (T016, cycle-1 legacy-keyword tests, commit 7832c5501, prior session):
+- test_owned_wp_file_under_owned_checkout: FileNotFoundError "meta.json not
+  found for mission 'owned-01M1A900' at .../R/kitty-specs/owned-01M1A900"
+  (an R path).
+- test_stale_root_copy_never_wins_wp_file: wp_file resolved under R's stale
+  copy.
+- test_missing_wp_scoped_to_owned_checkout: WP05 (only in R) found via R.
+
+RED RUN (cycle-2 F1-F4 fixes, commit 79f58195c, this session, confirmed via
+git-stash revert to the rejected c220d467d tip):
+- test_lanes_with_coord_fact_stamps_status_state_coord_and_spec_primary (F2):
+  resolved path was under P/.worktrees/<slug>-coord, not R/.worktrees.
+- test_single_branch_fact_stamps_status_state_primary_at_mission_dir (F3):
+  stamped COORD instead of PRIMARY for a single_branch STATUS_STATE read.
+- test_unmaterialized_coord_fails_closed_never_a_predicted_path (F2): DID NOT
+  RAISE (silently returned a non-existent predicted path).
+- test_owned_handle_forms_all_resolve_the_same_fact[mid8|mission_id] (F4):
+  PlacementSeam's exact-string check rejected non-slug handle forms.
+Fix commit 639b1defa turned all of the above green; full tests/mission_runtime
+(460 passed, 1 skipped) stayed green throughout both cycles.
+
+T021 SCANNER CLASSIFICATION (before/after, `tests/architectural/_owned_checkout_scan.py`):
+- Before this cycle's fix (rejected c220d467d): 8 marked TRANSITIONAL(WP18)
+  declarations in resolution.py + 1 in support.py = 9 total; reviewer found 87
+  G4 + 17 G5 raw hits, of which 7 private-helper `effective_root: Path | None`
+  declarations were UNMARKED (_resolve_mission_slug, _resolve_wp_bearing_fields,
+  _resolve_coordination_branch, _resolve_topology, _resolve_mission_id,
+  _resolve_status_surface_dir, _assemble_core_fragments).
+- After this cycle's fix: 15 marked declarations in resolution.py + 1 in
+  support.py = 16 total (raw scanner hits: 105 in resolution.py, 0 in
+  context.py, 7 in support.py = 112; every G5 param/field declaration hit
+  carries the marker except `_refuse_both`'s own two-parameter signature,
+  which is normaliser infrastructure, the same class of exemption the
+  reviewer already accepted for the prior 2 normaliser signatures).
+- Classification table (every converted function; "owned reads" = what the
+  owned arm now consults):
+  | Function | Owned-arm reads | Legacy arm |
+  |---|---|---|
+  | read_dir_for | owned.mission_dir (zero I/O) | unchanged (compose_meta_json_path) |
+  | _resolve_mission_slug | owned.mission_slug / owned.mission_dir (zero I/O, canonicalised via _owned_handle_matches) | unchanged (resolve_handle_to_read_path walk) |
+  | _resolve_wp_bearing_fields | forwards owned to locate_work_package | forwards effective_root to locate_work_package |
+  | _resolve_coordination_branch | read_dir_for(owned=) then one meta.json read | unchanged |
+  | _resolve_topology | owned.topology (zero I/O, no meta read at all) | unchanged (read_topology + classify_topology fallback) |
+  | _resolve_mission_id | read_dir_for(owned=) then one meta.json read | unchanged |
+  | _resolve_status_surface_dir | NEW _resolve_status_surface_dir_owned: owned.mission_dir + coord probe under owned.repository_root, UNMATERIALIZED fails closed (F2) | unchanged (effective_root-composed coord probe, kept byte-identical, still reachable for legacy callers) |
+  | _assemble_core_fragments | primary_root = owned.repository_root (F2 fix); mission_id/coordination_branch/status_surface all forward owned= | unchanged (get_main_repo_root fold) |
+  | mission_context_for | NEW _mission_context_for_owned: zero handle walk, zero resolver use, owned.target_branch/topology/mission_dir direct, explicit-topology conflict raises OWNED_TOPOLOGY_UNSUPPORTED | unchanged (candidate_feature_dir_for_mission walk) |
+  | resolve_placement_only / resolve_artifact_surface | route through mission_context_for(owned=); F3 stamp = actual read_dir == owned.mission_dir | unchanged |
+  | declared_read_surface | owned.topology directly (zero I/O) | unchanged |
+  | PlacementSeam / placement_seam / resolve_action_context | thread owned through unchanged; canonical-identity refusal (F4) | unchanged |
+  | locate_work_package (support.py) | owned.mission_dir + placement.read_dir(STATUS_STATE); F4 TaskCliError naming both slugs on mismatch | unchanged |
+- WP18 T096 scope: after WP18 deletes every marked line (16 markers) plus
+  the two normaliser-signature exemptions, `effective_root` reaches zero
+  occurrences in resolution.py/support.py per the scanner.
+
+ROW-4 GIT-CALL COUNT (T019 step 6, materialised lanes_with_coord coord read):
+0 subprocess.run calls. `probe_coord_state`'s MATERIALIZED/EMPTY/UNMATERIALIZED
+legs are pure `Path.exists()` checks; only the DELETED leg (absent coord dir +
+a declared coordination_branch) shells out to one `git rev-parse`. Measured
+directly in test_lanes_with_coord_fact_stamps_status_state_coord_and_spec_primary
+via a counting subprocess.run monkeypatch (asserts `git_calls == []`).
+
+RETROSPECTIVE writer.py FOLD CHECK (T017 step 6): PlacementSeam.read_dir's
+RETROSPECTIVE branch passes `owned.owned_root` (not self.repo_root) as the
+root into resolve_retrospective_home when a fact is present (set in the prior
+session's commit c220d467d, unchanged by this cycle's fix). That function's
+own leaf (_compose_primary_feature_dir) is a pure KITTY_SPECS_DIR join with
+no get_main_repo_root fold; its canonicalisation step
+(_canonicalize_primary_read_handle) is the SAME proven full-fold the PRIMARY
+read leg already uses elsewhere in this module for the owned root. No
+regression found; not independently re-audited beyond confirming the leaf
+primitive itself does not fold to get_main_repo_root.
+
+NEXT / E2E REASONING (T019 edge case): the placement-layer topology guard's
+deletion means a coordination-topology fact reaching `next`'s legacy
+effective_root= call sites now passes placement instead of refusing
+OWNED_TOPOLOGY_UNSUPPORTED. tests/next/test_runtime_bridge_unit.py,
+tests/specify_cli/next/test_next_invocation_lifecycle_seam.py and
+tests/runtime/test_artifact_presence_placement.py all stayed green across
+both cycles (192 passed, 1 skipped), and none of the three exercises the
+owned+coord combination end-to-end. The nightly e2e
+tests/e2e/test_worktree_owned_root_concurrency.py (not run locally, per
+policy) is the actual owned-coordination-topology proof for `next`; F2's fix
+(the coordination worktree composing under owned.repository_root, and
+UNMATERIALIZED failing closed rather than returning a phantom path) is a
+strict improvement for that path, not a behaviour narrowing, so no new risk
+is introduced for it.
