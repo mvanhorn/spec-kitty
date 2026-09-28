@@ -1,7 +1,7 @@
 {
-  "event_count": 25,
-  "last_event_id": "01M3N4WS0ZVZXWSMBTDG5JGDR1",
-  "materialized_at": "2026-09-28T23:16:41.119221+00:00",
+  "event_count": 27,
+  "last_event_id": "01M3N505F5VZJ5ZJ3PB8RDBZPD",
+  "materialized_at": "2026-09-28T23:18:32.165156+00:00",
   "mission_number": "",
   "mission_slug": "charter-generation-drops-scoped-references-01M3M1KF",
   "mission_type": "software-dev",
@@ -13,9 +13,9 @@
     "claimed": 0,
     "done": 0,
     "for_review": 0,
-    "in_progress": 0,
+    "in_progress": 1,
     "in_review": 0,
-    "planned": 1
+    "planned": 0
   },
   "work_packages": {
     "WP01": {
@@ -86,11 +86,15 @@
       }
     },
     "WP03": {
-      "actor": "finalize-tasks",
+      "actor": "claude",
+      "agent": "claude",
       "force_count": 0,
-      "lane": "planned",
-      "last_event_id": "01M3ME3MPZ6A19T6P2FYH7PT3W",
-      "last_transition_at": "2026-09-28T16:38:28.831680+00:00"
+      "implementer_of_record": "claude",
+      "lane": "in_progress",
+      "last_event_id": "01M3N505F5VZJ5ZJ3PB8RDBZPD",
+      "last_transition_at": "2026-09-28T23:18:32.165156+00:00",
+      "shell_pid": 2155546,
+      "shell_pid_created_at": "1790637487.0"
     },
     "WP04": {
       "actor": "claude",
