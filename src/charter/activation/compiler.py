@@ -1349,6 +1349,58 @@ def _render_kind_references(
     return references
 
 
+#: Maps each of the six DRG-backed kinds :func:`_build_references_from_service`
+#: tracks to the :class:`~charter.offering.drg.query.ResolveTransitiveRefsResult`
+#: attribute name that carries its direct-source bucket -- used by
+#: :func:`_check_whole_kind_unresolved` (I2's "graph.<kind> non-empty" half
+#: of the OR condition).
+_TRACKED_KIND_TO_GRAPH_ATTR: dict[str, str] = {
+    "directive": "directives",
+    "tactic": "tactics",
+    "styleguide": "styleguides",
+    "toolguide": "toolguides",
+    "procedure": "procedures",
+    "agent_profile": "agent_profiles",
+}
+
+
+def _check_whole_kind_unresolved(
+    *,
+    graph: Any,
+    kind_reference_counts: dict[str, int],
+    activated_via_unresolved: set[str],
+    unresolved_records: list[dict[str, str]],
+) -> None:
+    """Fail closed when a tracked kind was activated but produced zero
+    references (issue #5257 T011 -- I1/I2's aggregate, cause-agnostic
+    whole-kind check).
+
+    Evaluated ONCE, after every per-kind :func:`_render_kind_references`
+    call AND the ``graph.unresolved`` pass have both contributed (I2) --
+    never per-source. A kind counts as **activated** if EITHER its own
+    ``graph.<kind>`` bucket is non-empty OR at least one ``graph.unresolved``
+    URN was attributed to it via :func:`_route_unresolved_urn` (I2's OR
+    condition). A kind with even one ``SCOPE_FILTERED`` placeholder among
+    otherwise-unresolved ids does NOT trip this check -- its reference
+    count is non-zero (the negative control this invariant table pins).
+
+    Raises :class:`RuntimeError` naming the kind and its unresolved ids,
+    which propagates up through ``compile_charter`` to ``generate.py``'s
+    EXISTING ``RuntimeError`` handler -- no new CLI-layer error handling is
+    needed, and no catalog is written for this run.
+    """
+    for kind, graph_attr in _TRACKED_KIND_TO_GRAPH_ATTR.items():
+        activated = bool(getattr(graph, graph_attr)) or kind in activated_via_unresolved
+        if not activated or kind_reference_counts.get(kind, 0) > 0:
+            continue
+        unresolved_ids = [record["id"] for record in unresolved_records if record.get("kind") == kind]
+        raise RuntimeError(
+            f"charter generate: every activated '{kind}' reference is unresolvable "
+            f"({', '.join(unresolved_ids) or 'no ids captured'}); refusing to write "
+            "a silently-empty catalog section."
+        )
+
+
 def _build_references_from_service(
     *,
     mission: str,
@@ -1392,84 +1444,91 @@ def _build_references_from_service(
         unresolved_records=unresolved_records,
     )
 
-    references.extend(
-        _render_kind_references(
-            graph.directives,
-            kind="directive",
-            repository=_raw_kind_repository(doctrine_service, "directives"),
-            id_of=lambda d: str(d.id),
-            title_of=lambda d: str(d.title),
-            summary_of=lambda d: str(d.intent),
-            diagnostics=diagnostics,
-            unresolved_records=unresolved_records,
-            project_root=repo_root,
-        )
+    kind_reference_counts: dict[str, int] = {}
+
+    directive_references = _render_kind_references(
+        graph.directives,
+        kind="directive",
+        repository=_raw_kind_repository(doctrine_service, "directives"),
+        id_of=lambda d: str(d.id),
+        title_of=lambda d: str(d.title),
+        summary_of=lambda d: str(d.intent),
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
+        project_root=repo_root,
     )
-    references.extend(
-        _render_kind_references(
-            graph.tactics,
-            kind="tactic",
-            repository=_raw_kind_repository(doctrine_service, "tactics"),
-            id_of=lambda t: str(t.id),
-            title_of=lambda t: str(t.name),
-            summary_of=lambda t: str(t.purpose or f"Tactic: {t.name}"),
-            diagnostics=diagnostics,
-            unresolved_records=unresolved_records,
-            project_root=repo_root,
-        )
+    references.extend(directive_references)
+    kind_reference_counts["directive"] = len(directive_references)
+
+    tactic_references = _render_kind_references(
+        graph.tactics,
+        kind="tactic",
+        repository=_raw_kind_repository(doctrine_service, "tactics"),
+        id_of=lambda t: str(t.id),
+        title_of=lambda t: str(t.name),
+        summary_of=lambda t: str(t.purpose or f"Tactic: {t.name}"),
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
+        project_root=repo_root,
     )
-    references.extend(
-        _render_kind_references(
-            graph.styleguides,
-            kind="styleguide",
-            repository=_raw_kind_repository(doctrine_service, "styleguides"),
-            id_of=lambda sg: str(sg.id),
-            title_of=lambda sg: str(sg.title),
-            summary_of=lambda sg: str(sg.principles[0] if sg.principles else f"Styleguide: {sg.title}"),
-            diagnostics=diagnostics,
-            unresolved_records=unresolved_records,
-            project_root=repo_root,
-        )
+    references.extend(tactic_references)
+    kind_reference_counts["tactic"] = len(tactic_references)
+
+    styleguide_references = _render_kind_references(
+        graph.styleguides,
+        kind="styleguide",
+        repository=_raw_kind_repository(doctrine_service, "styleguides"),
+        id_of=lambda sg: str(sg.id),
+        title_of=lambda sg: str(sg.title),
+        summary_of=lambda sg: str(sg.principles[0] if sg.principles else f"Styleguide: {sg.title}"),
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
+        project_root=repo_root,
     )
-    references.extend(
-        _render_kind_references(
-            graph.toolguides,
-            kind="toolguide",
-            repository=_raw_kind_repository(doctrine_service, "toolguides"),
-            id_of=lambda tg: str(tg.id),
-            title_of=lambda tg: str(tg.title),
-            summary_of=lambda tg: str(tg.summary),
-            diagnostics=diagnostics,
-            unresolved_records=unresolved_records,
-            project_root=repo_root,
-        )
+    references.extend(styleguide_references)
+    kind_reference_counts["styleguide"] = len(styleguide_references)
+
+    toolguide_references = _render_kind_references(
+        graph.toolguides,
+        kind="toolguide",
+        repository=_raw_kind_repository(doctrine_service, "toolguides"),
+        id_of=lambda tg: str(tg.id),
+        title_of=lambda tg: str(tg.title),
+        summary_of=lambda tg: str(tg.summary),
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
+        project_root=repo_root,
     )
-    references.extend(
-        _render_kind_references(
-            graph.procedures,
-            kind="procedure",
-            repository=_raw_kind_repository(doctrine_service, "procedures"),
-            id_of=lambda proc: str(proc.id),
-            title_of=lambda proc: str(proc.name),
-            summary_of=lambda proc: str(proc.purpose),
-            diagnostics=diagnostics,
-            unresolved_records=unresolved_records,
-            project_root=repo_root,
-        )
+    references.extend(toolguide_references)
+    kind_reference_counts["toolguide"] = len(toolguide_references)
+
+    procedure_references = _render_kind_references(
+        graph.procedures,
+        kind="procedure",
+        repository=_raw_kind_repository(doctrine_service, "procedures"),
+        id_of=lambda proc: str(proc.id),
+        title_of=lambda proc: str(proc.name),
+        summary_of=lambda proc: str(proc.purpose),
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
+        project_root=repo_root,
     )
-    references.extend(
-        _render_kind_references(
-            graph.agent_profiles,
-            kind="agent_profile",
-            repository=_raw_kind_repository(doctrine_service, "agent_profiles"),
-            id_of=lambda ap: str(ap.profile_id),
-            title_of=lambda ap: str(ap.name),
-            summary_of=lambda ap: str(ap.description or f"Agent profile: {ap.name}"),
-            diagnostics=diagnostics,
-            unresolved_records=unresolved_records,
-            project_root=repo_root,
-        )
+    references.extend(procedure_references)
+    kind_reference_counts["procedure"] = len(procedure_references)
+
+    agent_profile_references = _render_kind_references(
+        graph.agent_profiles,
+        kind="agent_profile",
+        repository=_raw_kind_repository(doctrine_service, "agent_profiles"),
+        id_of=lambda ap: str(ap.profile_id),
+        title_of=lambda ap: str(ap.name),
+        summary_of=lambda ap: str(ap.description or f"Agent profile: {ap.name}"),
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
+        project_root=repo_root,
     )
+    references.extend(agent_profile_references)
+    kind_reference_counts["agent_profile"] = len(agent_profile_references)
 
     # T009 (#5257): route every graph.unresolved URN through the SAME
     # shared classify-and-placeholder helper the six per-kind loops above
@@ -1489,6 +1548,23 @@ def _build_references_from_service(
             activated_via_unresolved.add(attributed_kind)
             if placeholder is not None:
                 references.append(placeholder)
+                kind_reference_counts[attributed_kind] = kind_reference_counts.get(attributed_kind, 0) + 1
+
+    # T011 (#5257): the aggregate, cause-agnostic whole-kind fail-closed
+    # check -- the SECOND mechanism (alongside the per-id SCOPE_FILTERED
+    # placeholder above) that satisfies FR-001 "at any cardinality" for a
+    # whole-kind-unresolvable case a MISSING_ARTIFACT/TYPO_SUSPECTED cause
+    # (e.g. a misconfigured pack root) leaves with neither a placeholder
+    # nor a fail-closed exit otherwise. Evaluated ONCE per kind, after ALL
+    # sources (every per-kind call above AND the graph.unresolved pass)
+    # have contributed (I2) -- raises before this function returns, so
+    # compile_charter never completes and no catalog is written.
+    _check_whole_kind_unresolved(
+        graph=graph,
+        kind_reference_counts=kind_reference_counts,
+        activated_via_unresolved=activated_via_unresolved,
+        unresolved_records=unresolved_records,
+    )
 
     references.append(_template_reference(mission=mission, template_set=template_set))
 
