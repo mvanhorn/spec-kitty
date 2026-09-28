@@ -167,6 +167,32 @@ acceptance contract for this WP, more concretely than any prose restatement here
 - `ArtifactKind(kind_prefix).plural` (`src/charter/offering/artifact_kinds.py`) for the URN
   kind-mapping above.
 
+## Commits
+
+Land T007-T013 as four logically-scoped commits, not one, so each mechanism is independently
+reviewable:
+
+1. **T007 + T008** — the shared classify-and-placeholder helper wired into
+   `_render_kind_references`, plus `active_languages` threaded across the four call levels it
+   needs to produce reason text. These two are one mechanism: the helper's reason-bearing output
+   is not meaningfully testable without the language context T008 threads through.
+2. **T009 + T010** — routing `graph.unresolved` through the same shared helper, plus the
+   diagnostics/structured-record sink (and graph-load-failure sentinel) on
+   `_resolve_transitive_reference_graph`. These two together close the mission's "second,
+   unmentioned unresolved-tracking site" gap (plan.md Round-3 note) for both failure shapes on
+   that bucket.
+3. **T011 alone** — the aggregate, cause-agnostic whole-kind fail-closed check. This is the WP's
+   highest-risk mechanism (a new fail-closed exit path); isolating it in its own commit lets a
+   reviewer verify its once-per-kind-after-all-sources timing without the noise of the other six
+   subtasks' diffs.
+4. **T012 + T013** — the `_raw_kind_repository` `getattr` fallback fix and its
+   placeholder-text-format test, plus exposing the structured unresolved-reference-records field
+   WP03 depends on. Both are small, additive residuals that do not interact with commits 1-3's
+   logic.
+
+Each commit must independently pass `tests/charter/test_catalog_completeness_4785.py` (the
+Contract C4 regression oracle) — do not defer that check to the final commit.
+
 ## Subtask T007: Shared classify-and-placeholder helper, wired into `_render_kind_references`
 
 **Purpose**: Replace the duplicated `diagnostics.append(f"Unresolved reference: {kind}/{raw_id}")`
@@ -221,12 +247,11 @@ placeholder-text-format test (T012) to have real content to assert against.
 **Files**: `src/charter/activation/compiler.py` (signature changes at four functions/call
 levels — no new files).
 
-**Validation**: Add one assertion (in WP01's `test_charter_generate_scoped_reference_parity.py`
-— wait, that file is owned by WP01, not WP02; add this assertion instead to T012's new file,
-`tests/charter/test_compiler_scope_filtered_placeholder.py`, or as a narrower `compiler.py`-level
-unit test in that same new file) that the emitted `detail`/suggestion text for a
-`SCOPE_FILTERED` case names the actual active language set, matching the contract doc's worked
-example (`"...does not include the active language set ('python')."` pattern).
+**Validation**: Add one assertion to T012's new file, `tests/charter/test_compiler_scope_filtered_placeholder.py`
+(not WP01's `test_charter_generate_scoped_reference_parity.py`, which WP01 owns) asserting that
+the emitted `detail`/suggestion text for a `SCOPE_FILTERED` case names the actual active language
+set, matching the contract doc's worked example (`"...does not include the active language set
+('python')."` pattern).
 
 ## Subtask T009: Route `graph.unresolved` through the same shared helper
 
@@ -376,6 +401,9 @@ per-line reasons (same records, structured form) for a fixture with a mix of `SC
   underscore) and NOT added to `compiler.py`'s `__all__`.
 - Per-subtask completion evidence recorded via
   `spec-kitty agent tasks mark-status <Txxx> --status done` for T007-T013.
+- T007-T013 land as the four logically-scoped commits the "Commits" section above defines
+  (T007+T008, T009+T010, T011 alone, T012+T013) — not one undifferentiated commit — and each
+  commit independently passes `tests/charter/test_catalog_completeness_4785.py`.
 
 ## Risks
 
@@ -411,6 +439,12 @@ per-line reasons (same records, structured form) for a fixture with a mix of `SC
 - Full `tests/charter/` blast-radius shard (this is the owning subsystem for `compiler.py`; run
   the directory, not the whole `tests/`):
   `.venv/bin/python -m pytest -q tests/charter/`
+- Cross-WP regression check (per TASKS-SEQ-001): `tests/specify_cli/charter_runtime/test_references_parity_refresh.py`
+  is WP04's owned test file, but its `test_references_parity_drift_recompiles_the_catalog` test
+  drives `compile_charter` end-to-end through the real `generate` CLI, reaching straight into this
+  WP's sole-owned `compiler.py` — the one test file outside this WP's own owned files that
+  exercises it that way. Run it after this WP's changes land to confirm no regression:
+  `.venv/bin/python -m pytest -q tests/specify_cli/charter_runtime/test_references_parity_refresh.py`
 - `spec-kitty regen --check` — **NOT APPLICABLE**: no schema-generated file changes in this
   mission's diff; stated explicitly, not silently assumed.
 - `tests/architectural/test_no_dead_symbols.py` — the new classify-and-placeholder helper is
@@ -452,6 +486,9 @@ per-line reasons (same records, structured form) for a fixture with a mix of `SC
   `ResolveTransitiveRefsResult` (no widening).
 - Verify `CatalogMissCause`/`_catalog_miss.py` were NOT modified (`git diff` should show zero
   changes to that file).
+- Verify T007-T013 landed as four separate commits per the "Commits" section (`git log
+  --oneline` on this WP's branch shows T007+T008, T009+T010, T011, T012+T013 as distinct
+  commits) — not squashed into one.
 
 ## Implementation Command
 

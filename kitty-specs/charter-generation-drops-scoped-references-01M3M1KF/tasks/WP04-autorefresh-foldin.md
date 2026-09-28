@@ -50,6 +50,13 @@ masking a genuine references-parity failure behind an unconditional manifest re-
 is **independent** of WP01/WP02/WP03: it touches a disjoint file set with no ordering dependency
 either direction, and can be implemented in parallel with them.
 
+This WP produces TWO separate commits, each independently verified, per charter C-011 (binding,
+no size-based carve-out — the failing-first test must land as its own commit, strictly before any
+implementation commit): commit 1 = T019's red-first test extension, committed ALONE, verified RED
+against `af847be71d97c8a126e91c31a7d05629c69c93ba`; commit 2 = T017 (`RefreshOutcome` widening) +
+T018 (`_attempt_auto_refresh`'s fail-closed branch), committed together strictly after commit 1,
+turning T019's test GREEN.
+
 ## Context
 
 Read spec.md's Edge Case "Mid-flight missions" and plan.md's "Auto-refresh fail-closed swallow —
@@ -83,7 +90,55 @@ isolation, **no contract change** to `CharterPreflightResult`/`contracts/charter
 beyond reusing a field that already exists (`blocked_reason: str | None`) in exactly the pattern
 the function already uses elsewhere in the same branch sequence.
 
-## Subtask T017: Widen `refresh_references_if_needed`'s return contract
+**Cross-WP coupling note (acknowledged, not a defect):** this same test module's pre-existing
+test `test_references_parity_drift_recompiles_the_catalog` already drives the real `generate` CLI
+path in-process through `compiler.py` — the file WP02 exclusively rewrites. It intentionally
+compares `healed_references`/`baseline_references` by activated-id SET only, not full record
+equality, specifically because a pre-existing, WP04-unrelated quirk in `compile_charter`'s
+language-scoped doctrine lookup can vary placeholder `title`/`summary` text across repeat
+`generate` calls — WP02's `SCOPE_FILTERED` placeholder-text change (`"Definition unavailable in
+bundled doctrine. Reason: scope_filtered — ..."`) lands inside exactly that already-tolerated
+variance. This pre-existing test does not need updating when WP02 lands; the tolerance is
+deliberate and already verified in its own docstring/comment, not accidental.
+
+## Subtask T019: Red-first regression test (commit 1 — authored and committed FIRST, alone)
+
+**Purpose**: Pin the bug (RED) in isolation from WP01-WP03's red-first tests — this is a distinct
+defect class and must not be conflated with them (a reviewer must be able to verify each fix
+independently caused its own test to flip). Per charter C-011, this commit lands STRICTLY BEFORE
+T017/T018's implementation commit.
+
+**Steps**:
+1. Extend `tests/specify_cli/charter_runtime/test_references_parity_refresh.py` — the REAL,
+   already-existing test module for `preflight.references_refresh`, which already ships
+   `_git_init`, `_make_generate_subprocess_fake`, and `_seed_baseline_repo` fixture machinery.
+   Do NOT create a new `tests/specify_cli/charter_runtime/preflight/` subdirectory — it does not
+   exist in the current test tree and is not the right home.
+2. Adapt `_make_generate_subprocess_fake` (or add a sibling fake) so the faked `generate`
+   subprocess invocation inside the auto-refresh path returns a non-zero returncode/stderr
+   instead of success.
+3. Assert (a) BEFORE the fix (i.e. write this assertion first and confirm it fails against the
+   pre-fix code — RED verification): the swallow means the failure never reaches an actionable
+   `blocked_reason` — `passed` can report `True` despite the underlying `generate` failure,
+   demonstrating the bug is real; (b) AFTER T017/T018 land: `passed=False` and `blocked_reason`
+   names the failure detail (GREEN — asserted once you resume work after commit 2).
+4. Commit this test change ALONE, in its own commit — per charter C-011 (binding, no
+   size-based carve-out): the failing-first test lands as its own commit, strictly before any
+   implementation commit. This mirrors WP01/WP02's two-commit red-first pattern. (An earlier draft
+   of this WP instructed bundling this test with T017/T018's implementation into one commit,
+   citing plan.md's "PR Shape" section — that citation was a conflation: plan.md's "PR Shape"
+   answers the PR/lane-split question, i.e. that WP04 counts as one self-contained WP within the
+   mission's single PR, not a licence to combine a red-first test with its own implementation
+   commit. Corrected.)
+
+**Files**: `tests/specify_cli/charter_runtime/test_references_parity_refresh.py` (extended).
+
+**Validation**: Run the extended test against the pre-fix code (before T017/T018 are applied) and
+confirm it FAILS (RED) — record the exact RED pytest output. Commit this file ALONE (`git add
+tests/specify_cli/charter_runtime/test_references_parity_refresh.py && git commit`), with a
+message naming the RED verification, before starting T017.
+
+## Subtask T017: Widen `refresh_references_if_needed`'s return contract (commit 2, with T018)
 
 **Purpose**: Make the function actually inspect the subprocess outcome instead of discarding
 it.
@@ -109,9 +164,10 @@ it.
 **Files**: `src/specify_cli/charter_runtime/preflight/references_refresh.py`.
 
 **Validation**: existing callers of `refresh_references_if_needed` (just `runner.py`, per T018)
-must be updated in the same WP — do not leave a type mismatch.
+must be updated in the same commit — do not leave a type mismatch. This subtask's changes land
+together with T018 in ONE commit (commit 2), strictly after T019's red-first commit.
 
-## Subtask T018: `runner.py::_attempt_auto_refresh` — fail closed on refresh failure, skip the restamp
+## Subtask T018: `runner.py::_attempt_auto_refresh` — fail closed on refresh failure, skip the restamp (commit 2, with T017)
 
 **Purpose**: Stop restamping the manifest over content that was not actually regenerated.
 
@@ -137,42 +193,19 @@ must be updated in the same WP — do not leave a type mismatch.
 **Files**: `src/specify_cli/charter_runtime/preflight/runner.py` — `_attempt_auto_refresh`
 ONLY, no other function in this module changes.
 
-**Validation**: T019's red-first test.
-
-## Subtask T019: Red-first regression test
-
-**Purpose**: Pin the bug (RED) and the fix (GREEN) in isolation from WP01-WP03's red-first
-tests — this is a distinct defect class and must not be conflated with them (a reviewer must be
-able to verify each fix independently caused its own test to flip).
-
-**Steps**:
-1. Extend `tests/specify_cli/charter_runtime/test_references_parity_refresh.py` — the REAL,
-   already-existing test module for `preflight.references_refresh`, which already ships
-   `_git_init`, `_make_generate_subprocess_fake`, and `_seed_baseline_repo` fixture machinery.
-   Do NOT create a new `tests/specify_cli/charter_runtime/preflight/` subdirectory — it does not
-   exist in the current test tree and is not the right home.
-2. Adapt `_make_generate_subprocess_fake` (or add a sibling fake) so the faked `generate`
-   subprocess invocation inside the auto-refresh path returns a non-zero returncode/stderr
-   instead of success.
-3. Assert (a) BEFORE the fix (i.e. write this assertion first and confirm it fails against the
-   pre-fix code — RED verification): the swallow means the failure never reaches an actionable
-   `blocked_reason` — `passed` can report `True` despite the underlying `generate` failure,
-   demonstrating the bug is real; (b) AFTER the fix: `passed=False` and `blocked_reason` names
-   the failure detail (GREEN).
-4. Commit this test change alongside T017/T018's implementation in ONE self-contained commit
-   for this WP (per plan.md's "PR Shape" — WP-AUTOREFRESH is one commit, distinct from WP01's
-   two-commit red-first pattern, because this bug and its fix are small and cohesive enough to
-   verify RED→GREEN within a single reviewed diff, unlike the larger WP02 mechanism WP01
-   pins ahead of time).
-
-**Files**: `tests/specify_cli/charter_runtime/test_references_parity_refresh.py` (extended).
-
-**Validation**: Run the test against the pre-fix code (stash/checkout T017/T018's changes
-temporarily, or verify logically that the assertion in step 3(a) genuinely requires the fix to
-flip) to confirm RED, then confirm GREEN on your final commit.
+**Validation**: T019's red-first test (committed in commit 1) must now pass GREEN. Commit T017 and
+T018's changes together as ONE commit — commit 2 of this WP, strictly after T019's red-first
+commit — and confirm T019's test is GREEN on this commit before considering the WP done.
 
 ## Definition of Done
 
+- `tests/specify_cli/charter_runtime/test_references_parity_refresh.py`'s T019 extension is
+  committed ALONE, in its own commit (commit 1), and was verified RED against
+  `af847be71d97c8a126e91c31a7d05629c69c93ba` before that commit (record the exact RED pytest
+  output/count in your WP completion note).
+- T017+T018's implementation is committed together in ONE commit (commit 2), strictly after
+  T019's commit, turning T019's test GREEN on this WP's final commit — two separate commits,
+  verified RED then GREEN, matching WP01/WP02's pattern.
 - `RefreshOutcome(attempted, succeeded, detail)` type exists in `references_refresh.py`, and
   `refresh_references_if_needed` returns it (not `bool`).
 - `runner.py::_attempt_auto_refresh` returns `passed=False` with a `blocked_reason` naming the
@@ -181,8 +214,6 @@ flip) to confirm RED, then confirm GREEN on your final commit.
 - The existing restamp+recompute flow for the `not attempted` / `attempted and succeeded` cases
   is byte-for-byte unchanged.
 - No other function in `runner.py` changed.
-- The new red-first test in `test_references_parity_refresh.py` was verified RED against the
-  pre-fix code and is GREEN on this WP's final commit.
 - `CharterPreflightResult`/`contracts/charter-preflight-json.md` were NOT modified (no new
   field, no field-shape change).
 - Per-subtask completion evidence recorded via
@@ -202,6 +233,10 @@ flip) to confirm RED, then confirm GREEN on your final commit.
   fallback) producing an empty or unhelpful message. **Mitigation**: T019's test should assert
   `blocked_reason` is non-empty and names something concrete from the faked failure, not just
   that it changed.
+- **Risk**: Committing T019's test together with T017/T018's implementation (the pre-fix-round
+  instruction), which violates charter C-011's binding separate-commit requirement.
+  **Mitigation**: T019's commit MUST land alone, verified RED, strictly before T017/T018's
+  commit — see Definition of Done and Reviewer Guidance.
 
 ## Gates (run these; do not invent others)
 
@@ -237,6 +272,9 @@ flip) to confirm RED, then confirm GREEN on your final commit.
 - Confirm `CharterPreflightResult`/the preflight JSON contract doc were not touched.
 - Confirm the red-first test genuinely fails against pre-fix code (ask for the RED verification
   evidence, don't just trust a passing final-state test).
+- Confirm the two commits are genuinely separate (`git log --oneline` on this WP's branch shows
+  two distinct commits, T019's red-first test first, T017+T018's implementation second) — NOT
+  squashed into one.
 
 ## Implementation Command
 

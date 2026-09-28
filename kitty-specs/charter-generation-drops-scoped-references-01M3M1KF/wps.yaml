@@ -56,6 +56,7 @@ work_packages:
       - WP02
     owned_files:
       - "src/specify_cli/cli/commands/charter/generate.py"
+      - "tests/specify_cli/cli/commands/test_charter_generate_autotrack.py"
     requirement_refs:
       - FR-004
     plan_concern_refs:

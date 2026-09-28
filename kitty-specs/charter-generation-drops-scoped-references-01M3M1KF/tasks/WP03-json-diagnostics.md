@@ -20,6 +20,7 @@ execution_mode: code_change
 model: ''
 owned_files:
 - src/specify_cli/cli/commands/charter/generate.py
+- tests/specify_cli/cli/commands/test_charter_generate_autotrack.py
 role: implementer
 tags: []
 tracker_refs: []
@@ -45,6 +46,15 @@ Add a new, additive `unresolved_references` field to `charter generate --force -
 output, sourced from WP02's new structured-records field on the compiler's result type, so
 automated callers (CI, readiness probes) can detect an unresolved-reference condition without
 string-matching the free-text `diagnostics` field.
+
+This WP produces TWO separate commits, each independently verified, per charter C-011 (binding,
+no size-based carve-out): commit 1 = T016's Acceptance Scenario 2 assertion, committed ALONE,
+verified RED against WP02's already-landed compiler fix (at that point `--json` does not yet
+emit `unresolved_references` at all); commit 2 = T014 (the `unresolved_references` emit) + T015
+(the `diagnostics`-shape regression check), committed together strictly after commit 1, turning
+T016's assertion GREEN. FR-004 (the `unresolved_references` JSON field) is a genuine,
+user-observable contract addition with no pre-existing red-first test — WP01 explicitly disclaims
+covering `--json` wiring ("WP03's job") — so this WP owns its own red-first commit.
 
 ## Context
 
@@ -82,9 +92,34 @@ deliberate, reviewed decision): any existing consumer that treats `diagnostics` 
 working unchanged. A new, always-present key is additive and detectable
 (`"unresolved_references" in payload`) without touching the existing key's shape.
 
-## Subtask T014: Add `unresolved_references` to the `--json` emit block
+## Subtask T016: Acceptance Scenario 2 — id + reason present machine-readably (commit 1 — authored and committed FIRST, alone)
 
-**Purpose**: Thread WP02's new structured-records field through to the CLI's JSON output.
+**Purpose**: Directly pin spec.md's User Story 1 Acceptance Scenario 2: "the JSON output's
+diagnostics field carries the same reference id and reason machine-readably... so CI and
+readiness probes consuming `--json` can detect the condition without parsing prose." This is
+WP03's own red-first test for the FR-004 behavior it delivers — per charter C-011, it is authored
+and committed BEFORE T014's implementation.
+
+**Steps**: Using the Scenario-1 fixture pattern (a repo whose `.kittify/charter/charter.yaml`
+activates `styleguide/java-conventions` in a repo whose `infer_repo_languages` excludes `java`),
+run `spec-kitty charter generate --force --json` against WP02's already-landed compiler fix (at
+this point `--json` does not yet emit `unresolved_references` at all) and assert:
+`unresolved_references` contains an entry with `kind: "styleguide"`, `id: "java-conventions"`,
+`cause: "scope_filtered"`, and a non-empty `detail` naming the active language set. Confirm this
+assertion FAILS (RED) before committing — the key does not exist pre-T014.
+
+**Files**: `tests/specify_cli/cli/commands/test_charter_generate_autotrack.py` (extended — the
+only real candidate that already exercises `generate --json`; do not create a new test file).
+
+**Validation**: Run this new assertion against WP02's landed compiler fix, before T014's
+implementation, and confirm it FAILS (RED) — record the exact RED pytest output. Commit this
+assertion ALONE (`git add tests/specify_cli/cli/commands/test_charter_generate_autotrack.py &&
+git commit`), with a message naming the RED verification, before starting T014.
+
+## Subtask T014: Add `unresolved_references` to the `--json` emit block (commit 2, with T015)
+
+**Purpose**: Thread WP02's new structured-records field through to the CLI's JSON output, turning
+T016's red-first assertion GREEN.
 
 **Steps**:
 1. Locate the existing JSON-emit block in `src/specify_cli/cli/commands/charter/generate.py`
@@ -108,9 +143,10 @@ existing JSON-emit block — do not restructure the surrounding function).
 **Validation**: Manually construct (or reuse a WP02 fixture) a repo with a mix of
 `SCOPE_FILTERED`, `MISSING_ARTIFACT`, and graph-load-failure causes; run
 `spec-kitty charter generate --force --json` against it and confirm the JSON output's
-`unresolved_references` array matches the contract doc's documented shape exactly.
+`unresolved_references` array matches the contract doc's documented shape exactly. Confirm
+T016's commit-1 assertion is now GREEN.
 
-## Subtask T015: Regression check — `diagnostics` field shape unchanged
+## Subtask T015: Regression check — `diagnostics` field shape unchanged (commit 2, with T014)
 
 **Purpose**: Prove the additive-alongside design did not accidentally widen or restructure the
 existing `diagnostics` field.
@@ -119,37 +155,26 @@ existing `diagnostics` field.
 `list[str]` (every element is a `str`, never a `dict`) both before and after this WP's change,
 using the same fixture(s) T014 used.
 
-**Files**: extend the most relevant existing test file under
-`tests/specify_cli/cli/commands/charter/` or `tests/specify_cli/cli/commands/test_charter_generate_autotrack.py`
-(pick whichever already covers `--json` output for `generate`; do not create a new test file for
-this WP — it is a small, additive change and belongs alongside existing `--json`-output
-coverage).
+**Files**: `tests/specify_cli/cli/commands/test_charter_generate_autotrack.py` (same file as
+T014/T016 — the only real candidate that already exercises `generate --json`; do not create a
+new test file for this WP).
 
 **Validation**: Test passes both before (trivially — nothing changed about `diagnostics`) and
-after your `unresolved_references` addition.
-
-## Subtask T016: Acceptance Scenario 2 — id + reason present machine-readably
-
-**Purpose**: Directly pin spec.md's User Story 1 Acceptance Scenario 2: "the JSON output's
-diagnostics field carries the same reference id and reason machine-readably... so CI and
-readiness probes consuming `--json` can detect the condition without parsing prose."
-
-**Steps**: Using the Scenario-1 fixture pattern (a repo whose `.kittify/charter/charter.yaml`
-activates `styleguide/java-conventions` in a repo whose `infer_repo_languages` excludes `java`),
-run `spec-kitty charter generate --force --json` and assert: `unresolved_references` contains an
-entry with `kind: "styleguide"`, `id: "java-conventions"`, `cause: "scope_filtered"`, and a
-non-empty `detail` naming the active language set.
-
-**Files**: same test file as T015.
-
-**Validation**: New assertion passes.
+after your `unresolved_references` addition. Commit T014 and T015's changes together as ONE
+commit — commit 2 of this WP, strictly after T016's red-first commit — turning T016's assertion
+GREEN.
 
 ## Definition of Done
 
+- T016's Acceptance Scenario 2 assertion is committed ALONE, in its own commit (commit 1), and
+  was verified RED against WP02's landed compiler fix before that commit (record the exact RED
+  pytest output/count in your WP completion note).
+- T014+T015 are committed together in ONE commit (commit 2), strictly after T016's commit,
+  turning T016's assertion GREEN on this WP's final commit — two separate commits, verified RED
+  then GREEN, matching WP01/WP02/WP04's pattern.
 - `unresolved_references` key present in `charter generate --json` output, always (even `[]`),
   matching `contracts/charter-generate-json-diagnostics.md`'s documented shape exactly.
 - `diagnostics` field's shape (flat `list[str]`) is provably unchanged (T015's regression test).
-- Acceptance Scenario 2 (T016) passes.
 - The contract doc itself required no edits (or, if it did — because it was found factually
   wrong against the real WP02 output — the edit and its reason are recorded in your WP
   completion note).
@@ -202,6 +227,9 @@ non-empty `detail` naming the active language set.
   WP's diff pushes a `dict` into the `diagnostics` list.
 - Confirm the contract doc was not rewritten unless the WP completion note explains why (it
   should already match reality — this WP is meant to make code match doc, not the reverse).
+- Confirm the two commits are genuinely separate (`git log --oneline` on this WP's branch shows
+  two distinct commits, T016's red-first assertion first, T014+T015's implementation second) —
+  NOT squashed into one.
 
 ## Implementation Command
 
