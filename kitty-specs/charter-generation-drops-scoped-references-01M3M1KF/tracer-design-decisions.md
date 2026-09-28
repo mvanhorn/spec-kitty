@@ -174,3 +174,75 @@ function itself. WP-CORE adds one concrete test (fixture: a still-unresolvable `
 regenerated from a repo seeded with today's exact baseline row shape) asserting the post-fix
 `summary` matches this prefix+suffix format exactly — see plan.md's IC-01/WP-CORE text for the test
 placement.
+
+## Decision: add an aggregate, cause-agnostic whole-kind-unresolved fail-closed check (round-2 fix, closes PLAN-FRESH-001)
+
+**Context (post-plan-fresh-review finding PLAN-FRESH-001, second adversarial round after the
+decision above landed).** A fresh-eyes review of the fix that produced the "SCOPE_FILTERED-only"
+narrowing (the decision immediately above) found that it reopened a different gap: FR-001's own
+text and its matching Edge Case bullet give "a misconfigured pack root" — a MISSING_ARTIFACT-class
+cause, NOT SCOPE_FILTERED — as an illustrative *whole-kind-unresolvable* scenario, and state that
+only two mechanisms satisfy FR-001 "at any cardinality": placeholder-preservation of every affected
+id, OR a fail-closed non-zero exit naming the kind. The SCOPE_FILTERED-only narrowing gives a
+whole-kind MISSING_ARTIFACT/TYPO_SUSPECTED miss NEITHER: no placeholder row (by design, per the
+decision above) and no fail-closed exit (`charter generate` still exits 0 and writes a structurally
+valid but silently-empty-for-that-kind catalog section). Verified against spec.md directly during
+this fix round (not taken on faith from the finding): FR-001's Functional Requirements table row and
+the Edge Cases "All activated references of a kind... are unresolvable" bullet both state this
+two-mechanism, any-cardinality bar in the spec's own words, and neither SC-005 nor Acceptance
+Scenario 4 (User Story 1) exercises the MISSING_ARTIFACT/whole-kind combination — both are
+SCOPE_FILTERED-only fixtures ("every activated toolguide id excluded by language scope"). So an
+implementation built exactly to the pre-round-2 plan text would silently fail FR-001 for the
+genuinely-missing whole-kind case, and nothing in the described test suite would catch it.
+
+**Decision: add a second, independent mechanism — a per-kind aggregate check — rather than widening
+the per-id placeholder scoping back out.** After `_render_kind_references` classifies every id of a
+kind (the decision above's per-id SCOPE_FILTERED vs. MISSING_ARTIFACT/TYPO_SUSPECTED routing,
+unchanged), `_build_references_from_service` checks, per kind: did this kind have at least one
+activated id, AND did none of them produce a reference (no resolution, no SCOPE_FILTERED
+placeholder)? If both hold, every one of that kind's activated ids fell through to the
+diagnostics-only branch — the exact "misconfigured pack root" / whole-kind-genuinely-missing case
+FR-001 names. When this holds for one or more kinds, `_build_references_from_service` raises a
+fail-closed error (a private `RuntimeError` subclass) naming the affected kind(s) and their
+unresolved ids, propagating up through `_build_references` → `compile_charter` so `generate.py`'s
+existing broad `RuntimeError` handler (`generate.py:584`) exits non-zero **before**
+`write_compiled_charter` (`generate.py:497`, called strictly after `compile_charter` at line 489)
+ever runs — so no catalog is written for this case, matching FR-001's "exits non-zero before writing
+any catalog" language. Full design (call-site details, the exact emptiness check, and the new test
+requirement): plan.md's "WP-CORE reconciliation" section, point 3.
+
+**Why this does not reopen the SCOPE_FILTERED decision above, and does not reintroduce C-002.**
+This is a genuinely different axis from the decision above, not a widening of it:
+
+1. **Different trigger, different mechanism.** The decision above governs whether a SCOPE_FILTERED
+   miss gets a placeholder row (a per-id question, answered per the cause). This decision governs
+   whether an entire KIND's activated-id set is left with zero catalog presence after all per-id
+   classification completes (a per-kind aggregate question, answered by counting). A kind with even
+   one SCOPE_FILTERED id mixed in never trips this new check — that id already produced a
+   placeholder row under the decision above, so the kind's reference list is non-empty. The two
+   decisions compose without conflict: the SCOPE_FILTERED-only narrowing still stands exactly as
+   written; this decision only adds behavior for the case it never covered (a kind where literally
+   every activated id is genuinely missing).
+2. **A count comparison, not an id comparison — this is the C-002 distinction that matters.** C-002
+   forbids special-casing the six literal id strings from #5257
+   (`styleguide/java-conventions`, `toolguide/maven-review-checks`, `toolguide/typescript-mutation-tools`,
+   `agent-profile/frontend-freddy`, `agent-profile/java-jenny`, `agent-profile/node-norris`) anywhere
+   in the fix. This check never reads or compares against any literal id string at all — it compares
+   two counts per kind (activated-id count vs. diagnostics-only-miss count for that kind), computed
+   identically for every kind, on every repo, regardless of which ids are involved. "Check whether
+   every id of a kind is unresolved" is a cardinality gate over an arbitrary kind's arbitrary id set;
+   it is not the same shape of special-casing C-002 forbids, and tracer-approach.md's "Rejected
+   alternative" section (which argues against a *per-id, cardinality-conditioned* fail-closed branch
+   for SCOPE_FILTERED specifically) is not in tension with this decision — that section's objection
+   was to branching WHEN a single mechanism applies based on how many ids are affected; this decision
+   instead adds FR-001's own second, already-named mechanism (fail-closed exit) for a case the first
+   mechanism (placeholder) was deliberately scoped never to cover.
+3. **No new test-suite conflict.** `tests/charter/test_catalog_completeness_4785.py` (Contract C4)
+   pins a SINGLE genuinely-missing id producing `references == []` with no placeholder row and no
+   fail-closed exit for that single-id case — this check only fires when an entire KIND's ids are
+   ALL genuinely missing, a materially different (and, per that test's own fixture, untested)
+   cardinality; Contract C4's fixture is not a whole-kind case, so it is unaffected. WP-CORE's new
+   test (plan.md, "WP-CORE reconciliation" point 3) covers the whole-kind case directly, closing the
+   gap PLAN-FRESH-001 identified: SC-005/Acceptance Scenario 4 and this new test together now cover
+   both whole-kind-unresolvable causes (SCOPE_FILTERED via the existing placeholder path, and
+   MISSING_ARTIFACT/TYPO_SUSPECTED via this new fail-closed path).
