@@ -86,7 +86,8 @@
       "last_transition_at": "2026-09-28T22:11:35.226373+00:00",
       "model": "__resolved_model_absent__",
       "notes": [
-        "T017-T019 done: RefreshOutcome fold-in fixes the auto-refresh generate-failure swallow. Red-first proven (T019 commit 9615b51bc, fixed in 95d61ad09, re-verified red against a scratch pre-fix overlay). Gates green (whole-repo ruff check/format, targeted shard, baseline). test_boundary_heal.py::test_references_parity_hook_no_ops_for_a_non_references_parity_cause now fails (bool identity vs RefreshOutcome) -- out of WP04 write_scope, flagged not fixed."
+        "T017-T019 done: RefreshOutcome fold-in fixes the auto-refresh generate-failure swallow. Red-first proven (T019 commit 9615b51bc, fixed in 95d61ad09, re-verified red against a scratch pre-fix overlay). Gates green (whole-repo ruff check/format, targeted shard, baseline). test_boundary_heal.py::test_references_parity_hook_no_ops_for_a_non_references_parity_cause now fails (bool identity vs RefreshOutcome) -- out of WP04 write_scope, flagged not fixed.",
+        "Reviewer (reviewer-renata, fresh context) approved cycle 3 after two rejections (cycles 1-2 fixed: formatting, untested OSError/TimeoutExpired branch, untested __bool__ guard, stale format-exclude entry). Verdict: kitty-specs/charter-generation-drops-scoped-references-01M3M1KF/reviews/wp-WP04-cycle3.yaml"
       ],
       "provider": "__resolved_provider_absent__",
       "review_result": {
