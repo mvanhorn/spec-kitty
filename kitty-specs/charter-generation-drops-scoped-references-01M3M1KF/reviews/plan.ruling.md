@@ -112,3 +112,52 @@ stays strictly typed to the 4-member enum).
   addition section, all now state explicitly that the structured record's `cause` field is typed
   `str`, not `CatalogMissCause`, and that `_catalog_miss.py` stays unmodified because of that typing
   choice.
+
+## Round-5 ruling
+
+> "Invariants + closing round. Round 5 applies the four PLAN-FRESH4 remedies AND restates decision 3
+> as testable invariants rather than line-level mechanism: (I1) every activated reference id, from
+> any source bucket (graph.<kind> or graph.unresolved), ends up either in catalog.references
+> (resolved or placeholder) or in a structured diagnostic — never silently absent; (I2) the
+> whole-kind fail-closed check is evaluated once per kind, after ALL sources (all per-kind render
+> calls and the kind-mapped graph.unresolved pass) have contributed, and a kind counts as activated
+> if any source attributed an id to it; (I3) every structured diagnostic record carries a defined
+> kind, id and cause, including for unresolved URNs whose kind is outside the six tracked kinds, has
+> no repository mapping, or has no ':' (contract doc defines the sentinel/shape for each, cause is a
+> plain str distinct from CatalogMissCause values and 'graph_load_failed'); (I4) graph-load failure
+> yields a loud structured diagnostic and does not fail closed (round-3 ruling); (I5) generation is
+> deterministic across repeat invocations on the fail-closed and diagnostic paths. Each invariant
+> maps to a named red-first test fixture in the ATDD-First section. Remaining mechanism detail
+> belongs to the tasks squad and WP reviews, where the red-first tests catch it."
+
+### Disposition — how round 5 applied the ruling
+
+- **PLAN-FRESH4-001** (activation-detection input conflated with output-emptiness condition):
+  closed by I2's explicit OR condition ("a kind counts as activated if any source attributed an id
+  to it") — plan.md's "WP-CORE reconciliation" point 3, "Round-5 restatement" subsection, and IC-01's
+  Risk (3).
+- **PLAN-FRESH4-002** (three contradictory timing statements for when the check runs): closed by I2
+  stating the single evaluation point once, unambiguously — the prior three inconsistent statements
+  (decision 3's original "immediately after each per-kind call", the round-3 amendment's "automatically
+  sees them", and IC-01's Risk (3) "strictly AFTER all per-id classification") were all replaced by
+  I2's one statement, reconciled at both landing sites (the invariant restatement and IC-01's Risk (3)).
+- **PLAN-FRESH4-003** (no defined `kind`/`id` shape for three unattributable `graph.unresolved`
+  classes): closed by I3 plus `contracts/charter-generate-json-diagnostics.md`'s new "Round-5
+  addition" section, which defines the `kind`/`id`/`cause` shape for all three classes (malformed
+  URN, unrecognized kind prefix, valid-but-untracked/no-repository kind), using `cause` values
+  `"malformed_urn"` and `"unattributed_kind"`, both plain `str`, distinct from `CatalogMissCause` and
+  from `"graph_load_failed"`.
+- **PLAN-FRESH4-004** (PR Shape's "six" vs. its own five-item enumeration): closed by correcting the
+  count to "five" in plan.md's "PR Shape" section; the enumeration itself was already correct and is
+  unchanged.
+- **Line-level mechanism prose** (decision 3's original "Design" paragraph and the "Round-3 amendment
+  to point 3" subsection, plan.md's former lines ~274–571) was replaced, not appended to, by the
+  five invariants (I1–I5), a short non-binding implementation sketch, and a retained list of the
+  load-bearing operator rulings (URN split/kind mapping, the diagnostics sink mechanism, `cause`'s
+  plain-`str` typing, I4's not-fail-closed rule) stated as binding. plan.md net-shrank (633 → 428
+  lines) despite the additions this round required.
+- **`reviews/plan-verify-4.yaml`'s residual** (`_raw_kind_repository`'s `getattr` fallback raising
+  `AttributeError` instead of degrading to `None` for `"template"`/`"anti_pattern"`): ruled OUT OF
+  SCOPE for this mission — noted in IC-01's Risks as unreachable via `generate`'s default production
+  path and unexercised by this mission's own fixtures, flagged for a follow-up rather than silently
+  dropped.

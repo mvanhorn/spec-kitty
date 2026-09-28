@@ -327,3 +327,50 @@ relevant property is that the same unresolved-kind repo fails the same way (same
 kind named) on a second invocation, with any pre-existing catalog left untouched. The graph-load-
 failure diagnostic path (not fail-closed, still writes a catalog) remains subject to ordinary
 NFR-001 unchanged.
+
+**Note (round 4):** the "Round-3 amendment" subsection this decision cites was, in round 5, replaced
+(not appended to) by an invariant restatement — see the decision entry below. This entry's ruling
+and reasoning still stand; only the location of the implementable design text changed.
+
+## Decision: operator ruling on round-5 invariant restatement (closes PLAN-FRESH4-001..004)
+
+**Context.** Four rounds of adversarial review (`reviews/plan-fresh-2.yaml` through
+`reviews/plan-fresh-4.yaml`) kept finding real defects in decision 3's line-level mechanism prose
+(this file's "operator ruling on PLAN-FRESH2-001" entry above, and its implementable design in
+plan.md's former "Round-3 amendment to point 3" subsection) — not in the underlying idea, but in how
+the mechanism was *described*: PLAN-FRESH4-001 found the activation-detection input (does
+`graph.<kind>` alone gate whether a kind counts as "activated"?) conflated with the check's separate
+output-emptiness condition; PLAN-FRESH4-002 found three mutually contradictory statements of WHEN
+the check runs; PLAN-FRESH4-003 found three `graph.unresolved` classes (malformed URN, unrecognized
+kind prefix, valid-but-untracked kind) with no defined `kind`/`id` shape in the contract doc;
+PLAN-FRESH4-004 found an arithmetic error in "PR Shape"'s own commit count ("six" vs. its own
+five-item enumeration).
+
+**Operator ruling (round 5, quoted in full in `reviews/plan.ruling.md`'s "Round-5 ruling" section):**
+apply the four PLAN-FRESH4 remedies, AND restate decision 3 as five testable invariants (I1–I5)
+rather than continuing to re-litigate mechanism-level prose. Each invariant maps to a named
+red-first test fixture; remaining mechanism detail (exact call ordering, helper signatures, line
+numbers) is explicitly deferred to the tasks squad and WP review, where red-first tests catch any
+drift — this plan does not need to pin implementation mechanics the tests already pin.
+
+**Decision: implement exactly this ruling.** plan.md's "WP-CORE reconciliation" point 3's original
+"Design" paragraph and its "Round-3 amendment to point 3" subsection (the URN-parsing steps, the
+exact call-order claims, the three overlapping "Test requirement" paragraphs) were REPLACED (not
+appended to) by: (a) a short, one-paragraph restatement of why decision 1's `SCOPE_FILTERED`-only
+placeholder scoping reopens the whole-kind gap (kept, still needed context); (b) the five invariants
+I1–I5, stated exactly as the operator ruling, each self-contained and testable; (c) a short,
+explicitly-labeled non-binding implementation sketch pointing at `_build_references_from_service`,
+`_render_kind_references`, `_resolve_transitive_reference_graph`, and `compiler.py`, with no exact
+line numbers or step-by-step URN-parsing recipe; (d) every CONCRETE operator ruling from prior
+rounds kept intact and stated as binding, not demoted to sketch — the URN split/kind-mapping rule,
+the diagnostics-sink-not-return-widening mechanism, `cause`'s plain-`str` typing, and I4's
+not-fail-closed rule. The auto-refresh fold-in section was left untouched except for its
+cross-references into this section. `contracts/charter-generate-json-diagnostics.md` gained a
+"Round-5 addition" section defining the `kind`/`id`/`cause` shape for I3's three unattributable
+`graph.unresolved` classes. The ATDD-First Discipline section gained an I1–I5 → red-first-fixture
+table, consolidating the test-requirement paragraphs the deleted prose used to scatter across three
+places; "Phasing & Sequencing" step 2 (WP-CORE-TESTS) and IC-01's Risks were updated to match. "PR
+Shape"'s commit count was corrected from "six" to "five". Net effect: plan.md shrank from 633 to 428
+lines despite these additions, because far more line-level mechanism prose was deleted than was
+added back as invariants/sketch/table. See `reviews/plan.ruling.md`'s "Round-5 ruling" →
+"Disposition" for the finding-by-finding closure record.

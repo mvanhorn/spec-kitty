@@ -108,8 +108,8 @@ pair:
   structured-records sink's `cause` field as `str` lets the three real `CatalogMissCause.value`
   strings (produced for the per-artifact-miss entries above) and this new sentinel value coexist
   in the same JSON field without adding a member to `CatalogMissCause` — `_catalog_miss.py` stays
-  REUSED, NOT MODIFIED (see plan.md's Project Structure section and the round-3 amendment's
-  Design part (c)).
+  REUSED, NOT MODIFIED (see plan.md's Project Structure section and the "binding mechanism decisions
+  retained from prior rounds" list under "WP-CORE reconciliation" point 3).
 - `detail` is a short summary of the underlying exception (not a `_catalog_miss` classifier
   suggestion — there is no id to classify).
 - **This entry does NOT cause `generate` to exit non-zero.** The operator's explicit ruling on
@@ -120,6 +120,44 @@ pair:
 - The same diagnostic text appears as a plain-string entry in `diagnostics: list[str]` too
   (FR-002's reason-bearing convention applies to this diagnostic as well, e.g. `"Graph load failed:
   <exception summary>. Transitive closure not resolved; direct-root ids only."`).
+
+## Round-5 addition — unattributable `graph.unresolved` entries (closes PLAN-FRESH4-003, invariant I3)
+
+`unresolved_references` gains three further entry shapes for `graph.unresolved` URNs that cannot be
+attributed to one of the six DRG-backed kinds `_render_kind_references` tracks (directive/tactic/
+styleguide/toolguide/procedure/agent_profile). Per plan.md's invariant I3 ("every structured
+diagnostic record carries a defined `kind`, `id` and `cause`"), each of these still gets a real
+entry — never silently dropped:
+
+1. **No `":"` in the URN (malformed — no kind prefix at all).**
+   ```json
+   {"kind": "_unattributed", "id": "<the full URN string>", "cause": "malformed_urn", "detail": "malformed URN, no kind prefix"}
+   ```
+   `kind: "_unattributed"` is a reserved sentinel (same leading-underscore convention as `_graph`/
+   `_load_failure` above), used only when no kind could be parsed from the URN at all.
+
+2. **`kind_prefix` has no `ArtifactKind` counterpart** (`ArtifactKind(kind_prefix)` raises
+   `ValueError` — e.g. `action`, `glossary_scope`, `glossary`, `mission_type`, or any other
+   unrecognized string).
+   ```json
+   {"kind": "<the raw kind_prefix, verbatim>", "id": "<the bare id after the \":\" split>", "cause": "unattributed_kind", "detail": "unrecognized artifact kind: <kind_prefix>"}
+   ```
+
+3. **`kind_prefix` is a valid `ArtifactKind` whose repository resolves to `None`, or whose plural is
+   outside the six tracked kinds** (e.g. `template`, `asset`, `anti_pattern` — whose repository is
+   `None` by design — or a valid-but-untracked kind such as `paradigm`, `mission_step_contract`,
+   `glossary_pack`).
+   ```json
+   {"kind": "<the ArtifactKind's singular value, verbatim>", "id": "<the bare id>", "cause": "unattributed_kind", "detail": "no repository for kind: <kind_prefix>"}
+   ```
+
+Both new `cause` values are plain `str`, distinct from the four `CatalogMissCause` values and from
+`"graph_load_failed"` — same typing rule as the round-3 addition above (`_catalog_miss.py` stays
+REUSED, NOT MODIFIED). `detail` in all three cases is a short human-readable string explaining why
+the entry could not be attributed (not a `_catalog_miss` classifier suggestion — there is nothing to
+classify). **None of these three entries participates in the six-kind whole-kind aggregate
+fail-closed count** (plan.md's I2) — same exemption reasoning as the graph-load-failure entry: there
+is no per-kind bucket among the six tracked kinds to honestly attribute them to.
 
 ## Relationship to `CharterPreflightResult`
 
