@@ -54,6 +54,7 @@
       "write_scope": [
         "src/specify_cli/core/checkout_ownership.py",
         "src/specify_cli/core/owned_mission.py",
+        "tests/_owned_tree_hash.py",
         "tests/core/test_adopt_owned_checkout.py",
         "tests/core/test_checkout_ownership.py",
         "tests/core/test_owned_mission_minter.py",
@@ -270,19 +271,15 @@
         "src/runtime/next/runtime_bridge_composition.py",
         "src/runtime/next/runtime_bridge_engine.py",
         "src/runtime/next/runtime_bridge_io.py",
-        "src/specify_cli/cli/commands/next_cmd.py",
         "src/specify_cli/coordination/workspace.py",
-        "tests/integration/test_explicit_checkout_commands.py",
-        "tests/integration/test_owned_lifecycle_acceptance_next.py",
-        "tests/next/test_runtime_bridge_unit.py",
-        "tests/specify_cli/cli/commands/test_next_answer_effective_root.py"
+        "tests/integration/test_owned_next_runtime.py",
+        "tests/next/test_runtime_bridge_unit.py"
       ],
       "predicted_surfaces": [
         "api",
         "app-shell",
         "artifact-rendering",
         "legacy-cleanup",
-        "tracker-integration",
         "workspace"
       ],
       "depends_on_lanes": [
@@ -315,30 +312,6 @@
         "lane-g"
       ],
       "parallel_group": 5
-    },
-    {
-      "lane_id": "lane-k",
-      "wp_ids": [
-        "WP12"
-      ],
-      "write_scope": [
-        "src/mission_runtime/claim_commit.py",
-        "src/runtime/next/prompt_builder.py",
-        "src/specify_cli/cli/commands/agent/workflow_executor.py",
-        "src/specify_cli/core/worktree_topology.py",
-        "tests/integration/test_owned_lifecycle_acceptance_review.py",
-        "tests/mission_runtime/test_claim_commit.py"
-      ],
-      "predicted_surfaces": [
-        "api",
-        "artifact-rendering",
-        "legacy-cleanup",
-        "workspace"
-      ],
-      "depends_on_lanes": [
-        "lane-j"
-      ],
-      "parallel_group": 6
     },
     {
       "lane_id": "lane-m",
@@ -394,6 +367,56 @@
       "parallel_group": 6
     },
     {
+      "lane_id": "lane-r",
+      "wp_ids": [
+        "WP19"
+      ],
+      "write_scope": [
+        "src/specify_cli/cli/commands/next_cmd.py",
+        "tests/integration/test_explicit_checkout_commands.py",
+        "tests/integration/test_owned_lifecycle_acceptance_next.py",
+        "tests/specify_cli/cli/commands/test_next_answer_effective_root.py"
+      ],
+      "predicted_surfaces": [
+        "api",
+        "app-shell",
+        "artifact-rendering",
+        "legacy-cleanup",
+        "tracker-integration",
+        "workspace"
+      ],
+      "depends_on_lanes": [
+        "lane-g",
+        "lane-j"
+      ],
+      "parallel_group": 6
+    },
+    {
+      "lane_id": "lane-k",
+      "wp_ids": [
+        "WP12"
+      ],
+      "write_scope": [
+        "src/mission_runtime/claim_commit.py",
+        "src/runtime/next/prompt_builder.py",
+        "src/specify_cli/cli/commands/agent/workflow_executor.py",
+        "src/specify_cli/core/worktree_topology.py",
+        "tests/integration/test_owned_lifecycle_acceptance_review.py",
+        "tests/mission_runtime/test_claim_commit.py"
+      ],
+      "predicted_surfaces": [
+        "api",
+        "artifact-rendering",
+        "legacy-cleanup",
+        "workspace"
+      ],
+      "depends_on_lanes": [
+        "lane-j",
+        "lane-r"
+      ],
+      "parallel_group": 7
+    },
+    {
       "lane_id": "lane-n",
       "wp_ids": [
         "WP15"
@@ -431,7 +454,8 @@
         "src/specify_cli/migration/runtime_state_cutover.py",
         "src/specify_cli/missions/_read_path_resolver.py",
         "src/specify_cli/review/cycle.py",
-        "src/specify_cli/tasks/issue_matrix.py"
+        "src/specify_cli/tasks/issue_matrix.py",
+        "tests/specify_cli/test_owned_history_support.py"
       ],
       "predicted_surfaces": [
         "api",
@@ -445,9 +469,10 @@
         "lane-f",
         "lane-l",
         "lane-m",
+        "lane-n",
         "lane-o"
       ],
-      "parallel_group": 7
+      "parallel_group": 8
     },
     {
       "lane_id": "lane-q",
@@ -486,15 +511,16 @@
         "lane-n",
         "lane-o",
         "lane-p",
-        "lane-planning"
+        "lane-planning",
+        "lane-r"
       ],
-      "parallel_group": 8
+      "parallel_group": 9
     }
   ],
-  "computed_at": "2026-09-28T15:35:58.665392+00:00",
+  "computed_at": "2026-09-28T16:03:55.013868+00:00",
   "computed_from": "dependency_graph+ownership",
   "planning_artifact_wps": [
     "WP03"
   ],
-  "planning_commit_sha": "134224cf8e427947d653d06dd88d7c206dd282b1"
+  "planning_commit_sha": "d83ee1e5145534e803db2efe4f436bc77262cf22"
 }
