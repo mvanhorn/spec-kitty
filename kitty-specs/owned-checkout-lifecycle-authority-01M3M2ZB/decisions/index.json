@@ -1,0 +1,55 @@
+{
+  "entries": [
+    {
+      "created_at": "2026-09-28T13:24:12.452326Z",
+      "decision_id": "01M3M2ZXH4CGY20X1PZEC18F54",
+      "final_answer": "Owned checkout wins, emit a warning naming the stale primary copy",
+      "input_key": "stale_primary_copy_policy",
+      "mission_id": "01M3M2ZB5D4A33B8070F97DKW7",
+      "mission_slug": "owned-checkout-lifecycle-authority-01M3M2ZB",
+      "opened_by": "cli",
+      "options": [
+        "Owned checkout wins silently (primary copy ignored)",
+        "Owned checkout wins, emit a warning naming the stale primary copy",
+        "Refuse with a typed conflict error until the operator removes one copy",
+        "Other"
+      ],
+      "origin_flow": "specify",
+      "other_answer": false,
+      "question": "When a validated owned checkout holds the mission AND the primary checkout also holds a (stale) copy of the same mission, what should owned-checkout lifecycle reads do?",
+      "rationale": null,
+      "resolved_at": "2026-09-28T13:26:29.225217Z",
+      "resolved_by": null,
+      "slot_key": "specify.resolution.stale-primary-copy",
+      "status": "resolved",
+      "step_id": null,
+      "summary_json": null
+    },
+    {
+      "created_at": "2026-09-28T13:24:15.524482Z",
+      "decision_id": "01M3M300H419C89K9AM0T4XVB2",
+      "final_answer": "Confirmed",
+      "input_key": "intent_summary_confirmed",
+      "mission_id": "01M3M2ZB5D4A33B8070F97DKW7",
+      "mission_slug": "owned-checkout-lifecycle-authority-01M3M2ZB",
+      "opened_by": "cli",
+      "options": [
+        "Confirmed",
+        "Confirmed with changes",
+        "Other"
+      ],
+      "origin_flow": "specify",
+      "other_answer": false,
+      "question": "Confirm the Intent Summary for the owned-checkout lifecycle authority mission (actor, trigger, outcome, invariants, scope in/out).",
+      "rationale": null,
+      "resolved_at": "2026-09-28T13:26:32.203152Z",
+      "resolved_by": null,
+      "slot_key": "specify.intent.summary-confirmation",
+      "status": "resolved",
+      "step_id": null,
+      "summary_json": null
+    }
+  ],
+  "mission_id": "01M3M2ZB5D4A33B8070F97DKW7",
+  "version": 1
+}
