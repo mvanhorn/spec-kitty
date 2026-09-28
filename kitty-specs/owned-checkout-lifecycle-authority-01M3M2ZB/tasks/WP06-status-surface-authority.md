@@ -154,7 +154,7 @@ Done means all of the following hold:
      - Re-point the fixture. The file imports `checkouts`, `git`, `invoke` and `snapshot` from the **test module** `tests.integration.test_explicit_checkout_commands`, and the plan forbids importing shared fixtures from test modules. Replace this with the WP02 fixtures: `from tests.integration.conftest import owned_checkouts, r_snapshot` (re-exported through `__all__`, as the carried file already does for `checkouts`). A conftest in `tests/integration/` is not visible to `tests/specify_cli/coordination/`, so the explicit import is required. If ruff reports F811 on the fixture parameter, keep the `__all__` re-export pattern rather than adding `noqa`.
      - Replace the `invoke("finalize-tasks", inside)` helper with an explicit `CliRunner().invoke(mission_app, ["finalize-tasks", "--mission", <slug>, "--owned-checkout", str(inside), "--json"])`.
      - Replace the before/after tuple with `r_snapshot` (NFR-001: covers R's ignored files, HEAD, index and lock root, excluding exactly P's subtree).
-     - Replace the `read_events_transactional(..., effective_root=inside)` read with `read_event_log(EventLogReadContract.primary_checkout(<P mission dir>, owned=<fact>))`. Obtain the fact from the minter `resolve_owned_mission(R, inside, <slug>)` or from WP02's test helper if it exposes one. This makes the test exercise this WP's surface rather than a legacy keyword WP18 will delete. The call raises `TypeError` until T029 adds `owned=`; that is acceptable only because the CLI half of the same test is the genuine red.
+     - Replace the `read_events_transactional(..., effective_root=inside)` read with `read_event_log(EventLogReadContract.primary_checkout(<P mission dir>, owned=<fact>))`. Obtain the fact from the minter `resolve_owned_mission(R, inside, <slug>)`, or by using `OwnedCheckout._mint(...)` in the test. This makes the test exercise this WP's surface rather than a legacy keyword WP18 will delete. The call raises `TypeError` until T029 adds `owned=`; that is acceptable only because the CLI half of the same test is the genuine red.
   5. Add `test_registered_coordination_worktree_same_path_still_refused` (FR-014, US4-AS2). In the same fixture, register a real coordination worktree at `R/.worktrees/<slug>-coord` using `git -C R worktree add -b <coord-branch> R/.worktrees/<slug>-coord`. The name must end in `-coord` (`surface_resolver._COORD_SUFFIX`, `surface_resolver.py:101`). Then assert:
      - `read_event_log(EventLogReadContract.primary_checkout(<coord mission dir>))` and `read_event_stream_log(...)` raise `StatusContractError`, matching `"primary_checkout reads must not target coordination worktree paths"`;
      - `append_event_log(EventLogWriteContract.primary_checkout_append(<coord dir>), ev)` raises, matching `"primary_checkout_append must not target coordination worktree paths"`.
@@ -167,7 +167,7 @@ Done means all of the following hold:
   - [ ] No import from any `tests/**/test_*.py` module remains.
   - [ ] Markers stay `integration` + `git_repo`.
 - **Edge cases**:
-  - `git worktree move` needs cwd outside the moved tree; the carried test already `chdir`s to R first. Keep that.
+  - The WP02 factory `make_owned_checkouts(placement="under_worktrees")` builds P at `R/.worktrees/owned-a` directly (WP02 T011). Prefer it over the carried `git worktree move`. If you keep the move, it needs a cwd outside the moved tree; the carried test already `chdir`s to R first.
   - R must ignore `.worktrees/`; the carried test writes `.git/info/exclude`. Keep it, so R's `status --porcelain` stays clean for the snapshot.
   - The same-path control must use a **registered** worktree. An unregistered `.worktrees/x-coord` husk is a different case (`WorktreeTopology.UNREGISTERED`) and is not what FR-014 pins.
 
@@ -184,7 +184,7 @@ Done means all of the following hold:
      - A symlinked alias of P: resolve before comparing, and the result is `False`.
      - NFR-002: patch `subprocess.run` in `specify_cli.coordination.surface_resolver` to fail the test if called. No git is consulted in any case above.
 
-     Build facts through the WP02 minter on a real fixture, or through WP01's test-only construction helper if one exists. Never call `OwnedCheckout(...)` directly: that raises `TypeError` by design.
+     In tests, mint facts with `OwnedCheckout._mint(...)`, as WP01's `tests/mission_runtime/test_owned_checkout.py` does (contract §1 allows a `tests/` helper, and G3 scans `src/` only), or take them from the WP02 minter on a real fixture. Never call `OwnedCheckout(...)`, which raises `TypeError` by design.
   2. Implement in `src/specify_cli/coordination/surface_resolver.py`, next to `is_under_worktrees_segment` (`:482`):
      ```python
      def primary_read_targets_coord_worktree(path: Path, *, owned: OwnedCheckout | None) -> bool:
@@ -224,6 +224,17 @@ Done means all of the following hold:
      - Extend only the repository-root-labelled factories: `primary_checkout(cls, feature_dir, *, owned=None)` (`:93`) and `primary_checkout_append(cls, feature_dir, *, owned=None)` (`:126`). The coordination factories and the branch-ref factory do **not** take `owned`.
      - Replace `_is_coordination_worktree_path` (`:59-73`) with two small helpers, `_validate_read_labels(contract)` and `_validate_write_contract(contract)` (`:337`), each calling `surface_resolver.primary_read_targets_coord_worktree(contract.feature_dir, owned=contract.owned)`.
      - The six sites are `:160` and `:167` (`read_event_log`), `:222` and `:229` (`read_event_stream_log`), and `:340` and `:347` (`_validate_write_contract`). Fold the duplicated read-guard blocks at `:156-171` and `:218-233` into the one `_validate_read_labels` helper (campsite, behaviour-preserving). Keep every `StatusContractError` message string **byte-identical**: they are pinned by existing tests and are logs_telemetry.
+  2a. Shape of the folded read guard. Keep the message constants verbatim, and hoist them to module constants if a string now appears three or more times (Sonar S1192):
+     ```python
+     def _validate_read_labels(contract: EventLogReadContract) -> None:
+         from specify_cli.coordination.surface_resolver import primary_read_targets_coord_worktree  # noqa: PLC0415 - cold path
+         targets_coord = primary_read_targets_coord_worktree(contract.feature_dir, owned=contract.owned)
+         if contract.source == StatusReadSource.PRIMARY_CHECKOUT and targets_coord:
+             raise StatusContractError(_PRIMARY_READ_REFUSED)
+         if contract.source == StatusReadSource.COORDINATION_WORKTREE and not targets_coord:
+             raise StatusContractError(_COORD_READ_REQUIRES_COORD_PATH)
+     ```
+     `_validate_write_contract` mirrors this for `PRIMARY_CHECKOUT_APPEND` and `COORDINATION_TRANSACTION_APPEND`. `LEGACY_LANE_APPEND` stays unguarded, exactly as today.
   3. Keep `StatusReadSource` (`:39-44`) and `EventLogWriteTarget` (`:47-52`) unchanged. No `OWNED_CHECKOUT` member (C-002). Update the module docstring (`:1-19`): an owned repository-root-labelled contract carries the validated fact, and the classification is delegated to `surface_resolver`.
 - **Files**: `src/specify_cli/coordination/status_service.py`, `tests/specify_cli/coordination/test_status_surface_owned.py`.
 - **Parallel?**: no. It follows T028.
@@ -291,6 +302,18 @@ Done means all of the following hold:
 
   2. **Paired identity.** Build the owned-a row and the coordination row from one fixture instance, so the `.worktrees/<name>` path *shape* is the same kind and only registration plus the fact differ.
   3. **NFR-002 count.** Wrap `subprocess.run` / `subprocess.Popen` in `status_service` and `surface_resolver`, and assert the owned-accepted rows make **0** git calls. The non-owned rows make 0 as well (shape guard only).
+  3a. Skeleton for the matrix (adapt the names to the WP02 fixture API):
+     ```python
+     @pytest.mark.parametrize("row", MATRIX_ROWS, ids=lambda r: r.id)
+     @pytest.mark.parametrize("op", ["read", "stream", "append"])
+     def test_same_path_matrix(owned_under_worktrees, registered_coord, row, op):
+         contract = row.build(owned_under_worktrees, registered_coord, op)
+         if row.expected_ok:
+             _run(op, contract)
+         else:
+             with pytest.raises(StatusContractError, match=row.message):
+                 _run(op, contract)
+     ```
   4. **Non-vacuity.** Before committing, temporarily make `primary_read_targets_coord_worktree` always return `False` and confirm the FR-014 rows go red; revert. Record that in the Activity Log as the mutation check (no code is committed for it).
 - **Files**: `tests/specify_cli/coordination/test_status_surface_owned.py`.
 - **Parallel?**: yes, alongside T030 step 1.

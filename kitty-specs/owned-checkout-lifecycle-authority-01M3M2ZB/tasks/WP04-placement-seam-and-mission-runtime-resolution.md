@@ -168,6 +168,20 @@ The plan lists only six dual-keyword seams, so **these four also need the dual k
      - `test_missing_wp_scoped_to_owned_checkout` (US2-AS2): with the stale copy, `wp_id="WP05"` (present only in R) raises `ActionContextError` with `code == "WORK_PACKAGE_UNRESOLVED"`, and `str(R)` is not in the message while P's mission dir (or `kitty-specs/<slug>/tasks` under P) is. On base it returns R's WP05, so the test is red.
   4. After T017/T018 land, add `owned=` twins of the three tests. They mint the fact through `specify_cli.core.owned_mission.resolve_owned_mission(R, P, slug)`, the real minter, not `_mint`: this proves the seam accepts what the minter produces.
   5. Add mission-level ratchets (green on base; they must stay green): `action="tasks_outline"` with a stale copy gives `feature_dir` under P, both with `effective_root=P` and with `owned=`.
+  6. The recording stub, shared by the tests in this file. It stays in this file permanently: WP05 cannot edit this WP's test files, and WP05 proves the real owned workspace leg end to end in `tests/specify_cli/workspace/test_owned_workspace_resolution.py`.
+     ```python
+     @pytest.fixture
+     def workspace_stub(monkeypatch):
+         calls = []
+         def _stub(repo_root, mission_slug, wp_id, **kwargs):
+             calls.append((repo_root, mission_slug, wp_id, kwargs))
+             return SimpleNamespace(lane_id=None, branch_name=None, execution_mode="code_change",
+                                    resolution_kind="stub", worktree_path=repo_root)
+         monkeypatch.setattr("specify_cli.workspace.context.resolve_workspace_for_wp", _stub)
+         return calls
+     ```
+     Assert `len(workspace_stub) == 1` in every WP-bearing test. The `workspace_path` value from the stub is **not** asserted in this WP.
+- **Commit sequence**: (1) the builder plus the three red tests (legacy keyword), red; (2) T018/T020 fix commits turn them green; (3) the `owned=` twins, added with T017/T018.
 - **Files**: `tests/mission_runtime/test_resolution_owned.py` (new).
 - **Parallel?**: No. It comes first.
 - **Validation checklist**:
@@ -190,7 +204,21 @@ The plan lists only six dual-keyword seams, so **these four also need the dual k
   2. Change `PlacementSeam` (`resolution.py:1946`): add `owned: OwnedCheckout | None = None`, and keep `effective_root: Path | None = None` with a comment `# Transitional (WP04); deleted by WP18`. In `__post_init__`, refuse both being set.
   3. `write_target` / `read_dir` (`:1983-2051`) forward `owned=self.owned` (and the legacy `effective_root`) to `resolve_placement_only` / `resolve_artifact_surface`, which gain the same dual keyword (see the External callers list).
   4. `placement_seam(repo_root, mission_slug, *, owned=None, effective_root=None)` (`:2491`) keeps the P-1 partition assertion.
-  5. `RETROSPECTIVE` still routes to `resolve_retrospective_home(self.repo_root, …)` (`:2037-2045`). With a fact, pass `owned.owned_root` as the root. Verify `specify_cli/retrospective/writer.py` resolves the retrospective home under that root without a `get_main_repo_root` fold. If it folds, record it as a finding for WP17 (do not edit `writer.py`; it is not in this WP's files).
+  5. Shape of the dual keyword (use the same pattern for all dual-keyword functions in this WP, so WP18 can delete them mechanically):
+     ```python
+     def placement_seam(
+         repo_root: Path,
+         mission_slug: str,
+         *,
+         owned: OwnedCheckout | None = None,
+         effective_root: Path | None = None,  # Transitional (WP04); deleted by WP18.
+     ) -> PlacementSeam:
+         _refuse_both(owned, effective_root)
+         assert_partition_invariant()
+         return PlacementSeam(repo_root=repo_root, mission_slug=mission_slug, owned=owned, effective_root=effective_root)
+     ```
+     `_refuse_both` is one private helper that raises `TypeError("pass owned= or the transitional effective_root=, not both")`. Every dual-keyword function calls it, so the rule is stated once.
+  6. `RETROSPECTIVE` still routes to `resolve_retrospective_home(self.repo_root, …)` (`:2037-2045`). With a fact, pass `owned.owned_root` as the root. Verify `specify_cli/retrospective/writer.py` resolves the retrospective home under that root without a `get_main_repo_root` fold. If it folds, record it as a finding for WP17 (do not edit `writer.py`; it is not in this WP's files).
 - **Files**: `src/mission_runtime/resolution.py`, `tests/mission_runtime/test_placement_seam_owned.py` (new).
 - **Validation checklist**:
   - [ ] `pytest tests/mission_runtime/test_placement_seam_owned.py tests/mission_runtime/test_placement_seam.py tests/mission_runtime/test_resolve_placement_only.py -q` is green.
@@ -241,13 +269,24 @@ The plan lists only six dual-keyword seams, so **these four also need the dual k
   4. Update `src/mission_runtime/context.py::is_single_branch`'s docstring (`:107-126`): it is no longer the placement arms' refusal predicate. The minter uses the allowed-set check (WP02).
   5. Rewrite the pinned tests in `tests/mission_runtime/test_owned_single_branch_ssot.py`:
      - `test_placement_owned_arm_refuses_non_single_branch` (`:111`) and `test_artifact_surface_owned_arm_refuses_identically` (`:128`) pin the deleted guard. Replace them with tests pinning the **new** contract: the placement layer does not refuse by topology, and a lifecycle fact cannot be minted for a non-single_branch mission (call `resolve_owned_mission` with the default allowed set and assert `OWNED_TOPOLOGY_UNSUPPORTED`). Keep `test_is_single_branch_predicate` (`:101`).
-  6. **Declared out-of-map edit**: `tests/mission_runtime/test_coord_read_seam_callers.py::test_agent_tasks_ports_feature_write_dir_fails_loud_sanely` (`:234-270`) asserts `OWNED_TOPOLOGY_UNSUPPORTED` from exactly this guard, through `RealCoordCommitRouter.feature_write_dir(MissionHandle(..., effective_root=repo))`. Re-express it so it asserts the new contract: a coordination-topology mission reached through the legacy owned leg fails loud with a **typed** coordination error (for example `CoordinationWorktreeUnmaterialized` or `ActionContextError`), and never silently returns the repository-root dir. First characterise what the arm now does. If it silently returns a PRIMARY path for a COORD kind, stop and escalate: that would be a regression. Rationale line for the PR: "WP04 deletes the placement-layer topology guard (R-16); this pin asserted that guard."
+  6. Behaviour table after the change (put it in the `resolve_artifact_surface` docstring, and assert each row in `test_placement_seam_owned.py`):
+
+     | Fact topology | Kind partition | `read_dir` | `surface_kind` stamp |
+     |---|---|---|---|
+     | `single_branch` | PRIMARY | `owned.mission_dir` | PRIMARY |
+     | `single_branch` | COORD-partition kind | `owned.mission_dir` (AH-2 affirmative home) | PRIMARY |
+     | `lanes_with_coord` / `coord` | PRIMARY | `owned.mission_dir` | PRIMARY |
+     | `lanes_with_coord` / `coord` | COORD-partition kind | the coordination read dir from `_assemble_core_fragments` | COORD |
+
+     If the fourth row cannot be computed without git (the coordination worktree probe), that is acceptable **only** for coordination topologies, which only `next` mints. Record the git-call count for that row in the Activity Log; NFR-002's zero-extra-calls budget applies to the owned **status** reads of single_branch missions.
+  7. **Declared out-of-map edit**: `tests/mission_runtime/test_coord_read_seam_callers.py::test_agent_tasks_ports_feature_write_dir_fails_loud_sanely` (`:234-270`) asserts `OWNED_TOPOLOGY_UNSUPPORTED` from exactly this guard, through `RealCoordCommitRouter.feature_write_dir(MissionHandle(..., effective_root=repo))`. Re-express it so it asserts the new contract: a coordination-topology mission reached through the legacy owned leg fails loud with a **typed** coordination error (for example `CoordinationWorktreeUnmaterialized` or `ActionContextError`), and never silently returns the repository-root dir. First characterise what the arm now does. If it silently returns a PRIMARY path for a COORD kind, stop and escalate: that would be a regression. Rationale line for the PR: "WP04 deletes the placement-layer topology guard (R-16); this pin asserted that guard."
 - **Files**: `src/mission_runtime/resolution.py`, `src/mission_runtime/context.py`, `tests/mission_runtime/test_owned_single_branch_ssot.py`, `tests/mission_runtime/test_placement_seam_owned.py`; out-of-map: `tests/mission_runtime/test_coord_read_seam_callers.py`.
 - **Validation checklist**:
   - [ ] `grep -n "_require_owned_single_branch" -r src tests` finds no hits.
   - [ ] `pytest tests/mission_runtime/test_owned_single_branch_ssot.py tests/mission_runtime/test_coord_read_seam_callers.py tests/mission_runtime/test_artifact_surface_backfilled_primary.py tests/mission_runtime/test_status_surface_dir_deleted_arm.py -q` is green.
   - [ ] `pytest tests/integration/test_explicit_checkout_commands.py -k topology -q` is green: the lifecycle commands still refuse non-single_branch, now at the minter (`test_explicit_checkout_commands.py:222,242`).
 - **Edge cases**:
+  - The FR-023 paired proof spans two layers. The placement layer **accepts** a coordination-topology fact (this subtask), and the minter **refuses** a coordination-topology mission for lifecycle commands (WP02). Reference WP02's test by name in the new `test_owned_single_branch_ssot.py` docstring, so a reader sees both halves.
   - Legacy `effective_root=` callers with a coordination mission (today only `next`, via `next_cmd.py:176`) now pass placement. Run `tests/next/test_runtime_bridge_unit.py`, `tests/specify_cli/next/test_next_invocation_lifecycle_seam.py` and `tests/runtime/test_artifact_presence_placement.py` and record any change in behaviour. The nightly `tests/e2e/test_worktree_owned_root_concurrency.py:405-431` relies on owned coordination-topology `next`; do not run it locally (it is `e2e`), but reason about it in the Activity Log.
 
 ### Subtask T020 – `locate_work_package(owned=)` (dual keyword)
@@ -260,7 +299,21 @@ The plan lists only six dual-keyword seams, so **these four also need the dual k
      - `status_dir = placement_seam(repo_root, feature, owned=owned).read_dir(STATUS_STATE)`;
      - no `get_main_repo_root` call.
   3. Keep the `effective_root_kwargs` import (`support.py:15`) only as long as the legacy arm uses it. WP18 deletes both.
-  4. The error message for a missing WP names `tasks_root` (the resolved directory) on both arms. Check `tests/specify_cli/cli/commands/agent/test_tasks.py` for message-text assertions and keep them passing: search for `"not found under kitty-specs/"` in `tests/`. If a test pins the old text, that is a `user_facing_strings: rename_if_user_visible` change. Update only tests in this WP's files; for any other pinned text, keep the old substring and append the resolved root.
+  4. Target shape of the body (fact arm first, legacy arm unchanged):
+     ```python
+     _refuse_both(owned, effective_root)
+     if owned is not None:
+         placement = placement_seam(repo_root, feature, owned=owned)
+         feature_path = owned.mission_dir
+         status_dir = placement.read_dir(MissionArtifactKind.STATUS_STATE)
+         display_root = owned.owned_root
+     else:
+         main_root = get_main_repo_root(repo_root)
+         ...  # today's lines :585-595, unchanged
+         display_root = repo_root
+     ```
+     Guard `feature` against the fact: if `feature` canonicalises to a different slug than `owned.mission_slug`, raise `TaskCliError` naming both. Callers pass the slug, mid8 or mission id, so compare canonical forms.
+  5. The error message for a missing WP names `tasks_root` (the resolved directory) on both arms. Check `tests/specify_cli/cli/commands/agent/test_tasks.py` for message-text assertions and keep them passing: search for `"not found under kitty-specs/"` in `tests/`. If a test pins the old text, that is a `user_facing_strings: rename_if_user_visible` change. Update only tests in this WP's files; for any other pinned text, keep the old substring and append the resolved root.
 - **Files**: `src/specify_cli/task_utils/support.py`, `tests/mission_runtime/test_resolution_owned.py`.
 - **Parallel?**: Yes with T017 once the fact type is available.
 - **Validation checklist**:
@@ -290,6 +343,16 @@ The plan lists only six dual-keyword seams, so **these four also need the dual k
      - **reachable from a legacy caller** (the dual-keyword public functions plus the private helpers they feed): keep the legacy parameter, but funnel both through **one** private normaliser, for example `_owned_read_root(owned, legacy_root) -> Path | None`, used at the two existing fold points (`:1094` and `:1428`). The owned-vs-legacy fork then exists once.
   3. `src/mission_runtime/context.py` has **no** `effective_root` today (verified). Expect zero hits. The only change there is T019's docstring. If the scanner finds something, convert it.
   4. Add a module-level comment block near `placement_seam` that lists the transitional legacy keywords by function name, so WP18 can find them. Do not name the gate rule inside production code.
+  5. Expected shape of the Activity Log table (fill in every scanner hit; these rows are examples, not the full list):
+
+     | Function | Legacy caller reaches it? | Action |
+     |---|---|---|
+     | `placement_seam` / `PlacementSeam` | yes (many) | dual keyword |
+     | `resolve_placement_only` | yes (`commit_router.py:301`) | dual keyword |
+     | `_resolve_wp_bearing_fields` | only via `resolve_action_context` | `owned` plus the normaliser |
+     | `_resolve_status_surface_dir` | yes (through `mission_context_for`) | normaliser |
+     | `read_dir_for` | yes (`tasks/issue_matrix.py`) | positional legacy plus keyword `owned` |
+- **Commit sequence**: one commit per converted function group (seams, private helpers, normaliser), each with `tests/mission_runtime` green, so a reviewer can bisect a regression to a group.
 - **Files**: `src/mission_runtime/resolution.py`, `src/mission_runtime/context.py`.
 - **Validation checklist**:
   - [ ] The Activity Log table covers every hit the scanner reported.

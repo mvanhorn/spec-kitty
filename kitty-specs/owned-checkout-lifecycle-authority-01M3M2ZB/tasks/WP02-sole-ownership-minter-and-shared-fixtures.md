@@ -184,6 +184,23 @@ Also:
   2. In `src/specify_cli/core/checkout_ownership.py`, add a module constant `OWNED_CHECKOUT_IS_REPOSITORY_ROOT = "OWNED_CHECKOUT_IS_REPOSITORY_ROOT"` and a pure predicate `claims_repository_root(claim: OwnershipClaim) -> bool` (`claim.claimed_checkout == claim.resolved_primary`). **Do not** change `resolve_ownership_claim` or `OwnershipValidationResult`: `tests/core/test_checkout_ownership.py:111` and `:334` pin the primitive (five values; self-ownership is `OWNED`). ADR 2026-08-12-1 defines that primitive, and WP03 documents the minter-level refusal.
   3. In `owned_mission._require_owned_claim`, raise `ActionContextError(OWNED_CHECKOUT_IS_REPOSITORY_ROOT, "--owned-checkout names the repository root checkout; pass a linked owned checkout instead.")` when the predicate holds. The same guard is reused by T008 and T009.
   4. Add to `tests/core/test_checkout_ownership.py`: `claims_repository_root` is True for R, False for a linked worktree, and False for a nested or foreign claim.
+  5. Sketch of the guard (keep it small and reuse it):
+     ```python
+     def _require_owned_claim(repository_root: Path, checkout: Path) -> OwnershipClaim:
+         from specify_cli.core.checkout_ownership import (
+             OWNED_CHECKOUT_IS_REPOSITORY_ROOT, claims_repository_root, error_for_claim, resolve_ownership_claim,
+         )
+         claim = resolve_ownership_claim(checkout, resolved_primary=repository_root)
+         error = error_for_claim(claim)
+         if error is not None:
+             raise ActionContextError(error.error_code, str(error))
+         if claims_repository_root(claim):
+             raise ActionContextError(OWNED_CHECKOUT_IS_REPOSITORY_ROOT, _REPOSITORY_ROOT_REFUSAL)
+         return claim
+     ```
+     `_REPOSITORY_ROOT_REFUSAL` is a module constant, because the message is used by three minter functions (Sonar S1192).
+  6. **NFR-004 registry.** The code must be exactly the string in `data-model.md` §Error code registry. WP08's `emit_owned_refusal` validates codes against the registered set; export the constant so it can import it rather than retyping the string.
+- **Commit sequence**: (a) the red test `test_repository_root_is_refused`, plus the predicate tests, red on the missing name; (b) the predicate plus the constant; (c) the guard in the minter. Record the red run.
 - **Files**: `src/specify_cli/core/checkout_ownership.py`, `src/specify_cli/core/owned_mission.py`, `tests/core/test_checkout_ownership.py`, `tests/core/test_owned_mission_minter.py`.
 - **Parallel?**: Yes with T008 after T006.
 - **Validation checklist**:
@@ -202,6 +219,19 @@ Also:
      - The refusals: R itself → `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`; a nested directory → the `OWNERSHIP_NESTED` code; a foreign repository → `OWNERSHIP_FOREIGN`.
   2. Define `OwnedCreateRoot` as a frozen dataclass in `owned_mission.py` with fields `repository_root: Path` and `checkout: Path`. **Do not name a field `owned_root` / `owned_checkout` / `checkout_root`**: gate G5 bans those names typed `Path` everywhere except on `mission_runtime.owned_checkout.OwnedCheckout` (`contracts/architectural-gate.md`). Construction goes only through `resolve_owned_create_root` (reuse the private-token pattern from WP01, or keep the dataclass module-private and export only the function plus the type for annotations).
   3. Implement `resolve_owned_create_root(repository_root, checkout)`: claim → `error_for_claim` (raise the structured error as `ActionContextError(error.error_code, str(error))`, the same translation as `:92-94`) → the repository-root refusal → return the value. No branch or topology check: the mission does not exist yet, and create keeps its own guards (`mission_creation.py:863-879`).
+  4. Why a typed value and not a bare `Path`: `create_mission_core` currently derives `effective_root` from the claim inline (`src/specify_cli/core/mission_creation.py:859-861`) and threads it as a bare path (an FR-001 / G5 offender). WP10 replaces that with `create_root: OwnedCreateRoot | None`, and every governance read at create (`:848`, `:951`, `:963`, `:968`) then takes its root from `create_root.checkout`. The type makes "validated before use" visible in signatures.
+  5. Tests for the value itself:
+     - it is frozen (`dataclasses.FrozenInstanceError` on assignment);
+     - direct construction outside the function raises `TypeError` (if you use the token pattern);
+     - `repository_root` and `checkout` are resolved, which you can see by passing a symlinked checkout path.
+- **Validation checklist**:
+  - [ ] `pytest tests/core/test_owned_mission_minter.py -k create_root -q` is green: the happy path, three refusals and the value tests.
+  - [ ] Exactly one `resolve_ownership_claim` call per `resolve_owned_create_root` invocation, asserted with the counting monkeypatch that T009 uses. This is the create half of NFR-002.
+  - [ ] mypy `--strict` shows the return type as `OwnedCreateRoot`, not `Any`.
+- **Edge cases**:
+  - A checkout that is a subdirectory of a linked worktree is refused as nested by the claim primitive (`checkout_ownership.py:155-181`). No extra handling is needed; the test only pins the code.
+  - Create may run when the owned checkout has an unborn HEAD. The claim does not need a commit, and create's own unborn-HEAD guard (`mission_creation.py:866-873`) keeps reporting it. Do not add a HEAD check here.
+- **Out of scope**: do not edit `core/mission_creation.py` (WP10 owns it). Do not add branch or protection checks here: `create` checks the current branch itself (`mission_creation.py:875-877`), and the target branch is chosen by the operator at create time.
 - **Files**: `src/specify_cli/core/owned_mission.py`, `tests/core/test_owned_mission_minter.py`.
 - **Parallel?**: Yes with T007.
 - **Validation checklist**:
@@ -258,6 +288,9 @@ Also:
 
      Replace each with `OwnedCheckout._mint(...)` using **valid** paths. The move-task test passes arguments in a non-canonical order that would violate the new invariants, so rebuild its paths deliberately. These are **declared out-of-map edits** (rationale: "WP02 makes positional `OwnedMission(...)` construction raise by contract §1; the test must mint the fact"). List them in the Activity Log and the PR.
   4. Run `grep -rn "OwnedMission(" src tests` and `grep -rn "effective_root_kwargs(" src`. The first must show no hits. The second must still type-check under mypy (the `**` splats stay typed).
+  5. Annotation sites (`owned: OwnedMission | None`, for example `src/specify_cli/status/models.py`, `coordination/status_transition.py`, `migration/runtime_state_cutover.py`, `migration/backfill_runtime_state.py`) keep working through the alias with no edit. **Do not** rename them here; the `code_symbols` rename happens in each owning WP (occurrence map), and the final sweep is WP18.
+  6. Add `tests/core/test_owned_mission_minter.py::test_transitional_alias_is_the_fact` (`OwnedMission is OwnedCheckout`) and `test_effective_root_kwargs_accepts_fact` (a fact yields `{"effective_root": fact.owned_root}`, a path yields `{"effective_root": path}`, `None` yields `{}`). WP18 deletes both tests with the alias; say so in their docstrings.
+- **Commit sequence**: (a) the two alias tests, red; (b) the alias plus the widened helper; (c) one commit re-pointing the five out-of-map test constructions, whose message lists the files and the rationale.
 - **Files**: `src/specify_cli/core/owned_mission.py` plus the five out-of-map test files above.
 - **Validation checklist**:
   - [ ] `pytest` on the five re-pointed files plus `tests/specify_cli/cli/commands/test_next_owned_commit_guard.py tests/next/test_runtime_bridge_unit.py tests/runtime/test_artifact_presence_placement.py -q` is green.
@@ -265,6 +298,8 @@ Also:
 - **Edge cases**:
   - Tests that monkeypatch `resolve_owned_mission` to return a stub object keep working, because attribute access is duck-typed. Do not "fix" them here.
   - `OwnedCheckout` hashing differs from the old dataclass (the token has `compare=False`). No production code hashes `OwnedMission`; verify with a grep.
+  - `OwnedCheckout.files()` raises `OwnedCheckoutPathRefused`, a subclass of `ActionContextError` with the same `OWNED_MISSION_PATH_REFUSED` code as before. Existing `except ActionContextError` handlers in `spec_commit_cmd.py` and `mission_finalize.py` still catch it. Confirm by running `tests/integration/test_explicit_checkout_commands.py`, which includes the path-refusal cases.
+  - The alias must be a plain module-level assignment, not a subclass or wrapper. G3 and the mypy identity `OwnedMission is OwnedCheckout` depend on it, and WP18's deletion is then one line.
 
 ### Subtask T011 – Shared integration fixtures with self-tests
 

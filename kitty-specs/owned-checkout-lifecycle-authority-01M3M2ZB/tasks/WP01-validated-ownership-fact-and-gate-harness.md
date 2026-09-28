@@ -173,19 +173,29 @@ Constraints:
 
 - **Purpose**: `runtime` and `specify_cli` consume `OwnedCheckout` from the package root only. MR-1 (pytestarch) and MR-2 (AST scan) in `tests/architectural/test_mission_runtime_surface.py` forbid submodule imports from outside the package, so the type must be on the root (research R-01).
 - **Steps**:
-  1. In `src/mission_runtime/__init__.py` (imports at `:34-79`, `__all__` at `:81-133`), add `from mission_runtime.owned_checkout import OwnedCheckout` and add `"OwnedCheckout"` to `__all__` in sorted position. Add a short comment in the local style: `# owned-checkout-lifecycle-authority WP01 (FR-001/C-003): the validated ownership fact …`.
+  1. In `src/mission_runtime/__init__.py` (imports at `:37-84`, `__all__` at `:85-135`), add `from mission_runtime.owned_checkout import OwnedCheckout` and add `"OwnedCheckout"` to `__all__` in sorted position. Add a short comment in the local style: `# owned-checkout-lifecycle-authority WP01 (FR-001/C-003): the validated ownership fact …`.
   2. Do **not** export `OwnedCheckoutPathRefused`. It subclasses `ActionContextError`, which is already public, so consumers catch that. Keep the surface lean (FR-014 of dead-port-disposition).
   3. In `tests/architectural/test_mission_runtime_surface.py`, add `"OwnedCheckout"` to `_PUBLIC_SURFACE` (`:49-170`) with a comment naming this mission and WP. `test_public_surface_is_exactly_all` (`:191-199`) asserts list equality with `__all__`, so both edits land in the same commit.
   4. Update the package docstring's surface paragraph (`__init__.py:22-29`) with one sentence: the validated ownership fact is on the root because the runtime layers consume it (ADR 2026-06-07-1; WP03 amends that ADR).
+- **Commit sequence**:
+  1. Red: add `"OwnedCheckout"` to `_PUBLIC_SURFACE` alone. `test_public_surface_is_exactly_all` goes red: the surface list and `__all__` disagree.
+  2. Green: add the import and the `__all__` entry.
+
+  This two-step is the non-vacuity evidence that the surface pin actually covers the new symbol.
+- **Import-order check**: `mission_runtime/__init__.py` imports `context` before `resolution`, and `owned_checkout.py` imports from both. Place the new import **after** the `mission_runtime.resolution` import block (`:59-72`). Confirm with `python -c "import mission_runtime; print(mission_runtime.OwnedCheckout)"` in a fresh interpreter. Also run `python -X importtime -c "import mission_runtime" 2>&1 | grep owned_checkout` to confirm the module loads once and adds no heavy dependency.
+- **Out of scope**: do not touch `_COMPAT_ATTRS` (`__init__.py:137-143`). `OwnedCheckout` is a real `__all__` member, not a compatibility attribute.
 - **Files**: `src/mission_runtime/__init__.py`, `tests/architectural/test_mission_runtime_surface.py`.
 - **Parallel?**: Yes with T003 once T001 exists.
 - **Validation checklist**:
   - [ ] `pytest tests/architectural/test_mission_runtime_surface.py -q` is green.
+  - [ ] `test_ast_scan_no_external_internal_imports` (`:306`) is still green: nothing outside the package imports `mission_runtime.owned_checkout`. Tests may import it; MR-2 scans `src/` only.
   - [ ] `pytest tests/architectural/test_layer_rules.py -q` is green, and the `mission_runtime` outbound ledger count is unchanged.
   - [ ] `pytest tests/architectural/test_no_dead_symbols.py -q`: see Edge cases.
 - **Edge cases**:
   - **Dead-symbol gate.** `tests/architectural/test_no_dead_symbols.py` fails an `__all__` member that has no `src/` importer. The re-export from the parent package counts for the `owned_checkout` module declaration, but `mission_runtime.__all__` itself may be flagged until WP02 imports `OwnedCheckout` in `specify_cli/core/owned_mission.py`. If it goes red, do **not** add an allowlist entry. Record the finding in the Activity Log and tell the reviewer. The lane pairing WP01→WP02 resolves it; WP02's T006 is the first `src/` consumer.
   - MR-2 ignores `TYPE_CHECKING` imports (`test_ast_scan_ignores_type_checking_imports`, `:373`). A runtime import is still required here, because consumers use the class at runtime.
+  - Consumers outside the package import the type as `from mission_runtime import OwnedCheckout`, never from `mission_runtime.owned_checkout`. Tests may import the submodule directly (for `OwnedCheckoutPathRefused` or the sentinel), because MR-1/MR-2 scan `src/` only. Say this in the `owned_checkout.py` module docstring, so later WPs do not "fix" a test import.
+  - The package docstring already claims that "The root surface is exactly what `src/` consumers outside the package import". Until WP02 lands, `OwnedCheckout` has no such consumer. That is the same transient condition as the dead-symbol note above; do not reword the docstring to hide it.
 
 ### Subtask T003 – Carrier unit tests, identity cases, `ci-windows.yml` filter
 
@@ -204,6 +214,22 @@ Constraints:
   3. **Symlink identity case (NFR-006)**: create `real/` (a directory tree with `kitty-specs/<slug>`) and `link -> real`. Mint with `owned_root=link` and `mission_dir=link/kitty-specs/<slug>`. Assert `fact.owned_root == real.resolve()` and that it equals a fact minted from `real`. Skip only if `os.symlink` raises `OSError` on the platform (Windows without developer mode), with a reason string. Never skip silently.
   4. **Case-variant identity case (NFR-006)**: mark it `@pytest.mark.windows_ci` (plus `unit`). Mint with `repository_root=R` and `owned_root=Path(str(R).swapcase())`, and assert `ValueError` (the same checkout) on Windows. On non-Windows, monkeypatch `kernel.paths.is_windows` to return True **and** use paths that differ only by case, so the normcase branch is exercised on Linux CI too. Keep one test that runs natively on `windows-latest`.
   5. Add `tests/mission_runtime/test_owned_checkout.py` to the `dorny/paths-filter` list in `.github/workflows/ci-windows.yml` (entries at `:25-45`, alphabetical within `tests/`). The Windows job selects files by `git grep -l "@pytest.mark.windows_ci"` (`:137`) and runs `-m windows_ci`, so the marker and the filter entry are both required.
+  6. A small helper at the top of the test module keeps each test short:
+     ```python
+     def _layout(tmp_path: Path, slug: str = "owned-01M1A900") -> tuple[Path, Path, Path]:
+         repo = tmp_path / "repo"; owned = tmp_path / "owned"
+         mission = owned / "kitty-specs" / slug
+         mission.mkdir(parents=True); repo.mkdir()
+         return repo, owned, mission
+
+     def _mint(repo: Path, owned: Path, mission: Path, **over: object) -> OwnedCheckout:
+         kwargs = dict(repository_root=repo, owned_root=owned, mission_dir=mission,
+                       mission_slug=mission.name, topology=MissionTopology.SINGLE_BRANCH,
+                       target_branch="codex/owned")
+         kwargs.update(over)
+         return OwnedCheckout._mint(**kwargs)
+     ```
+  7. Pin the transitional legacy names in **one** test (`test_legacy_properties_mirror_canonical_fields`). WP18 deletes that single test together with the properties, and its docstring must say so.
 - **Files**: `tests/mission_runtime/test_owned_checkout.py` (new), `.github/workflows/ci-windows.yml`.
 - **Parallel?**: Yes with T002.
 - **Validation checklist**:
@@ -234,6 +260,25 @@ Constraints:
      - `CARRIER_FIELD_RULE`: the fields of the class whose fully-qualified name is `mission_runtime.owned_checkout.OwnedCheckout` are exempt from G5. Key on module path plus class name, never on field name alone.
   4. Provide `iter_python_sources(root: Path) -> Iterator[tuple[Path, str]]` for WP18, yielding sorted `(path, rel_path)` pairs and skipping `__pycache__`. The live-tree traversal is **not** called by any WP01 test that asserts offenders.
   5. Add a module docstring that maps G1–G6 to `contracts/architectural-gate.md`, states the commit discipline (self-tests green here; assertions red-first in WP18), and lists the exemption rules with reasons.
+  6. Suggested public surface (keep the names stable; WP18 imports them):
+     ```python
+     @dataclass(frozen=True)
+     class Offender:
+         rule: str          # "G1".."G6"
+         rel_path: str      # repo-relative, posix
+         lineno: int
+         detail: str        # e.g. "keyword effective_root=" / "param owned_root: Path | None"
+
+     def claim_references(tree: ast.Module, rel_path: str) -> list[Offender]: ...
+     def validator_calls(tree: ast.Module, rel_path: str) -> list[Offender]: ...
+     def mint_references(tree: ast.Module, rel_path: str) -> list[Offender]: ...
+     def effective_root_identifiers(tree: ast.Module, rel_path: str) -> list[Offender]: ...
+     def bare_owned_root_paths(tree: ast.Module, rel_path: str) -> list[Offender]: ...
+     def owned_signature_pins(tree: ast.Module, rel_path: str, required: Mapping[str, str]) -> list[Offender]: ...
+     def iter_python_sources(root: Path) -> Iterator[tuple[Path, str]]: ...
+     ```
+     The G1/G2/G3 functions report every reference. **Where** a reference is allowed (the owned_mission module, the `_owned_checkout.py` helper, the definition site in `checkout_ownership.py`) is the caller's decision, expressed in WP18 as a module allowlist constant. Keeping the allow decision out of the visitors lets the self-tests exercise the visitors without any path context.
+  7. Annotation classification lives in one helper, `_is_bare_path_annotation(node: ast.expr | None) -> bool`. It handles `Name`/`Attribute` (`Path`, `pathlib.Path`, `os.PathLike`), `Subscript` (`Optional[...]`, `Union[...]`, `Annotated[...]`, `os.PathLike[str]`), `BinOp(BitOr)`, and `Constant(str)`, which it parses with `ast.parse(value, mode="eval")` and recurses into. Unit-test this helper directly with a table of 12+ spellings in T005.
 - **Files**: `tests/architectural/_owned_checkout_scan.py` (new).
 - **Parallel?**: No (T005 depends on it).
 - **Validation checklist**:

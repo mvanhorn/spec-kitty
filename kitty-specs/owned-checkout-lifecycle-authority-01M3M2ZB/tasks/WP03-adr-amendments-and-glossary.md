@@ -136,6 +136,25 @@ Sources (read in full):
   8. **Review base.** Every WP review prompt, owned or not, finds its base through one claim-commit helper: the last `claimed` event id, then the unique commit that introduced it. It fails closed with `OWNED_REVIEW_BASE_UNAVAILABLE`. The three commit-subject matchers are deleted (FR-010, FR-025, decision `01M3M70Y…`, research R-05).
   9. **Error-code registry.** List the four new codes from data-model.md with one line each.
   10. Add to `## References`: this mission's spec and plan paths, and issues #3449, #4252, #4867, #5026 and #5277, as reference-style links in the file's existing style.
+- **Skeleton** (fill in the prose; keep the order):
+  ```markdown
+  ## Amendments
+
+  ### 2026-09-28 — Validated ownership fact and per-command topology
+
+  Mission `owned-checkout-lifecycle-authority-01M3M2ZB` (issues #3449, #4252, #4867, #5026, #5277).
+
+  - **The preflight now produces a validated ownership fact.** …(point 1)
+  - **Validated once per command.** …(point 2)
+  - **Supersedes the `effective_root` threading consequence** ("The explicit `effective_root` override is threaded …"). …(point 3)
+  - **Per-command topology** (supersedes "Single-branch only, by construction" for `next`). …(point 4)
+  - **Owned status reads under `.worktrees/`.** …(point 5)
+  - **Stale repository-root copies.** …(point 6)
+  - **Newly covered commands; typed refusal for `agent action`.** …(point 7)
+  - **One claim-commit review base.** …(point 8)
+  - **New error codes.** `OWNED_CHECKOUT_IS_REPOSITORY_ROOT`, `OWNED_ACTION_UNSUPPORTED`, `OWNED_REVIEW_BASE_UNAVAILABLE`, `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE`.
+  ```
+  A `###` heading inside `## Amendments` is fine, and it gives the docs index a stable anchor for later amendments. Keep the bullets as full sentences (charter Writing doctrine), and do not paste code blocks longer than 3 lines into the ADR.
 - **Files**: `docs/adr/3.x/2026-09-03-1-explicit-owned-checkout-single-branch-lifecycle.md`.
 - **Parallel?**: Yes with T013 and T014.
 - **Validation checklist**:
@@ -157,6 +176,24 @@ Sources (read in full):
   5. **Coordination-topology owned `next`.** It stays supported. A failing coordination-workspace probe (the #4867 zero-byte `commondir` case) now yields a `blocked` decision with `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE` instead of an uncaught git fatal. The bounded transient-lock retry from "Isolation and contention boundaries" (`:85-97`) is unchanged (FR-012, research R-08).
   6. **The threading consequence is superseded.** "Explicit-root propagation adds parameters across the `next` decision and runtime-bridge layers" (`:112-114`) is replaced by one immutable fact carried on `DecideNextContext` and the prompt builder.
   7. **Verification.** Name the per-PR in-process twin of the nightly `tests/e2e/test_worktree_owned_root_concurrency.py` proof, added for FR-022. Refer to it by requirement, not by file, because its final file name is decided in WP11.
+- **Skeleton**:
+  ```markdown
+  ## Amendments
+
+  ### 2026-09-28 — Validator-routed `next` and validated flagless adoption
+
+  Mission `owned-checkout-lifecycle-authority-01M3M2ZB`; extended by [ADR 2026-09-03-1] (Amendments).
+
+  - **The claim primitive has one caller.** …(point 1)
+  - **The repository root checkout is refused as an owned checkout.** …(point 2)
+  - **Validated flagless adoption** (qualifies "It is not inferred from CWD …" in "A narrow CLI affordance"). …(point 3; list the five exclusions)
+  - **Create-time governance reads follow the owned checkout; charter authoring stays at the repository root.** …(point 4)
+  - **Coordination-workspace probe failure is typed.** …(point 5)
+  - **Supersedes the "explicit-root propagation" trade-off.** …(point 6)
+  - **Verification.** …(point 7)
+  ```
+  The file does not yet define an `[ADR 2026-09-03-1]` reference link; add it to the link definitions at the bottom, pointing to `./2026-09-03-1-explicit-owned-checkout-single-branch-lifecycle.md`.
+- **Wording guard**: the original text says "ambient primary fallback" (`:103`, and in the frontmatter `description`). In the amendment, write "fallback to the repository root checkout". Do not edit the original sentence.
 - **Files**: `docs/adr/3.x/2026-08-12-1-checkout-ownership-for-mission-create-and-next.md`.
 - **Parallel?**: Yes.
 - **Validation checklist**:
@@ -177,6 +214,19 @@ Sources (read in full):
      - it is exported on the root because MR-1/MR-2 forbid submodule imports;
      - `tests/architectural/test_mission_runtime_surface.py::_PUBLIC_SURFACE` pins it.
   2. Do not change the historical `__all__` code block in §3. The amendment is the record.
+  3. Draft to adapt (keep it in the voice of the neighbouring bullet):
+     ```markdown
+     - **2026-09-28 — `OwnedCheckout` added to the root surface (mission
+       `owned-checkout-lifecycle-authority-01M3M2ZB`).** `mission_runtime.OwnedCheckout` is the
+       validated ownership fact: the owned checkout, the repository root checkout, the mission's
+       stored topology and its target branch, proven once per command. The placement seam,
+       WP workspace resolution, the status transition pipeline, the `next` runtime and the prompt
+       builder consume it, so it lives in this package and adds no outbound edge into the CLI
+       application layer. It is minted only by `specify_cli.core.owned_mission` (architectural gate
+       G3) and is exported on the root because MR-1/MR-2 forbid submodule imports;
+       `tests/architectural/test_mission_runtime_surface.py` pins it in `_PUBLIC_SURFACE`.
+     ```
+  4. Cross-check against the code that WP01 lands: the symbol name, the field names and the minter module must match `data-model.md`. If WP01 has already merged into the lane, read `src/mission_runtime/owned_checkout.py` and align the wording. If not, write from `data-model.md`.
 - **Files**: `docs/adr/3.x/2026-06-07-1-execution-state-canonical-surface.md`.
 - **Parallel?**: Yes.
 - **Validation checklist**:

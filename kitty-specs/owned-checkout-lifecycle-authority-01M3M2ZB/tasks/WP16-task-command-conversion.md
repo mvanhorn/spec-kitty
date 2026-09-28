@@ -177,27 +177,49 @@ Planning-base counts: `tasks_move_task.py` 58 sites, `tasks_mark_status.py` 26, 
 
 ### Subtask T085 – Convert `tasks_mark_status.py` / `tasks_shared.py`
 
-- **Purpose**: `mark-status` is the second owned write command; `tasks_shared.py` holds the subtask and review-readiness readers `move-task` calls.
+- **Purpose**: `mark-status` is the second owned write command; `tasks_shared.py` holds the subtask and review-readiness readers that `move-task` calls. Together they carry two G5 floor fields and five forwards.
 - **Steps**:
-  1. `tasks_mark_status.py` imports (`:87-90`): drop `OwnedMission`, `resolve_owned_mission`; import `OwnedCheckout`.
-  2. State (`:110-126`): delete `_MarkStatusState.owned_checkout: Path | None` (`:114`); retype `owned: OwnedCheckout | None` (`:124`). `_do_mark_status(..., owned_checkout: Path | None)` (`:554`) takes `owned: OwnedCheckout | None = None` instead (Typer-edge rule in Context).
-  3. `_ms_resolve_context` (`:170-208`): delete the `resolve_owned_mission(primary, st.owned_checkout, st.mission)` call (`:180`); keep `require_unstaged_index(st.owned)` and the `OWNED_OPTION_UNSUPPORTED` auto-commit refusal in the same order. Attribute renames: `:188` `.root`→`.owned_root`, `:202` `.primary`→`.repository_root`, `:203` `.target`→`.target_branch`, `:204` `.slug`→`.mission_slug`.
-  4. Forwards: `_ms_resolve_read_dir` `:232-235` `MissionHandle(effective_root=...)` → `owned=st.owned`; `_ms_emit_subtask_state` `:415-426` `effective_root=st.owned.root` + `owned_mission=st.owned` → `owned=st.owned`.
-  5. Value reads: `_ms_output` `:448, 456, 457`; `_reconstruct_applied_events(owned: OwnedMission)` (`:498`) retypes to `OwnedCheckout` and `:514, 517, 525` `.root`→`.owned_root`; `_do_mark_status` `:591` `.directory`→`.mission_dir`, `:610` `.root`→`.owned_root`, `:629` `.target`→`.target_branch`.
-  6. `tasks_shared.py`: `_check_unchecked_subtasks(..., effective_root)` (`:507`) → `owned: OwnedCheckout | None = None`; forwards at `:549` and `:565` into `placement_seam(..., effective_root=effective_root)` → `owned=owned`; the `if effective_root is not None:` at `:564` → `if owned is not None:`. `_validate_ready_for_review(..., effective_root)` (`:582`) → `owned`; forward at `:601-607` into `_seam_validate_ready_for_review(effective_root=...)` (the `tasks_parsing_validation` function imported as an alias at `:47`) → `owned=owned` (converted in T086; same commit).
-- **Files**: `src/specify_cli/cli/commands/agent/tasks_mark_status.py`, `src/specify_cli/cli/commands/agent/tasks_shared.py`.
-- **Parallel?**: `[P]` with T086 except for the `_validate_ready_for_review` pair, which must change together.
+  1. `tasks_mark_status.py` imports (`:87-90`): drop `OwnedMission` and `resolve_owned_mission`; import `OwnedCheckout` from `mission_runtime`.
+  2. State (`:110-126`): delete `_MarkStatusState.owned_checkout: Path | None` (`:114`, a G5 floor example); retype `owned: OwnedCheckout | None = None` (`:124`).
+  3. Entry: `_do_mark_status(..., owned_checkout: Path | None)` (`:554`) takes `owned: OwnedCheckout | None = None` instead; the Typer edge in `tasks.py:954` supplies it (Typer-edge rule in Context).
+  4. `_ms_resolve_context` (`:170-208`):
+     - delete the `resolve_owned_mission(primary, st.owned_checkout, st.mission)` call (`:180`);
+     - keep `require_unstaged_index(st.owned)` and the `OWNED_OPTION_UNSUPPORTED` auto-commit refusal, in the same order;
+     - renames: `:188` `.root` → `.owned_root`; `:202` `.primary` → `.repository_root`; `:203` `.target` → `.target_branch`; `:204` `.slug` → `.mission_slug`.
+  5. Forwards:
+     - `_ms_resolve_read_dir` `:232-235`: `MissionHandle(effective_root=st.owned.root if st.owned is not None else None)` → `owned=st.owned`;
+     - `_ms_emit_subtask_state` `:415-426`: `effective_root=st.owned.root` plus `owned_mission=st.owned` → one `owned=st.owned` (WP07's `emit_inner_state_changed_transactional`).
+  6. Value reads: `_ms_output` `:448, 456, 457`; `_reconstruct_applied_events(owned: OwnedMission)` (`:498`) retypes to `OwnedCheckout` and `:514, 517, 525` `.root` → `.owned_root`; `_do_mark_status` `:591` `.directory` → `.mission_dir`, `:610` `.root` → `.owned_root`, `:629` `.target` → `.target_branch`.
+  7. `tasks_shared.py`:
+     - `_check_unchecked_subtasks(..., effective_root)` (`:507`) → `owned: OwnedCheckout | None = None`;
+     - forwards at `:549` and `:565` (`placement_seam(..., effective_root=effective_root)`) → `owned=owned`;
+     - `:564` `if effective_root is not None:` → `if owned is not None:`;
+     - `_validate_ready_for_review(..., effective_root)` (`:582`) → `owned`; forward at `:601-607` into `_seam_validate_ready_for_review(effective_root=...)` (the `tasks_parsing_validation` function imported as an alias at `:47`) → `owned=owned`. Convert it in the same commit as T086 step 1.
+  8. Commit: `refactor(tasks): mark-status and shared readers take the OwnedCheckout fact (WP16/T085)`.
+- **Files**:
+  - `src/specify_cli/cli/commands/agent/tasks_mark_status.py`
+  - `src/specify_cli/cli/commands/agent/tasks_shared.py`
+- **Parallel?**: `[P]` with T086, except the `_validate_ready_for_review` pair, which must change together.
 - **Validation checklist**:
-  - [ ] `tests/specify_cli/cli/commands/agent/test_tasks_mark_status_seam.py`, `test_tasks_mark_status_recovery.py`, `test_mark_status_authored_roster.py`, `test_claim_event_source.py`, `test_issue_2684_subtask_completion_event_sourced.py`, `test_tasks_shared_seam.py`, `test_check_unchecked_subtasks_snapshot_source.py`, `test_tasks_surface_authority.py`, `test_tasks_compat_surface.py` pass unchanged.
-  - [ ] `_check_unchecked_subtasks` has other callers (`tasks.py`, `core/subtask_rows.py`, `status/emit.py` mentions it) — `grep -rn "_check_unchecked_subtasks(" src` and confirm none passes the removed keyword.
-- **Edge cases**: `_reconstruct_applied_events` runs in the post-commit recovery path (`test_post_commit_recovery_reports_only_exact_commit_events`, `test_concurrent_event_is_not_claimed_in_failure_envelope`); these reconstruct events from P's log and must keep reading only P.
-  Two test files you do **not** own construct the value object directly and call these internals: `tests/specify_cli/cli/commands/agent/test_tasks_mark_status_recovery.py:38-50` (`OwnedMission(...)` fixture passed to `_reconstruct_applied_events`) and `tests/specify_cli/cli/commands/agent/test_tasks_move_task_pre_review_identity_read.py:182` (`st.owned = OwnedMission(root, owned_root, primary, ...)`). Whatever WP02 made of the transitional `OwnedMission` alias, those objects must still expose `owned_root` / `mission_dir` / `target_branch` after your rename, or the tests go red. Run both files; if they fail only because the alias object lacks a canonical field, that is a WP02 alias gap — report it (do not edit those files); WP18/T097 re-points them when the alias is deleted.
+  - [ ] `tests/specify_cli/cli/commands/agent/test_tasks_mark_status_seam.py`, `test_tasks_mark_status_recovery.py`, `test_mark_status_authored_roster.py`, `test_claim_event_source.py`, `test_issue_2684_subtask_completion_event_sourced.py` pass unchanged.
+  - [ ] `test_tasks_shared_seam.py`, `test_check_unchecked_subtasks_snapshot_source.py`, `test_tasks_surface_authority.py`, `test_tasks_compat_surface.py`, `tests/agent/test_mission_handle_json_errors.py` pass unchanged.
+  - [ ] `_check_unchecked_subtasks` has other callers (`tasks.py`, `core/subtask_rows.py`; `status/emit.py` mentions it in a docstring): `grep -rn "_check_unchecked_subtasks(" src` confirms none passes the removed keyword.
+- **Edge cases**:
+  - `_reconstruct_applied_events` runs in the post-commit recovery path (`test_post_commit_recovery_reports_only_exact_commit_events`, `test_concurrent_event_is_not_claimed_in_failure_envelope`); it reconstructs events from P's log and must keep reading only P.
+  - Two test files you do **not** own construct the value object directly and call these internals:
+    - `tests/specify_cli/cli/commands/agent/test_tasks_mark_status_recovery.py:38-50` (an `OwnedMission(...)` fixture passed to `_reconstruct_applied_events`);
+    - `tests/specify_cli/cli/commands/agent/test_tasks_move_task_pre_review_identity_read.py:182` (`st.owned = OwnedMission(root, owned_root, primary, ...)`).
+    Whatever WP02 made of the transitional `OwnedMission` alias, those objects must still expose `owned_root` / `mission_dir` / `target_branch` after your rename, or the tests go red. Run both files. If they fail only because the alias object lacks a canonical field, that is a WP02 alias gap: report it and do not edit those files; WP18/T097 re-points them when the alias is deleted.
+  - `mark-status` requires auto-commit for owned runs; the refusal must still fire before any write, after validation.
 
 ### Subtask T086 – Convert `tasks_parsing_validation.py` / `tasks_verdict_persistence.py`
 
-- **Purpose**: the review-readiness reader and the verdict persistence path (review-cycle creation and verdict revert) still thread the owned root.
+- **Purpose**: the review-readiness reader and the verdict persistence path (review-cycle creation and verdict revert) still thread the owned root. The verdict path runs on every owned review rejection, so a missed site here writes a review cycle into the repository root checkout.
 - **Steps**:
-  1. `tasks_parsing_validation.py`: `_validate_ready_for_review(..., *, effective_root: Path | None = None, ...)` (`:784`) → `owned: OwnedCheckout | None = None`; `:838` `placement_seam(main_repo_root, mission_slug, effective_root=effective_root)` → `owned=owned`. Import `OwnedCheckout` under the module's existing typing-import style.
+  1. `tasks_parsing_validation.py`:
+     - `_validate_ready_for_review(..., *, effective_root: Path | None = None, workspace_override=..., review_base_ref=..., check_kitty_specs=..., ...)` (`:777-795`): the parameter at `:784` becomes `owned: OwnedCheckout | None = None`, in the same keyword-only position;
+     - `:838` `placement_seam(main_repo_root, mission_slug, effective_root=effective_root).read_dir(MissionArtifactKind.RESEARCH)` → `owned=owned`;
+     - import `OwnedCheckout` following the module's existing typing-import style.
   2. `tasks_verdict_persistence.py` has no owned parameters; it reads `st.owned` from the move-task state. Convert:
 
      | Line | Function | Site |
@@ -206,37 +228,60 @@ Planning-base counts: `tasks_move_task.py` 58 sites, `tasks_mark_status.py` 26, 
      | 349 | `revert_committed_verdict_write` | `.root` → `.owned_root` |
      | 436-448 | `_revert_committed_verdict_write_held` | `placement_seam(effective_root=st.owned.root if st.owned else None)` → `owned=st.owned`; value read `:448` |
      | 546 | `_persist_review_cycle_with_queue` | `.root` → `.owned_root` |
-     | 901-911, 936-948 | `_create` | `create_rejected_review_cycle(effective_root=st.owned.root if st.owned else None)` → callee rule (WP17 converts `review/cycle.py`); value reads `:911, 948` |
+     | 901-911 | `_create` (initial) | `create_rejected_review_cycle(effective_root=st.owned.root if st.owned else None)` → callee rule; value read `:911` |
+     | 936-948 | `_create` (retry) | same call; value read `:948` |
 
-  3. `create_rejected_review_cycle` belongs to WP17 (`review/cycle.py:1125`). If it already takes `owned`, pass `owned=st.owned`; otherwise keep the bridging keyword and log both lines for WP18/T097.
-- **Files**: `src/specify_cli/cli/commands/agent/tasks_parsing_validation.py`, `src/specify_cli/cli/commands/agent/tasks_verdict_persistence.py`.
-- **Parallel?**: `[P]` with T085 (except the shared `_validate_ready_for_review` pair).
+  3. `create_rejected_review_cycle` belongs to WP17 (`review/cycle.py:1125`). If it already takes `owned`, pass `owned=st.owned`; otherwise keep the bridging keyword `effective_root=st.owned.owned_root if st.owned else None` and log both lines for WP18/T097.
+  4. The two `validation_options` dicts in `tasks_move_task.py` (T084) feed `_validate_ready_for_review` by keyword; after step 1 their key must be `"owned"`. Change both files in the same commit.
+  5. Commit: `refactor(tasks): review readiness and verdict persistence take the OwnedCheckout fact (WP16/T086)`.
+- **Files**:
+  - `src/specify_cli/cli/commands/agent/tasks_parsing_validation.py`
+  - `src/specify_cli/cli/commands/agent/tasks_verdict_persistence.py`
+- **Parallel?**: `[P]` with T085, except the shared `_validate_ready_for_review` pair.
 - **Validation checklist**:
-  - [ ] `tests/specify_cli/cli/commands/agent/test_tasks_parsing_validation.py`, `tests/review/test_verdict_seam_reader_collapse.py`, `tests/review/test_verdict_status_lock_bound.py`, `tests/integration/review/test_verdict_save_topologies.py`, `tests/integration/test_review_durability_matrix.py`, `tests/specify_cli/review/test_cycle_kind_flip.py`, `tests/coordination/test_verdict_dir_co_resolution.py` pass unchanged.
-- **Edge cases**: `_create` is called twice on the rejection path (initial and retry, `:901` and `:936`); both must pass the same `owned`. The verdict revert must keep committing in P only (`test_owned_checkout_move_task.py` compensation tests).
+  - [ ] `tests/specify_cli/cli/commands/agent/test_tasks_parsing_validation.py`, `tests/agent/cli/commands/test_tasks_helpers.py`, `tests/specify_cli/cli/commands/agent/test_tasks.py` pass unchanged.
+  - [ ] `tests/review/test_verdict_seam_reader_collapse.py`, `tests/review/test_verdict_status_lock_bound.py`, `tests/integration/review/test_verdict_save_topologies.py`, `tests/integration/test_review_durability_matrix.py` pass unchanged.
+  - [ ] `tests/specify_cli/review/test_cycle_kind_flip.py`, `tests/coordination/test_verdict_dir_co_resolution.py`, `tests/agent/test_status_state_phantom_degrade.py`, `tests/post_merge/test_review_artifact_consistency.py` pass unchanged.
+  - [ ] `grep -nw "effective_root" src/specify_cli/cli/commands/agent/tasks_parsing_validation.py src/specify_cli/cli/commands/agent/tasks_verdict_persistence.py` prints only logged bridges.
+- **Edge cases**:
+  - `_create` is called twice on the rejection path (initial and retry); both must pass the same `owned`.
+  - The verdict revert must keep committing in P only (`test_owned_checkout_move_task.py` compensation tests at `:733` and `:794`).
+  - `_validate_ready_for_review` receives `workspace_override` and `review_base_ref` only for owned runs; keep those keyword names unchanged (they are not owned roots).
 
 ### Subtask T087 – Convert `spec_commit_cmd.py` / `mission_check_prerequisites.py`; option migration
 
-- **Purpose**: these two commands own their Typer edges, so they complete the full pattern here: `OwnedCheckoutOption` → `resolve_owned_or_adopt` → the fact, with no local validator call.
+- **Purpose**: these two commands own their Typer edges, so they complete the whole pattern here: `OwnedCheckoutOption` → `resolve_owned_or_adopt` → the fact, with no local validator call. They are two of the eight inline declarations IC-08 moves onto the shared option (`spec_commit_cmd.py:166`, `mission_check_prerequisites.py:563`).
 - **Steps**:
-  1. `spec_commit_cmd.py`:
-     - Imports `:33`: drop `OwnedMission`, `resolve_owned_mission`; import `OwnedCheckout`, and from `_owned_checkout` the option and resolver.
-     - Option `:166`: inline `owned_checkout: Annotated[Path | None, typer.Option("--owned-checkout", help="Explicit single-branch checkout root.")]` → `owned_checkout: OwnedCheckoutOption = None`.
-     - `_resolve_commit_inputs(repo_root, files, mission, owned_checkout: Path | None, target_branch)` (`:103-116`): it must stop taking the raw path. Resolve the fact in `spec_commit_command` via `resolve_owned_or_adopt(..., target_override=target_branch)` (confirm WP08 forwards `target_override`; `spec-commit` is the only command that uses it today) and pass `owned: OwnedCheckout | None` into `_resolve_commit_inputs`. Keep `owned.files(files)` (the canonical `OwnedCheckout.files`, which raises `OwnedCheckoutPathRefused` → mapped to `OWNED_MISSION_PATH_REFUSED` at the CLI edge) and `require_unstaged_index(owned)` in the same order — the whole batch is validated before any staging (`test_whole_commit_batch_is_validated_before_staging`).
-     - `:113` `owned.slug` → `owned.mission_slug`; `:195` `commit_for_mission(effective_root=owned.root if owned else None)` → `owned=owned` (WP07 `commit_router`; callee rule); `:207` `owned.root` → `owned.owned_root`.
-     - `spec_commit_command` is at complexity 15 today: extract the owned-input resolution into a helper first so the function does not reach 16.
-  2. `mission_check_prerequisites.py`:
-     - Option `:563` → `OwnedCheckoutOption`.
-     - `:595-602`: replace the local `from specify_cli.core.owned_mission import resolve_owned_mission` + call with `resolve_owned_or_adopt`; keep the `OWNED_OPTION_UNSUPPORTED` refusal for `--resume-probe` **after** validation, as today; `:602` `repo_root = owned.root` → `owned.owned_root`; `:639` `owned.directory` → `owned.mission_dir`.
-     - `check_prerequisites` is at 14: extract the owned block into a helper.
-  3. Refusals: keep each command's existing JSON error envelope. Use `emit_owned_refusal` only where its output is byte-identical to the current envelope; otherwise keep the command's own emitter (golden tests decide).
-- **Files**: `src/specify_cli/cli/commands/spec_commit_cmd.py`, `src/specify_cli/cli/commands/agent/mission_check_prerequisites.py`.
+  1. `spec_commit_cmd.py` imports (`:33`): drop `OwnedMission` and `resolve_owned_mission`; import `OwnedCheckout` from `mission_runtime`, and `OwnedCheckoutOption` / `resolve_owned_or_adopt` from `specify_cli.cli.commands._owned_checkout`. Keep `require_unstaged_index`.
+  2. Option (`:166`): the inline `owned_checkout: Annotated[Path | None, typer.Option("--owned-checkout", help="Explicit single-branch checkout root.")]` becomes `owned_checkout: OwnedCheckoutOption = None`.
+  3. `_resolve_commit_inputs(repo_root, files, mission, owned_checkout: Path | None, target_branch)` (`:103-116`) must stop taking the raw path:
+     - resolve the fact in `spec_commit_command` via `resolve_owned_or_adopt(..., target_override=target_branch)` (confirm WP08 forwards `target_override`; `spec-commit` is the only command that uses it today);
+     - pass `owned: OwnedCheckout | None` into `_resolve_commit_inputs`;
+     - keep `owned.files(files)` (the canonical `OwnedCheckout.files`, whose `OwnedCheckoutPathRefused` maps to `OWNED_MISSION_PATH_REFUSED` at the CLI edge) and then `require_unstaged_index(owned)`, in that order, so the whole batch is validated before any staging (`test_whole_commit_batch_is_validated_before_staging`).
+  4. Renames: `:113` `owned.slug` → `owned.mission_slug`; `:195` `commit_for_mission(..., effective_root=owned.root if owned else None)` → `owned=owned` (WP07's commit router; callee rule); `:207` `owned.root` → `owned.owned_root`.
+  5. `spec_commit_command` is at complexity 15: extract the owned-input resolution into a helper **first** (campsite commit) so the conversion cannot push it to 16.
+  6. `mission_check_prerequisites.py`:
+     - option `:563` → `owned_checkout: OwnedCheckoutOption = None`;
+     - `:595-602`: replace the local `from specify_cli.core.owned_mission import resolve_owned_mission` and its call with `resolve_owned_or_adopt`;
+     - keep the `OWNED_OPTION_UNSUPPORTED` refusal for `--resume-probe` **after** validation, as today;
+     - `:602` `repo_root = owned.root` → `owned.owned_root`; `:639` `owned.directory` → `owned.mission_dir`;
+     - `check_prerequisites` is at 14: extract the owned block into a helper first.
+  7. Refusals keep each command's existing JSON error envelope. Use `emit_owned_refusal` only where its output is byte-identical to the current envelope; otherwise keep the command's own emitter (the golden tests decide).
+  8. Commits: one campsite commit per command (extraction only), then `refactor(cli): spec-commit and check-prerequisites resolve through the shared owned helper (WP16/T087)`.
+- **Files**:
+  - `src/specify_cli/cli/commands/spec_commit_cmd.py`
+  - `src/specify_cli/cli/commands/agent/mission_check_prerequisites.py`
 - **Parallel?**: Independent of T084–T086.
 - **Validation checklist**:
-  - [ ] `tests/specify_cli/cli/commands/test_spec_commit_cmd.py`, `test_issue_2739_spec_commit_protected_primary_guard.py`, `tests/specify_cli/cli/commands/agent/test_mission_check_prerequisites.py`, `tests/agent/test_agent_feature.py`, `tests/specify_cli/orchestrator_api/test_check_prerequisites_record_analysis.py`, `tests/specify_cli/test_meta_fail_closed_full_census_contract.py` pass unchanged.
-  - [ ] `tests/integration/test_explicit_checkout_commands.py` (all `check-prerequisites` and `spec-commit` parametrisations, including `test_explicit_checkout_is_independent_of_cwd`, `test_resume_probe_cannot_opt_in`, `test_foreign_repository_is_refused`) passes unchanged.
+  - [ ] `tests/specify_cli/cli/commands/test_spec_commit_cmd.py`, `tests/specify_cli/cli/commands/test_issue_2739_spec_commit_protected_primary_guard.py`, `tests/specify_cli/coordination/test_commit_router_partition.py`, `tests/coordination/test_commit_router_fail_loud.py` pass unchanged.
+  - [ ] `tests/specify_cli/cli/commands/agent/test_mission_check_prerequisites.py`, `tests/agent/test_agent_feature.py`, `tests/specify_cli/orchestrator_api/test_check_prerequisites_record_analysis.py`, `tests/specify_cli/test_meta_fail_closed_full_census_contract.py` pass unchanged.
+  - [ ] `tests/integration/test_explicit_checkout_commands.py` passes unchanged: every `check-prerequisites` and `spec-commit` parametrisation, including `test_explicit_checkout_is_independent_of_cwd`, `test_resume_probe_cannot_opt_in`, `test_foreign_repository_is_refused`, `test_whole_commit_batch_is_validated_before_staging`.
   - [ ] `tests/specify_cli/cli/commands/agent/test_mission_cli_golden_contract.py` passes (help text).
-- **Edge cases**: `check-prerequisites` ran validation **before** the resume-probe refusal; keep that so an invalid checkout reports its ownership code, not `OWNED_OPTION_UNSUPPORTED`. `spec-commit` passes `mission_slug` derived from the first file path when `--mission` is absent (`_derive_mission_slug`); the resolver must receive the same handle.
+  - [ ] Both functions ≤ 15 after the change.
+- **Edge cases**:
+  - `check-prerequisites` validates **before** the resume-probe refusal; keep that, so an invalid checkout reports its ownership code rather than `OWNED_OPTION_UNSUPPORTED`.
+  - `spec-commit` derives `mission_slug` from the first file path when `--mission` is absent (`_derive_mission_slug`); the resolver must receive the same handle.
+  - `spec-commit` without `--owned-checkout` run from inside P is FR-021 flagless adoption (WP08's behaviour); from R it must stay the non-owned path.
 
 ### Subtask T088 – FR-022 ratchet: existing owned `move-task` / `mark-status` / `spec-commit` tests
 

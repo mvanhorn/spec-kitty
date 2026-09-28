@@ -201,7 +201,8 @@ Done means:
 - **Edge cases**:
   - `locate_project_root()` honours `SPECIFY_REPO_ROOT` (`core/paths.py:197-213`). Unset it with `monkeypatch.delenv(..., raising=False)` for the flagless cwd cases, or O10/US7 will not observe cwd.
   - Compare paths with `Path(...).resolve()`: on macOS, `tmp_path` sits under the `/private` symlink.
-  - `stale_root_copy` must be installed **after** P's mission exists, so the two copies share one mission id. The US7-AS5 case needs a different id, so build it with a local helper that rewrites R's `meta.json` `mission_id`.
+  - `stale_root_copy` must be installed **after** P's mission exists, so that the two copies share one mission id. For US7-AS5, use WP02's `different_id=True` variant of `stale_root_copy` (WP02 T011 step 5).
+  - WP02's fixture API (T011): `owned_checkouts` returns `OwnedCheckouts(repository_root, owned_root, sibling, mission_slug, mission_id, mid8, target_branch, mission_dir)`. `make_owned_checkouts(topology=..., placement=..., wp_ids=..., protected_target=...)` is the factory. `owned_handle` parametrises slug, mid8 and id, and `owned_cwd` parametrises cwd ∈ {repository_root, owned_checkout, elsewhere}. Use these rather than hand-rolled equivalents.
 
 ### Subtask T039 – `_owned_checkout.py`: option, resolver/adopter, refusal emitter, stale-copy reporter
 
@@ -292,7 +293,23 @@ Done means:
 - **Steps**:
   1. In the owned branch of `resolve_context`, after `payload = context.to_dict()`, do `payload.update(stale_copy_payload(owned, warnings=payload["warnings"]))`. `warnings` exists on `MissionExecutionContext` (`mission_runtime/context.py:321`) and survives `to_dict()`.
   2. In human mode, call `echo_stale_copy_warning(owned)` so the text goes to **stderr**. Keep the existing stdout lines (`:198-207`) byte-identical.
+  2a. Expected owned JSON shape with a stale copy (additive keys only; everything else comes from `context.to_dict()` as today):
+     ```json
+     {
+       "success": true,
+       "resolution_kind": "owned_checkout",
+       "lane_id": null,
+       "wp_file": "<P>/kitty-specs/<slug>/tasks/WP01-....md",
+       "workspace_path": "<P>",
+       "warnings": ["The repository root checkout holds a stale copy of mission <slug> at <R>/kitty-specs/<slug>; the owned checkout <P> is authoritative."],
+       "stale_repository_root_copy": {"path": "<R>/kitty-specs/<slug>", "mission_id": "<ULID>"},
+       "mission_dir": "<P>/kitty-specs/<slug>"
+     }
+     ```
+     The human-mode warning text must be byte-equal to the `warnings[]` entry, so both come from `STALE_COPY_WARNING` in `_owned_checkout.py`.
   3. Do **not** emit the key in non-owned runs (the envelope rule).
+  3a. When the fact came from **adoption** (flagless, cwd = P), the stale-copy field is emitted exactly as for the explicit flag. US7-AS1 requires a flagless payload equal to the flagged one, so assert that equality with `stale_root_copy` active too.
+  3b. Keep the warning out of stdout in human mode. Existing agent harnesses parse the human stdout lines (`:198-207`), and an extra line there would be a contract change.
   4. Tests are already red in T038 (O4, US2-AS3 human). Add one more on the same fixture: without `stale_root_copy`, `payload["stale_repository_root_copy"] is None` and `warnings` has no stale text.
 - **Files**: `src/specify_cli/cli/commands/agent/context.py`.
 - **Parallel?**: after T040.
@@ -315,6 +332,23 @@ Done means:
      - `_reanchor_planning_feature_dir(payload, action, repo_root, mission_slug) -> None`: covers `:180-193`;
      - `_render_context_human(context, payload) -> None`: covers `:198-207`;
      - `_emit_context_error(exc, json_output) -> NoReturn`: covers `:208-213`.
+  2a. Target shape after extraction (T040 then edits only the helper bodies):
+     ```python
+     def resolve_context(action, mission=None, wp_id=None, agent=None, json_output=False) -> None:
+         try:
+             repo_root, raw_handle = _validate_resolve_inputs(action, mission)
+             mission_slug = _resolve_context_mission(repo_root, raw_handle)
+             context = resolve_action_context(repo_root, action=cast(ActionName, action), feature=mission_slug,
+                                              wp_id=wp_id, agent=agent, cwd=Path.cwd(),
+                                              effective_root=...)  # unchanged in the campsite commit
+             payload = context.to_dict()
+             _reanchor_planning_feature_dir(payload, action, repo_root, mission_slug)
+             payload["mission_dir"] = payload["feature_dir"]
+             _emit_context_success(context, payload, json_output)
+         except ActionContextError as exc:
+             _emit_context_error(exc, json_output)
+     ```
+     The campsite commit keeps today's `effective_root=operation.mission_anchor_root` argument as is. T040 is the commit that changes it.
   3. Add focused unit tests for each extracted helper in `tests/specify_cli/cli/commands/test_owned_checkout_helper.py` (a `TestContextHelpers` section). The diff-cover gate needs them.
   4. Re-run the probe: `resolve_context` ≤ 11, and no helper > 11.
 - **Files**: `src/specify_cli/cli/commands/agent/context.py`, `tests/specify_cli/cli/commands/test_owned_checkout_helper.py`.
@@ -341,6 +375,8 @@ Done means:
      | `test_real_resolver_falls_back_when_caller_has_no_kitty_specs` | R chosen | `test_no_adoption_without_kitty_specs` | `None` |
      | `test_real_resolver_rejects_conflicting_identities` (hand-made pointer) | conflict raised | covered by row 3 on a **valid** P; add `test_invalid_checkout_with_conflicting_id_is_not_adopted` pinning whatever WP02's adopt order yields for an **invalid** checkout (`None` or conflict), with a comment citing WP02's decision | per WP02 |
 
+  1a. For the "unvalidated pointer" rows, keep the old `_link_worktree` technique (a hand-written `.git` file pointing at a fabricated gitdir, old test `:120-126`) as a local helper in the new file. It is the precise shape of O10: a directory that *looks* linked to R but is not a registered worktree on the mission's target branch. The new assertion is `resolve_owned_or_adopt(R, None, handle, cwd=caller, allowed_topologies=LIFECYCLE_OWNED_TOPOLOGIES) is None`, and the command-level twin is T038's O10 row.
+  1b. For the "valid P" rows, use `owned_checkouts` and assert on the returned fact's canonical fields (`owned_root == P.resolve()`, `mission_dir == P/kitty-specs/<slug>`, `mission_slug`), never on the legacy alias names.
   2. `git rm tests/specify_cli/missions/test_operation_context.py` in the same commit as the T040 deletion of the module.
   3. Markers: mock-only rows are `unit` + `fast`; real-git rows are `integration` + `git_repo`.
 - **Files**: `tests/specify_cli/cli/commands/test_owned_checkout_helper.py`; deletion of `tests/specify_cli/missions/test_operation_context.py`.
@@ -351,6 +387,8 @@ Done means:
   - [ ] `grep -rn "operation_context" tests src` returns nothing.
 - **Edge cases**:
   - The old tests patched `get_main_repo_root` / `get_status_read_root` on the deleted module. Do not recreate those seams; use real `git worktree` fixtures.
+  - `MissionOperationContext.mission_anchor_root` has no successor. Consumers now receive a fact (owned) or nothing (repository root). Do not reintroduce an "anchor root" `Path` value in the helper: it is exactly the bare owned root that gates G4/G5 forbid.
+  - The old real-resolver tests were `unit` + `fast` even though they touched the filesystem (hand-written pointers, no subprocess). Tests that now go through the validator run git, so mark them `integration` + `git_repo`. The fast-lane job (`-m "fast and not windows_ci"`) must not pick them up.
 
 ## Test Strategy
 

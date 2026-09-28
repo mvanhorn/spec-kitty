@@ -192,7 +192,7 @@ Done means:
 
 - **Purpose**: one field carries the validated fact through the status pipeline (contract §7). The two legacy fields keep not-yet-converted callers green until WP18.
 - **Steps**:
-  1. **Red first** in `tests/status/test_transition_request_owned.py` (markers `unit` + `fast`). Obtain facts through the WP02 minter on a tiny real fixture, or through WP01's test-only helper. Never call `OwnedCheckout(...)`: it raises `TypeError` by design. Cover these cases:
+  1. **Red first** in `tests/status/test_transition_request_owned.py` (markers `unit` + `fast`). In tests, mint facts with `OwnedCheckout._mint(...)`, as WP01's `tests/mission_runtime/test_owned_checkout.py` does (contract §1 allows a `tests/` helper, and G3 scans `src/` only), or take them from the WP02 minter on a real fixture. Never call `OwnedCheckout(...)`, which raises `TypeError` by design. Cover these cases:
      - `TransitionRequest(owned=fact).owned_fact() is fact`.
      - `TransitionRequest(owned_mission=fact).owned_fact() is fact` (legacy alias collapses).
      - Mismatch: `owned=f1, owned_mission=f2` with differing checkout or slug raises `TypeError` at `owned_fact()`.
@@ -202,6 +202,19 @@ Done means:
      - Add `owned: OwnedCheckout | None = None` **after** `owned_mission`, so positional construction is unchanged. Import it under `TYPE_CHECKING` from `mission_runtime`, replacing the `OwnedMission` import at `:22-26`, which keeps the cold-import guarantee (#3866 comment).
      - Add `owned_fact(self) -> OwnedCheckout | None`. It returns `self.owned` or `self.owned_mission`, and raises `TypeError` when both are set and are not the same object and not equal. Do the collapse **at read time, not in `__post_init__`**: existing tests and callers mutate `request.effective_root` / `request.owned_mission` after construction (for example `tests/specify_cli/coordination/test_status_transition.py:1008-1011`, `:1240-1241`).
      - Mark `effective_root` and `owned_mission` with `# TRANSITIONAL(WP18)` and update the class docstring.
+  2a. Sketch (read-time collapse; no identity checks here):
+     ```python
+     def owned_fact(self) -> OwnedCheckout | None:
+         """The validated ownership fact; the legacy ``owned_mission`` alias collapses into it (WP18 deletes the alias)."""
+         if self.owned is not None and self.owned_mission is not None:
+             if self.owned is not self.owned_mission and self.owned != self.owned_mission:
+                 raise TypeError("TransitionRequest carries two different ownership facts")
+         return self.owned if self.owned is not None else self.owned_mission
+
+     def has_owned_root_only(self) -> bool:
+         """TRANSITIONAL(WP18): a legacy caller passed a bare owned root without the fact."""
+         return self.effective_root is not None and self.owned_fact() is None
+     ```
   3. Do **not** add identity checks (checkout or slug vs `effective_root`) here. They stay at the identity seam (T033), preserving today's `OWNED_MISSION_PATH_REFUSED` behaviour and location.
 - **Files**: `src/specify_cli/status/models.py`, `tests/status/test_transition_request_owned.py`.
 - **Parallel?**: no. T033 and T034 build on it.
@@ -337,6 +350,15 @@ Done means:
      - `feature_write_dir` (`:336-346`) and `commit_artifact` (`:356-390`): pass `owned=mission.owned` to `commit_fn`, and the legacy `effective_root_kwargs` only when `owned` is `None`.
        - C-001 byte-parity of the mock call shape matters for `test_tasks_cli_contract_coord.py`: a non-owned handle must produce **no** extra keyword.
        - Pass `owned=` only when set, using a small `_owned_kwargs(mission)` typed helper.
+  3. Sketch of the private helpers (the names are suggestions):
+     ```python
+     def _placement_for(mission: MissionHandle) -> PlacementSeam:
+         if mission.owned is not None:
+             return placement_seam(mission.repo_root, mission.mission_slug, owned=mission.owned)
+         # TRANSITIONAL(WP18): legacy bare-root handles (review/cycle.py, WP17)
+         return placement_seam(mission.repo_root, mission.mission_slug, **effective_root_kwargs(mission.effective_root))
+     ```
+     The three `RealFsReader` methods and `feature_write_dir` each call `_placement_for(mission).read_dir(kind)`, which removes the triplicated splat.
 - **Files**: `src/specify_cli/agent_tasks_ports.py`, `tests/status/test_transition_request_owned.py`.
 - **Parallel?**: yes, after T032.
 - **Validation checklist**:
@@ -360,6 +382,20 @@ Done means:
      - **`move-task`**: `agent tasks move-task WP01 --to claimed --mission <slug> --owned-checkout P --json` after a finalize gives `count == 1`. Run it on the base and record the count. If the base is already 1 (the seeding path threads `owned_mission`), this case is the `[ratchet]` guard and the finalize case carries the red-first evidence. Say so in the test docstring.
      - **Positive control on the same fixture**: the same commands without `--owned-checkout`, against a non-owned mission in R, give `count == 0`. This proves the counter actually intercepts: a counter that never fires would make the owned assertion vacuous.
      - `r_snapshot` is unchanged around each owned invocation (NFR-001).
+  2a. Counting-wrapper sketch:
+     ```python
+     @pytest.fixture
+     def claim_counter(monkeypatch):
+         from specify_cli.core import checkout_ownership
+         calls: list[Path | None] = []
+         original = checkout_ownership.resolve_ownership_claim
+         def _counting(claimed_checkout, *, resolved_primary):
+             calls.append(claimed_checkout)
+             return original(claimed_checkout, resolved_primary=resolved_primary)
+         monkeypatch.setattr(checkout_ownership, "resolve_ownership_claim", _counting)
+         return calls
+     ```
+     Request `claim_counter` **after** the fixture that prepares the mission, or reset `calls.clear()` right before the invocation.
   3. Keep the counting wrapper local to this test module. WP16 T089 re-implements its own copy (about 10 lines) rather than importing from a test module.
 - **Files**: `tests/status/test_transition_request_owned.py`.
 - **Parallel?**: no. It is the first commit.

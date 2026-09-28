@@ -162,12 +162,19 @@ Totals: 7 parameters, 1 inline option, 7 `effective_root_kwargs(...)` calls, 14 
 
 - **Purpose**: Freeze the observable behaviour of `accept()` before it is taken apart, so T076 is provably behaviour-preserving (DIRECTIVE_034 test-first; FR-026 "behaviour-preserving … with focused tests"). The existing suites cover many paths end to end, but none pins the side-effect **order** in the `finally` block or every JSON error envelope in one place.
 - **Steps**:
-  1. Create `tests/specify_cli/cli/commands/test_accept_decomposition.py` with `pytestmark = [pytest.mark.unit, pytest.mark.fast]`. Invoke the command through Typer exactly as `tests/integration/test_explicit_checkout_commands.py:24-25` does (`accept_app = typer.Typer(); accept_app.command()(accept)`; `CliRunner().invoke(accept_app, [...])`).
-  2. Isolate the command from git and the filesystem by monkeypatching **module attributes of `specify_cli.cli.commands.accept`** only: `show_banner`, `find_repo_root`, `resolve_mission_dir_with_bare_modern_fold`, `choose_mode`, `_collect_summary_with_optional_repair`, `verify_pr_merge_evidence`, `perform_acceptance`, `resolve_acceptance_actor`, `_stranded_verdict_provenance_note`, `_stamp_birth_cutover_for_accept`, `_record_pr_merge_for_accept`, `_commit_residual_acceptance_artifacts`. Use tiny fakes (a `SimpleNamespace` summary with `ok`, `to_dict()`, `warnings`; a fake `AcceptanceResult` with `to_dict()`, `notes`, `commit_created`, `summary`). Record every helper call into one `calls: list[str]` so ordering is assertable.
-  3. Write one test per exit path; each asserts exit code, and for `--json` runs, the exact top-level key set of the printed JSON:
+  1. Create `tests/specify_cli/cli/commands/test_accept_decomposition.py`. Put `unit` + `fast` markers on the characterisation tests **per test or per class**, not as a module-level `pytestmark`, because T079 appends an `integration` + `git_repo` test to the same file.
+  2. Invoke the command through Typer exactly as `tests/integration/test_explicit_checkout_commands.py:24-25` does:
+     - `accept_app = typer.Typer(); accept_app.command()(accept)`;
+     - `CliRunner().invoke(accept_app, [...])`.
+  3. Isolate the command from git and the filesystem by monkeypatching **module attributes of `specify_cli.cli.commands.accept`** only:
+     - `show_banner`, `find_repo_root`, `resolve_mission_dir_with_bare_modern_fold`, `choose_mode`;
+     - `_collect_summary_with_optional_repair`, `verify_pr_merge_evidence`, `perform_acceptance`, `resolve_acceptance_actor`, `_stranded_verdict_provenance_note`;
+     - `_stamp_birth_cutover_for_accept`, `_record_pr_merge_for_accept`, `_commit_residual_acceptance_artifacts`.
+     Use tiny fakes: a `SimpleNamespace` summary with `ok`, `to_dict()`, `warnings`; a fake `AcceptanceResult` with `to_dict()`, `notes`, `commit_created`, `summary`. Record every helper call into one `calls: list[str]` so ordering is assertable.
+  4. Write one test per exit path; each asserts the exit code, and for `--json` runs the exact top-level key set of the printed JSON:
      - `--mission` omitted → exit 2, `{"error": "--mission <slug> is required"}`.
      - `find_repo_root` raises `TaskCliError` → exit 1, `{"error"}` only.
-     - owned entry raises `ActionContextError("OWNED_BRANCH_REFUSED", ...)` → exit 1, keys `{"error_code", "error"}` (simulate by patching `_owned_accept_context`; after T078 you will patch the WP08 helper instead — see step 5).
+     - owned entry raises `ActionContextError("OWNED_BRANCH_REFUSED", ...)` → exit 1, keys `{"error_code", "error"}` (simulate by patching `_owned_accept_context`; after T078 you patch the WP08 helper instead — see step 6).
      - `--merge-commit` with a resolved mode other than `pr` → exit 2, message contains `only valid with --mode pr`.
      - `verify_pr_merge_evidence` raises `PrMergeEvidenceError` → exit 1, `Cannot record PR merge for`.
      - summary collection raises each of `Pre30LayoutError`, `AcceptanceError`, `AcceptanceMatrixParseError` → exit 1, `{"error"}` (parametrise).
@@ -175,99 +182,168 @@ Totals: 7 parameters, 1 inline option, 7 `effective_root_kwargs(...)` calls, 14 
      - `--mode checklist` with `summary.ok` True/False → exit 0/1; `perform_acceptance` never called.
      - `summary.ok` False, with and without `--allow-fail` → exit 1 both ways.
      - `perform_acceptance` raises `AcceptanceError` → exit 1; **pin that `_commit_residual_acceptance_artifacts` still runs** (today's `finally` runs the residual commit whenever `commit_required`) and that the stamp and PR-merge recording do **not** run.
-     - stamp raises `AcceptanceError` → exit 1, `Birth-cutover stamp refused:`; pr-merge raises → `PR merge recording failed:`; residual raises → `Residual artifact commit failed:`. When more than one fails, the stamp message wins over the PR-merge message, which wins over the residual message (today's `if` order at `accept.py:1108-1130`).
-     - happy path, `--mode pr --merge-commit abc`: `calls == ["perform_acceptance", "stamp", "record_pr_merge", "residual"]`; `result.notes` gains the `PR merge recorded:` note; `--no-commit` instead gains the `re-run without --no-commit` note and calls neither stamp nor residual (`perform_acceptance(auto_commit=False)`).
-  4. Assert the stamp is called with the `owned` value object that the CLI edge produced (identity: `is`), which T077 relies on.
-  5. Keep each fake minimal and centralise the patching in one fixture so T078 only has to swap the owned-entry patch target in one place.
-  6. Run the file against the **planning base code** and commit it on its own: `test(accept): characterise accept() exit paths before decomposition (WP14/T075)`.
-- **Files**: `tests/specify_cli/cli/commands/test_accept_decomposition.py` (new). Read-only references: `src/specify_cli/cli/commands/accept.py:740-1159`, `tests/specify_cli/cli/commands/test_accept_merge_commit.py` (merge-commit fakes to borrow), `tests/specify_cli/cli/commands/test_accept_clean_tree.py`.
+     - stamp raises `AcceptanceError` → exit 1, `Birth-cutover stamp refused:`; PR merge raises → `PR merge recording failed:`; residual raises → `Residual artifact commit failed:`. When more than one fails, the stamp message wins over the PR-merge message, which wins over the residual message (today's `if` order at `accept.py:1108-1130`).
+     - happy path, `--mode pr --merge-commit abc`: `calls == ["perform_acceptance", "stamp", "record_pr_merge", "residual"]`; `result.notes` gains the `PR merge recorded:` note.
+     - `--no-commit` with `--merge-commit`: gains the `re-run without --no-commit` note, calls neither stamp nor residual, and `perform_acceptance` receives `auto_commit=False`.
+  5. Assert the stamp is called with the same `owned` object the CLI edge produced (identity: `is`); T077 relies on it.
+  6. Centralise the patching in one fixture so T078 only swaps the owned-entry patch target in one place. Keep each fake minimal; no real git.
+  7. Run the file against the **planning-base** `accept.py` and commit it alone: `test(accept): characterise accept() exit paths before decomposition (WP14/T075)`.
+- **Files**:
+  - `tests/specify_cli/cli/commands/test_accept_decomposition.py` (new).
+  - Read-only references: `src/specify_cli/cli/commands/accept.py:740-1159`; `tests/specify_cli/cli/commands/test_accept_merge_commit.py` (merge-commit fakes to borrow); `tests/specify_cli/cli/commands/test_accept_clean_tree.py`.
 - **Parallel?**: No. It must land before T076.
 - **Validation checklist**:
-  - [ ] File is green on the undecomposed `accept()` (run before touching `accept.py`).
-  - [ ] Every `raise typer.Exit(...)` in `accept()` (there are 16 today) is reached by at least one test; check with `uv run --frozen pytest tests/specify_cli/cli/commands/test_accept_decomposition.py --cov=specify_cli.cli.commands.accept --cov-report=term-missing` and confirm no uncovered line inside `accept()`.
-  - [ ] Tests assert key sets and codes, not rich console formatting.
-- **Edge cases**: the human (non-JSON) path calls `show_banner()` and a `StepTracker`; test at least one human-mode failure so the tracker-error branches are covered. `normalize_encoding` and `diagnose` together are refused only in owned mode (`_owned_accept_context`), so pin that refusal too.
+  - [ ] The file is green on the undecomposed `accept()` (run it before touching `accept.py`).
+  - [ ] Every `raise typer.Exit(...)` in `accept()` (16 on the planning base) is reached by at least one test. Check with `uv run --frozen pytest tests/specify_cli/cli/commands/test_accept_decomposition.py --cov=specify_cli.cli.commands.accept --cov-report=term-missing` and confirm no uncovered line inside `accept()`.
+  - [ ] Tests assert key sets, exit codes and call order, never rich console formatting.
+- **Edge cases**:
+  - The human (non-JSON) path calls `show_banner()` and a `StepTracker`; test at least one human-mode failure so the tracker-error branches are covered.
+  - `--normalize-encoding` together with `--diagnose` is refused only in owned mode (`_owned_accept_context`); pin that refusal too.
+  - `requested_mode` is lower-cased before `choose_mode`; include one upper-case `--mode PR` run so the decomposition cannot drop it.
 
 ### Subtask T076 – Decompose `accept()` to ≤ 15; drop the `accept.py` C901 ignore
 
-- **Purpose**: FR-026. `accept()` sits at complexity 59 (`ruff check --isolated --select C901` on the planning base). The plan (IC-14a) requires a behaviour-preserving decomposition **before** the functional conversion (tidy-first), and removal of the per-file suppression that has hidden it.
+- **Purpose**: FR-026. `accept()` sits at complexity 59 (`ruff check --isolated --select C901` on the planning base). The plan (IC-14a) requires a behaviour-preserving decomposition **before** the functional conversion (tidy-first), and removal of the per-file suppression that has hidden it. It is the only over-limit function in `accept.py` (R-16), so removing `C901` from the per-file ignore is safe once it is fixed.
 - **Steps**:
-  1. Introduce one small frozen carrier for the run, for example `@dataclass(frozen=True) class _AcceptRun` holding `json_output`, `tracker`, `repo_root`, `mission_slug`, `mission_dir`, `owned`, `actual_mode`, `commit_required`, `provenance_note`. (Keep `owned` typed as the WP02 alias at this point if T078 has not run; T078 retypes it.)
-  2. Extract one error emitter, e.g. `_fail(run_or_json, message, *, code=1, tracker_step=None)`, replacing the eight near-identical `if json_output: print(json.dumps({"error": ...})) else: tracker.error(...); console.print(...)` blocks (`accept.py:852-859, 897-903, 912-917, 944-952, 953-960, 971-978, 1044-1052, 1109-1130`). It raises `typer.Exit(code)`; preserve each block's exact message text and whether the tracker is rendered.
-  3. Extract phase helpers, each ≤ 15 and each with a single responsibility (suggested names; keep them private):
-     - `_resolve_accept_entry(...)` → `(repo_root, owned)`; owns the `ActionContextError`/`TaskCliError` handling currently at `accept.py:815-836`.
+  1. Introduce one small frozen carrier for the run, for example `@dataclass(frozen=True) class _AcceptRun` holding `json_output`, `tracker`, `repo_root`, `mission_slug`, `mission_dir`, `owned`, `actual_mode`, `commit_required`, `provenance_note`. Keep `owned` typed as whatever the current code uses at this point; T078 retypes it.
+  2. Extract one error emitter, for example `_fail(run_or_json, message, *, code=1, tracker_step=None)`, replacing the eight near-identical "print JSON error or tracker error + console" blocks:
+     - `accept.py:852-859` (missing `--mission`, exit 2);
+     - `:897-903` and `:912-917` (merge-commit mode / evidence errors);
+     - `:944-952`, `:953-960`, `:971-978` (summary collection errors);
+     - `:1044-1052` (perform-acceptance error);
+     - `:1109-1130` (stamp / PR merge / residual errors).
+     It raises `typer.Exit(code)`. Preserve each block's exact message text and whether the tracker is rendered (Sonar S1192: one helper, not eight copies).
+  3. Extract phase helpers, each ≤ 15 with a single responsibility (suggested names; keep them private):
+     - `_resolve_accept_entry(...)` → `(repo_root, owned)`; owns the `ActionContextError` / `TaskCliError` handling at `:815-836`.
      - `_resolve_mission_identity(...)` → `(mission_slug, mission_dir)`; owns the exit-2 missing-handle branch (`:849-859`) and the owned/non-owned split (`:863-867`).
      - `_verify_merge_commit(...)` → `PrMergeEvidence | None` (`:888-917`).
-     - `_collect_summary_or_exit(...)` → `AcceptanceSummary`; the three `except` arms (`:936-978`) collapse onto `_fail` via one `except (Pre30LayoutError, AcceptanceError, AcceptanceMatrixParseError)` **only if** the three arms are byte-identical in behaviour (they are today; confirm).
+     - `_collect_summary_or_exit(...)` → `AcceptanceSummary`; the three `except` arms (`:936-978`) collapse onto `_fail` via one `except (Pre30LayoutError, AcceptanceError, AcceptanceMatrixParseError)` **only if** the three arms behave identically (they do on the planning base; confirm).
      - `_exit_early_for_report_modes(...)` for diagnose / checklist / not-ok (`:982-1015`).
-     - `_perform_and_finalize(...)` → a small `_FinalizeOutcome` dataclass with `result`, `accept_exc`, `stamp_exc`, `pr_merge_exc`, `residue_exc`, `pr_merge_recorded`; it owns the `try/except/finally` at `:1031-1107` and **must keep the same ordering** (stamp → PR merge → residual, residual still running after an `AcceptanceError`).
+     - `_perform_and_finalize(...)` → a small `_FinalizeOutcome` dataclass (`result`, `accept_exc`, `stamp_exc`, `pr_merge_exc`, `residue_exc`, `pr_merge_recorded`); it owns the `try/except/finally` at `:1031-1107` and **keeps the same ordering**: stamp → PR merge → residual, with the residual commit still running after an `AcceptanceError`.
      - `_raise_on_finalize_errors(...)` (`:1108-1130`) and `_render_accept_result(...)` (`:1134-1159`).
   4. `accept()` itself becomes a linear sequence of those calls plus the Typer option declarations. The Typer signature, option names, help strings, defaults and metavars do **not** change (`cli_commands: manual_review` — no flag is renamed or removed).
-  5. Remove `"C901"` from the `src/specify_cli/cli/commands/accept.py` entry at `ruff.toml:27`, leaving `["B904", "F401", "UP035"]`. `ruff.toml` is owned by WP10: this is a **one-line out-of-map edit**. Record it in the commit message and the PR/Activity Log with the rationale: "FR-026 / IC-14a: accept() decomposed to ≤15; its per-file C901 suppression is removed in the same WP that removes the violation (ruff.toml is WP10-owned; one-line out-of-map edit)." Do not touch any other `ruff.toml` line.
-  6. Commit as a pure refactor: `refactor(accept): decompose accept() to complexity ≤15 (WP14/T076, FR-026)`. No behaviour change, no owned-root conversion in this commit.
-- **Files**: `src/specify_cli/cli/commands/accept.py` (functions `accept` `:740-1159` and new private helpers placed above it); `ruff.toml:27` (out-of-map, one line).
+  5. Remove `"C901"` from the `src/specify_cli/cli/commands/accept.py` entry at `ruff.toml:27`, leaving `["B904", "F401", "UP035"]`. `ruff.toml` is owned by WP10, so this is a **one-line out-of-map edit**. Put the rationale in the commit message and the Activity Log: "FR-026 / IC-14a: accept() decomposed to ≤15; its per-file C901 suppression is removed in the same WP that removes the violation (ruff.toml is WP10-owned; one-line out-of-map edit)." Do not touch any other `ruff.toml` line; the other three codes are out of scope.
+  6. Commit as a pure refactor: `refactor(accept): decompose accept() to complexity ≤15 (WP14/T076, FR-026)`. No behaviour change and no owned-root conversion in this commit.
+- **Files**:
+  - `src/specify_cli/cli/commands/accept.py` — `accept` (`:740-1159`) and the new private helpers, placed above it.
+  - `ruff.toml:27` — out-of-map, one line.
 - **Parallel?**: No; depends on T075.
 - **Validation checklist**:
   - [ ] `uv run --frozen ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=15' src/specify_cli/cli/commands/accept.py` reports nothing.
-  - [ ] `uv run --frozen ruff check src/specify_cli/cli/commands/accept.py` clean with the ignore removed.
-  - [ ] T075 file green, unchanged. Every accept test file in the Test Strategy list green, unchanged.
+  - [ ] `uv run --frozen ruff check src/specify_cli/cli/commands/accept.py` is clean with the ignore removed.
+  - [ ] The T075 file is green and unchanged; every accept test file in the Test Strategy list is green and unchanged.
   - [ ] `git diff` of the `accept()` Typer parameter block is empty apart from moved lines.
-  - [ ] `_print_acceptance_result` (13 today) is not made more complex.
-- **Edge cases**: `typer.Exit` raised inside a helper must propagate unchanged (do not wrap helpers in `try/except Exception`). The `finally` semantics matter: an `AcceptanceError` inside `perform_acceptance` still triggers the residual commit; an unexpected exception type from `perform_acceptance` (not `AcceptanceError`) still propagates after the `finally` ran — keep that. `assert result is not None` (`:1132`) should become an explicit narrowing in the outcome object rather than an `assert` removed silently.
+  - [ ] `_print_acceptance_result` (13 on the planning base) is not made more complex.
+  - [ ] `uv run --frozen mypy --strict src/specify_cli/cli/commands/accept.py` is clean (new dataclasses fully typed).
+- **Edge cases**:
+  - `typer.Exit` raised inside a helper must propagate unchanged; do not wrap helpers in `try/except Exception`.
+  - An `AcceptanceError` inside `perform_acceptance` still triggers the residual commit; an unexpected exception type from `perform_acceptance` still propagates after the `finally` ran. Keep both.
+  - `assert result is not None` (`:1132`) becomes explicit narrowing on the outcome object, not a silently removed assert.
+  - The three `# noqa: BLE001` handlers move with their code and keep their inline rationale.
 
 ### Subtask T077 – Stop re-validating at `accept.py:342`; consume the fact
 
-- **Purpose**: FR-003 / contracts/owned-checkout-carrier.md §2: ownership is validated exactly once per command; every downstream function receives the fact and never re-validates. `_stamp_birth_cutover_for_accept` still carries a fallback that re-runs `resolve_owned_mission` whenever it holds only an `effective_root` (`accept.py:336-342`), which is also a gate G2 offender (a validator call outside the allowed modules).
+- **Purpose**: FR-003 and `contracts/owned-checkout-carrier.md` §2: ownership is validated exactly once per command, and every downstream function receives the fact and never re-validates. `_stamp_birth_cutover_for_accept` still carries a fallback that re-runs `resolve_owned_mission` whenever it holds only an `effective_root` (`accept.py:336-342`). That fallback is also a gate G2 offender: a validator call outside `_owned_checkout.py` / `owned_mission.py`. The plan (IC-04) names this exact site: "`cli/commands/accept.py:342`: stop re-validating".
 - **Steps**:
-  1. Change the signature to `_stamp_birth_cutover_for_accept(repo_root: Path, mission_slug: str, *, owned: OwnedCheckout | None = None) -> None`. Delete the `effective_root` parameter and the whole `if owned is None and effective_root is not None:` block with its `resolve_canonical_root` import.
-  2. Inside, replace `scope = effective_root_kwargs(effective_root)` + `placement_seam(repo_root, mission_slug, **scope)` with the seam's owned keyword from WP04: `placement_seam(repo_root, mission_slug, owned=owned)`. Replace `_coord_status_feature_dir(repo_root, mission_slug, **scope)` with `_coord_status_feature_dir(repo_root, mission_slug, owned=owned)` (converted in T078).
-  3. Keep the `stamp_accept_cutover(..., **({"owned": owned} if owned is not None else {}))` call shape only if WP17 has not yet converted `stamp_accept_cutover`; if `runtime_state_cutover.stamp_accept_cutover` already takes `owned: OwnedCheckout | None = None`, pass `owned=owned` directly (it is a plain keyword with a `None` default, so no splat is needed either way — prefer `owned=owned`).
-  4. Keep the owned-vs-best-effort error semantics exactly: owned → `AcceptanceError("Owned birth-cutover failed: ...")`; non-owned → `logger.warning` and return.
-  5. Update the two comments that justify the fallback (`accept.py:335-338` and `:1073-1074`) to say the fact comes from the CLI edge; do not leave a comment referring to a code path that no longer exists.
-- **Files**: `src/specify_cli/cli/commands/accept.py` (`_stamp_birth_cutover_for_accept`, planning-base `:266-362`, and its call site in the finalize helper from T076).
+  1. Change the signature to `_stamp_birth_cutover_for_accept(repo_root: Path, mission_slug: str, *, owned: OwnedCheckout | None = None) -> None`.
+  2. Delete the `effective_root` parameter, the whole `if owned is None and effective_root is not None:` block, and its local `from specify_cli.core.paths import resolve_canonical_root` import.
+  3. Replace `scope = effective_root_kwargs(effective_root)` and `placement_seam(repo_root, mission_slug, **scope)` (`:320-321`) with the WP04 seam keyword: `placement_seam(repo_root, mission_slug, owned=owned)`.
+  4. Replace `_coord_status_feature_dir(repo_root, mission_slug, **scope)` (`:334`) with `_coord_status_feature_dir(repo_root, mission_slug, owned=owned)`. That helper is converted in T078; do both in one commit, or convert the helper first.
+  5. The `stamp_accept_cutover(..., **({"owned": owned} if owned is not None else {}))` call (`:344-348`): `stamp_accept_cutover` already defaults `owned=None`, so pass `owned=owned` as a plain keyword. If WP17 has not yet retyped it from the `OwnedMission` alias to `OwnedCheckout`, mypy may complain on the type; in that case keep the call as `owned=owned` and note the type bridge in the Activity Log for WP17/WP18.
+  6. Keep the owned-versus-best-effort error semantics exactly:
+     - owned → any stamp exception becomes `AcceptanceError("Owned birth-cutover failed: ...")`, and an unflipped result raises the same;
+     - non-owned → `logger.warning(...)` and return;
+     - `MissingMissionIdError` always propagates.
+  7. Update the two comments that justify the fallback (`:335-338` and `:1073-1074`) so they say the fact comes from the CLI edge. Do not leave a comment describing a code path that no longer exists.
+  8. Update the call site in the finalize helper from T076 to `_stamp_birth_cutover_for_accept(run.repo_root, run.mission_slug, owned=run.owned)`.
+  9. Commit: `fix(accept): stamp birth-cutover from the CLI-edge fact, no re-validation (WP14/T077, FR-003)`. This commit is the first behaviour-relevant change after the T076 refactor; keep it small so the reviewer can see that only the fallback disappeared.
+- **Files**:
+  - `src/specify_cli/cli/commands/accept.py` — `_stamp_birth_cutover_for_accept` (planning-base `:266-362`) and its call site in the finalize helper from T076.
 - **Parallel?**: No; after T076.
 - **Validation checklist**:
   - [ ] `grep -n "resolve_owned_mission\|resolve_canonical_root" src/specify_cli/cli/commands/accept.py` returns nothing.
-  - [ ] Positional callers still work: `tests/architectural/test_lifted_cli_accept_coord_surface_anchor.py:74` and `tests/specify_cli/cli/commands/test_accept_birth_cutover_seam.py:184` call `_stamp_birth_cutover_for_accept(repo_root, handle)` and must pass unchanged.
-  - [ ] `tests/integration/test_explicit_checkout_commands.py::test_accept_commits_metadata_matrix_and_cutover_only_in_owned` passes (it wraps the real `stamp_accept_cutover`).
-- **Edge cases**: a non-owned run must still pass `owned=None` all the way down (today's `**scope` is `{}`); make sure the seam call with `owned=None` is exactly equivalent to the old call with no keyword. The architectural test `tests/architectural/test_single_mission_surface_resolver.py:341-347` pins that the COORD leg comes from `_coord_status_feature_dir`; keep that routing.
+  - [ ] Positional callers still work: `tests/architectural/test_lifted_cli_accept_coord_surface_anchor.py:74` and `tests/specify_cli/cli/commands/test_accept_birth_cutover_seam.py:184` call `_stamp_birth_cutover_for_accept(repo_root, handle)` and pass unchanged.
+  - [ ] `tests/integration/test_explicit_checkout_commands.py::test_accept_commits_metadata_matrix_and_cutover_only_in_owned` passes; it wraps the real `stamp_accept_cutover`.
+  - [ ] `tests/specify_cli/cli/test_accept_birth_cutover.py` and `tests/architectural/test_lifted_cli_accept_birth_cutover.py` pass unchanged.
+  - [ ] The T075 identity assertion (stamp receives the CLI-edge object) still holds.
+  - [ ] G2 would no longer list `accept.py:342` (run WP01's scanner on the file, or grep: no `resolve_owned_mission(` anywhere in `accept.py` after T078).
+- **Edge cases**:
+  - A non-owned run passes `owned=None` all the way down; today's `**scope` is `{}`. The seam call with `owned=None` must be exactly equivalent to the old call without the keyword. Check WP04's seam: `owned=None` must select the non-owned arm.
+  - `tests/architectural/test_single_mission_surface_resolver.py:341-347` pins that the COORD leg comes from `_coord_status_feature_dir`; keep that routing and do not inline the seam call.
+  - The stamp is best-effort for non-owned missions, but for owned missions the command must fail; do not merge the two arms into one handler.
 
 ### Subtask T078 – Convert `accept.py` owned roots; option migration
 
-- **Purpose**: FR-001 (no bare owned roots anywhere in `src/`), contracts/cli-owned-checkout-surface.md (all eight inline `--owned-checkout` declarations move onto the shared option; `accept.py:763` is one of them), gate G2 (no direct validator call outside `_owned_checkout.py`/`owned_mission.py`).
+- **Purpose**: FR-001 (no bare owned roots anywhere in `src/`); `contracts/cli-owned-checkout-surface.md` (all eight inline `--owned-checkout` declarations move onto the shared option, and `accept.py:763` is one of them); gate G2 (no direct validator call outside `_owned_checkout.py` / `owned_mission.py`).
 - **Steps**:
-  1. **Imports.** Replace the `specify_cli.core.owned_mission` import block (`:29-34`) with `from mission_runtime import OwnedCheckout` (public surface, MR-1/MR-2 forbid submodule imports) plus `require_unstaged_index` from `owned_mission` and `OwnedCheckoutOption` / `resolve_owned_or_adopt` / `emit_owned_refusal` from `specify_cli.cli.commands._owned_checkout`. Drop `effective_root_kwargs` and `OwnedMission`.
-  2. **Option.** Replace the inline `owned_checkout: Annotated[Path | None, typer.Option("--owned-checkout", ...)]` at `:763` with `owned_checkout: OwnedCheckoutOption = None`. Check the WP08 help text; if it differs from today's ("Explicit owned checkout for a single-branch mission."), the golden contract tests owned by WP09 decide which wins — run `tests/specify_cli/cli/commands/agent/test_mission_cli_golden_contract.py` and report any help-text drift in the Activity Log rather than editing goldens here.
-  3. **Entry.** Rewrite `_owned_accept_context` (planning-base `:721-737`) to call `resolve_owned_or_adopt(...)` with `LIFECYCLE_OWNED_TOPOLOGIES` (accept is single_branch only per the CLI contract), keep the `OWNED_OPTION_UNSUPPORTED` refusal for `--diagnose --normalize-encoding` and the `require_unstaged_index(owned)` call for non-diagnose runs, and return `OwnedCheckout | None`. Route owned refusals through `emit_owned_refusal` **only if** it prints the same `{"error_code", "error"}` envelope accept prints today (`:826-831`); if not, keep accept's own printing — the envelope keys are `serialized_keys: do_not_change`. Flagless runs follow FR-021 via the helper; run from the repository root checkout they must behave exactly as today (`test_accept_without_opt_in_keeps_primary_resolution`).
-  4. **Helpers.** Convert every parameter in the census table to `owned: OwnedCheckout | None = None` (keyword-only, default `None`, so positional test callers keep working): `_coord_worktree_root`, `_coord_status_feature_dir`, `_coord_dirty_paths`, `_record_pr_merge_for_accept`, `_commit_residual_acceptance_artifacts`, `_collect_summary_with_optional_repair`. Inside, calls to the six dual-keyword seams (`placement_seam`, `resolve_artifact_surface` if WP04 gave it `owned`, `mission_context_for`, …) use `owned=owned`. Delete every `scope = effective_root_kwargs(...)` local and every `**scope` splat.
-  5. **Calls that leave `accept.py`.** The callees `collect_feature_summary` / `normalize_feature_encoding` (WP15, `acceptance/__init__.py:1388,1031`), `verify_pr_merge_evidence` / `record_pr_merge_baseline_for_mission` (WP17, `consolidation/baseline.py:497,814`) and `stamp_accept_cutover` (WP17) are converted by other WPs that run in the same wave. At the moment you implement, check each callee's signature on your lane base:
-     - callee already takes `owned` → pass `owned=owned`;
-     - callee still takes `effective_root` → pass the bridging expression `effective_root=owned.owned_root if owned else None` **as a plain keyword argument** (never a dict splat and never `effective_root_kwargs`). Do not add a marker comment; list every such bridge (file:line, callee) in the Activity Log so the callee WP or WP18/T097 can flip it. This is the only place the identifier may survive in `accept.py`, and only until the callee converts.
-  6. **Legacy attributes.** `owned.root` → `owned.owned_root` (`:825`, `:868`), `owned.slug` → `owned.mission_slug`, `owned.directory` → `owned.mission_dir` (`:864`). Delete the `scope = {"effective_root": owned.root} ...` dict at `:868` outright — the run carrier from T076 already holds `owned`.
-  7. Commit: `refactor(accept): consume the validated OwnedCheckout fact end to end (WP14/T078)`.
-- **Files**: `src/specify_cli/cli/commands/accept.py` only (all census rows).
+  1. **Imports.** Replace the `specify_cli.core.owned_mission` import block (`:29-34`) with:
+     - `from mission_runtime import OwnedCheckout` (public surface; MR-1/MR-2 forbid submodule imports);
+     - `require_unstaged_index` from `specify_cli.core.owned_mission`;
+     - `OwnedCheckoutOption`, `resolve_owned_or_adopt` (and `emit_owned_refusal` if used) from `specify_cli.cli.commands._owned_checkout`.
+     Drop `effective_root_kwargs` and `OwnedMission`.
+  2. **Option.** Replace the inline `owned_checkout: Annotated[Path | None, typer.Option("--owned-checkout", ...)]` at `:763` with `owned_checkout: OwnedCheckoutOption = None`. If WP08's help text differs from today's ("Explicit owned checkout for a single-branch mission."), the golden contract test decides: run `tests/specify_cli/cli/commands/agent/test_mission_cli_golden_contract.py` and report any drift in the Activity Log instead of editing goldens here.
+  3. **Entry.** Rewrite `_owned_accept_context` (planning-base `:721-737`):
+     - call `resolve_owned_or_adopt(...)` with `LIFECYCLE_OWNED_TOPOLOGIES` (accept is single_branch only per the CLI contract);
+     - keep the `OWNED_OPTION_UNSUPPORTED` refusal for `--diagnose --normalize-encoding`;
+     - keep `require_unstaged_index(owned)` for non-diagnose runs;
+     - return `OwnedCheckout | None`.
+     Route refusals through `emit_owned_refusal` **only if** it prints the same `{"error_code", "error"}` envelope accept prints today (`:826-831`); otherwise keep accept's own printing. The envelope keys are `serialized_keys: do_not_change`. Flagless runs follow FR-021 through the helper; from the repository root checkout they must behave exactly as today (`test_accept_without_opt_in_keeps_primary_resolution`).
+  4. **Helpers.** Convert every parameter in the census table to `owned: OwnedCheckout | None = None` (keyword-only, default `None`, so positional test callers keep working):
+     - `_coord_worktree_root` (`:120`), `_coord_status_feature_dir` (`:167`), `_coord_dirty_paths` (`:220`);
+     - `_record_pr_merge_for_accept` (`:370`), `_commit_residual_acceptance_artifacts` (`:483`), `_collect_summary_with_optional_repair` (`:665`).
+     Inside them, calls to `placement_seam` and `resolve_artifact_surface` use `owned=owned` (check that WP04 gave `resolve_artifact_surface` an `owned` keyword; if not, apply step 5's bridge). Delete every `scope = effective_root_kwargs(...)` local and every `**scope` / `**effective_root_kwargs(...)` splat.
+  5. **Calls that leave `accept.py`.** These callees are converted by other WPs in the same wave, with no dependency edge to this WP:
+     - `collect_feature_summary`, `normalize_feature_encoding` — WP15 (`acceptance/__init__.py:1388`, `:1031`);
+     - `verify_pr_merge_evidence`, `record_pr_merge_baseline_for_mission` — WP17 (`consolidation/baseline.py:497`, `:814`);
+     - `stamp_accept_cutover` — WP17 (`migration/runtime_state_cutover.py:486`).
+     Check each callee's signature on your lane base. If it already takes `owned`, pass `owned=owned`. If it still takes `effective_root`, pass the bridging expression `effective_root=owned.owned_root if owned else None` **as a plain keyword** (never a dict splat, never `effective_root_kwargs`). Do not add a marker comment; list every bridge (file:line, callee) in the Activity Log so the callee WP or WP18/T097 can flip it. This is the only form in which the identifier may survive in `accept.py`, and only until the callee converts.
+  6. **Legacy attributes.** `owned.root` → `owned.owned_root` (`:825`, `:868`); `owned.slug` → `owned.mission_slug` and `owned.directory` → `owned.mission_dir` (`:864`).
+  7. **Dict key.** Delete `scope = {"effective_root": owned.root} if owned is not None else {}` (`:868`) outright; the run carrier from T076 already holds `owned`.
+  8. Commit: `refactor(accept): consume the validated OwnedCheckout fact end to end (WP14/T078)`.
+- **Files**:
+  - `src/specify_cli/cli/commands/accept.py` only (every census row).
 - **Parallel?**: No; after T077.
 - **Validation checklist**:
-  - [ ] Census command from the section above prints only bridge lines you listed in the Activity Log (ideally nothing).
+  - [ ] The census commands print only the bridge lines listed in the Activity Log (ideally nothing).
   - [ ] `grep -n '"effective_root"' src/specify_cli/cli/commands/accept.py` prints nothing.
-  - [ ] `uv run --frozen mypy --strict src/specify_cli/cli/commands/accept.py src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/acceptance/__init__.py src/specify_cli/consolidation/baseline.py src/specify_cli/migration/runtime_state_cutover.py` is clean. Pass all of them in **one** invocation: `pyproject.toml` sets `follow_imports = "skip"` for `specify_cli.*`, so a signature mismatch between `accept.py` and a callee module is only visible when both files are on the command line.
-  - [ ] T075 characterisation file green (only the owned-entry patch target moved, in the shared fixture).
-- **Edge cases**: `repo_root` is reassigned to the owned root today (`:825`) and every later read uses it (`choose_mode(requested_mode, repo_root)`, `_primary_dirty_paths(repo_root, ...)`, `_commit_primary_residuals`). Keep that exact behaviour: the run carrier's `repo_root` is `owned.owned_root` when owned. `_coord_worktree_root` compares `worktree_root.resolve() == repo_root.resolve()`; do not start comparing against `owned.repository_root`.
+  - [ ] `uv run --frozen mypy --strict src/specify_cli/cli/commands/accept.py src/specify_cli/cli/commands/_owned_checkout.py src/specify_cli/acceptance/__init__.py src/specify_cli/consolidation/baseline.py src/specify_cli/migration/runtime_state_cutover.py` is clean. Pass them in **one** invocation: `pyproject.toml` sets `follow_imports = "skip"` for `specify_cli.*`, so a keyword mismatch between `accept.py` and a callee is only visible when both files are on the command line.
+  - [ ] The T075 file is green; only the owned-entry patch target moved, in the shared fixture.
+  - [ ] `tests/integration/test_explicit_checkout_commands.py -k accept` passes unchanged.
+- **Edge cases**:
+  - `repo_root` is reassigned to the owned root today (`:825`) and every later read uses it: `choose_mode(requested_mode, repo_root)`, `_primary_dirty_paths(repo_root, ...)`, `_commit_primary_residuals`. Keep that: the run carrier's `repo_root` is `owned.owned_root` when owned.
+  - `_coord_worktree_root` compares `worktree_root.resolve() == repo_root.resolve()`; do not start comparing against `owned.repository_root`.
+  - The owned refusal must still happen before any read or write (`_owned_accept_context` runs first); do not move validation later in the flow.
 
 ### Subtask T079 – FR-022 accept ratchet
 
-- **Purpose**: FR-022 / SC-005: the existing owned accept tests and all non-owned accept tests pass **unchanged** after the rewire onto the single validator. This subtask is verification plus the one new assertion the ratchet needs: accept validates exactly once.
+- **Purpose**: FR-022 / SC-005: the existing owned accept tests and all non-owned accept tests pass **unchanged** after the rewire onto the single validator. This subtask is verification plus the one new assertion the ratchet needs: accept validates ownership exactly once (FR-003, NFR-002).
 - **Steps**:
-  1. Run the full accept list from the Test Strategy with no test-file edits. Any red that also reproduces on the planning base is baseline red: classify it per CLAUDE.md "Test-run baseline-red gotcha" and note it; do not fix it here.
-  2. Add one test to `tests/specify_cli/cli/commands/test_accept_decomposition.py` (your owned file) that counts ownership validations: monkeypatch `specify_cli.core.checkout_ownership.resolve_ownership_claim` with a counting wrapper around the real function, call `specify_cli.workspace.context.clear_workspace_resolution_caches()` first, and run an owned `--diagnose --json` accept on the WP02 fixture `owned_checkouts` (from `tests/integration/conftest.py`). Assert the count is exactly 1. Mark it `integration` + `git_repo` (it builds real repositories), not `fast`.
-  3. Assert the repository root checkout is untouched on that same run with the WP02 `r_snapshot` fixture (0 differences).
-  4. If any existing test **must** change, stop: that is a behaviour change, which FR-022 forbids. Record it in the Activity Log and ask the reviewer before editing a file you do not own.
-- **Files**: `tests/specify_cli/cli/commands/test_accept_decomposition.py` (append). Read-only: `tests/integration/conftest.py` (WP02 fixtures), `tests/integration/test_explicit_checkout_commands.py:388-530`.
+  1. Run the full accept list from the Test Strategy with no test-file edits. Any red that also reproduces on the planning base is baseline red: classify it per CLAUDE.md "Test-run baseline-red gotcha" and note it in the Activity Log; do not fix it here.
+  2. Get the fixtures. The WP02 fixtures (`owned_checkouts`, `r_snapshot`) live in `tests/integration/conftest.py`, which pytest applies only under `tests/integration/`. From `tests/specify_cli/cli/commands/` import them explicitly and re-export them through `__all__`, the same pattern `tests/integration/test_owned_checkout_mark_status.py:13-22` uses for `checkouts` (this satisfies ruff F401 without a `noqa`). If WP02 documented a different sanctioned way to consume the fixtures outside `tests/integration/`, use that instead.
+  3. Add one test to `tests/specify_cli/cli/commands/test_accept_decomposition.py` that counts ownership validations:
+     - monkeypatch `specify_cli.core.checkout_ownership.resolve_ownership_claim` with a counting wrapper around the real function (the validator imports it lazily inside `resolve_owned_mission`, so the module-attribute patch is observed);
+     - call `specify_cli.workspace.context.clear_workspace_resolution_caches()` first;
+     - run an owned `accept --diagnose --json --owned-checkout P --mission <slug>` on the fixture;
+     - assert the count is exactly 1 and the exit code is 0.
+     Mark this test `integration` + `git_repo` (it builds real repositories), not `fast`.
+  4. On the same run, assert the repository root checkout is untouched with the WP02 `r_snapshot` fixture (0 differences, NFR-001).
+  5. Add a second count for a committing run (`--mode local` without `--diagnose`) if the fixture can reach `summary.ok`; if it cannot without a large fixture, rely on `tests/integration/test_explicit_checkout_commands.py::test_accept_commits_metadata_matrix_and_cutover_only_in_owned` for the write path and say so in the Activity Log.
+  6. If any existing test **must** change, stop: that is a behaviour change, which FR-022 forbids. Record it in the Activity Log and ask the reviewer before editing a file you do not own.
+- **Files**:
+  - `tests/specify_cli/cli/commands/test_accept_decomposition.py` (append).
+  - Read-only: `tests/integration/conftest.py` (WP02 fixtures); `tests/integration/test_explicit_checkout_commands.py:388-530` (owned accept scenarios, including the `ready_accept_checkouts` fixture you can borrow for step 5).
 - **Parallel?**: No; last.
 - **Validation checklist**:
-  - [ ] Every file in the Test Strategy list is green with `git diff --stat` showing no change under those paths.
-  - [ ] The exactly-once test fails if you temporarily re-add a second `resolve_owned_mission` call (mutation check, do not commit it).
-- **Edge cases**: the diagnose path does not call `require_unstaged_index`, so the owned diagnose run must succeed even with staged changes in the owned checkout; do not stage anything in the fixture to "help" it.
+  - [ ] Every file in the Test Strategy list is green, and `git diff --stat -- tests/ ':!tests/specify_cli/cli/commands/test_accept_decomposition.py'` is empty.
+  - [ ] The exactly-once test fails if you temporarily re-add a second `resolve_owned_mission` call (mutation check; do not commit it).
+  - [ ] The exactly-once test fails if you temporarily bypass validation (count 0).
+  - [ ] Record the exact pytest command and pass counts for the whole accept list in the Activity Log (PR *Tests run* section).
+- **Edge cases**:
+  - The diagnose path does not call `require_unstaged_index`, so the owned diagnose run must succeed even with staged changes in the owned checkout; do not stage anything in the fixture to "help" it.
+  - Workspace-resolution caches are process-global; clear them before counting or a warm cache from an earlier test hides a second validation.
+  - Flagless accept from the repository root checkout must perform **zero** validations; add that negative assertion alongside the positive one.
+  - The counting wrapper must delegate to the real function and return its result unchanged; a stub that returns a fake claim would let a broken validator pass.
+  - Keep the owned test independent of test order (no module-level state); the characterisation tests in the same file monkeypatch module attributes and must not leak into it.
 
 ## Test Strategy
 
