@@ -4,8 +4,8 @@ artifact_type: spec-kitty.analysis-report
 command: /spec-kitty.analyze
 mission_slug: charter-generation-drops-scoped-references-01M3M1KF
 mission_id: 01M3M1KFFPC04BHFA54SSZ4CMG
-generated_at: '2026-09-28T18:16:15.755280+00:00'
-analyzer_agent: claude
+generated_at: '2026-09-28T18:33:23.176652+00:00'
+analyzer_agent: unknown
 input_artifacts:
   spec.md:
     path: kitty-specs/charter-generation-drops-scoped-references-01M3M1KF/spec.md
@@ -21,52 +21,75 @@ input_artifacts:
     sha256: cae74c9f8d1895556c96391ed8d733a628ffd85fe6b57c9b5a1f05ab6c873539
 verdict: ready
 issue_counts:
-  high: 0
+  medium: 0
   low: 0
-  medium: 1
+  high: 0
   critical: 0
   info: 0
-findings:
-- id: W1
-  severity: medium
-  category: inconsistency
-  summary: lanes.json lane-c's write_scope lists only src/specify_cli/cli/commands/charter/generate.py, omitting tests/specify_cli/cli/commands/test_charter_generate_autotrack.py, which wps.yaml and tasks/WP03-json-diagnostics.md's frontmatter both declare as a WP03-owned file.
+findings: []
 ---
 
 ## Specification Analysis Report
 
-| ID | Category | Severity | Location(s) | Summary | Recommendation |
-|----|----------|----------|-------------|---------|----------------|
-| W1 | Inconsistency (write-scope ledger) | MEDIUM | kitty-specs/charter-generation-drops-scoped-references-01M3M1KF/lanes.json (lane-c); wps.yaml (WP03); tasks/WP03-json-diagnostics.md frontmatter | `lanes.json`'s `lane-c.write_scope` is `["src/specify_cli/cli/commands/charter/generate.py"]` only. Both `wps.yaml`'s WP03 entry and `tasks/WP03-json-diagnostics.md`'s own frontmatter declare `owned_files: [src/specify_cli/cli/commands/charter/generate.py, tests/specify_cli/cli/commands/test_charter_generate_autotrack.py]` — the test file WP03's own T014/T015/T016 all write to (per the WP prompt's Subtask sections) is present in every other authoritative source but absent from `lanes.json`'s write-scope ledger. All three other lanes (lane-a/WP01, lane-b/WP02, lane-d/WP04) have write_scope that matches their WP's owned_files exactly — lane-c is the sole outlier. Because write_scope (unlike the `predicted_surfaces` field, which is generator-owned cosmetic metadata per this mission's own tracer-tooling-friction.md L1 entry) is the field the "one checkout, many agents"/write-scope-disjointness safety mechanism actually reads, an operator or future re-planning pass that trusts `lanes.json` as complete could believe no lane touches that test file and permit a conflicting concurrent write. The mission's strict linear dependency chain (lane-a → lane-b → lane-c) means there is no live collision today, but the ledger itself is wrong. | Regenerate `lanes.json` via the sanctioned `spec-kitty agent mission finalize-tasks` path (which recomputes write_scope from wps.yaml/owned_files) rather than hand-editing the JSON; if that command's current output would also touch unrelated WP frontmatter/status as tracer-tooling-friction.md's L1 entry notes for the sibling predicted_surfaces gap, weigh that against leaving the gap recorded until a narrower recompute path exists upstream. |
+Fresh, independent re-run of `/spec-kitty.analyze` against
+`charter-generation-drops-scoped-references-01M3M1KF` (issue #5257) on branch
+`fix/charter-generation-drops-scoped-references-5257`. `check-prerequisites --json
+--include-tasks` reports `valid: true`, no errors/warnings. All source artifacts (spec.md,
+plan.md, tasks.md, wps.yaml, lanes.json, tasks/WP01-WP04, contracts/charter-generate-json-diagnostics.md,
+reviews/plan.ruling.md rounds 3-7, all three tracer files, .kittify/charter/charter.md) were
+read in full and code claims were independently verified against live HEAD source, not taken on
+faith from prior artifacts.
+
+No findings this pass (0 critical, 0 high, 0 medium, 0 low).
 
 **Coverage Summary Table:**
 
 | Requirement Key | Has Task? | Task IDs | Notes |
 |-----------------|-----------|----------|-------|
-| FR-001 (preserve-or-report, incl. whole-kind + graph-load carve-out) | Yes | T001-T013 (WP01, WP02) | I1-I5 invariant table + WP02 T007/T009/T010/T011; round-8 fix verified against live source (`_diagnose_catalog_miss`, `_active_languages`, `scope_filtered_ids` all match compiler.py/catalog_diagnosis.py/base.py exactly) |
-| FR-002 (distinguish never-existed vs. filtered) | Yes | T007, T008, T012 | D1/C1/U1 (prior analyze findings) closed this round by reuse of the canonical `_diagnose_catalog_miss` gate — independently re-verified live: gate is in `catalog_diagnosis.py.__all__`, guards `scope_filtered_ids` with `getattr(..., frozenset())`, sources fuzzy-match corpus from `_available_catalog_ids`, reads `_active_languages` off the repository with no threading |
-| FR-003 (--force unaffected) | Yes | WP02 (test-only assertion, no code branch) | Verified by paired with/without-force run |
-| FR-004 (machine-readable --json) | Yes | T014-T016 (WP03) | Contract doc's shape (kind/id/cause/detail, sentinel values `_graph`/`_unattributed`) is internally consistent with plan.md's I1-I5 and WP01's fixture table |
-| FR-005 (generator-to-parity regression test) | Yes | T001 (WP01) | |
-| FR-006 (backward-compatible, no forced regen) | Yes (indirect) | Existing baseline `test_active_languages_idempotency.py` | |
+| FR-001 (preserve-or-report, incl. whole-kind + graph-load carve-out) | Yes | T001-T013 (WP01, WP02) | I1-I5 invariant table; independently re-verified against live compiler.py |
+| FR-002 (distinguish never-existed vs. filtered) | Yes | T007, T008, T012 | `_diagnose_catalog_miss` reuse independently confirmed live in catalog_diagnosis.py |
+| FR-003 (--force unaffected) | Yes | WP02 (test-only assertion) | |
+| FR-004 (machine-readable --json) | Yes | T014-T016 (WP03) | Contract doc shape internally consistent with WP01/WP02 |
+| FR-005 (generator-to-parity regression test) | Yes | T001 (WP01) | All six #5257 ids + precedent test module independently confirmed present on disk |
+| FR-006 (backward-compatible, no forced regen) | Yes (indirect) | Existing baseline test_active_languages_idempotency.py | |
 | NFR-001 (idempotent regeneration) | Yes | T005 (I5), WP02 baseline re-run | |
 | NFR-002 (actionable diagnostic content) | Yes | T007-T013, T008's language-naming assertion | |
-| C-001 (parity guard untouched) | Yes | Baseline command re-run at every WP | |
+| C-001 (parity guard untouched) | Yes | Baseline command re-run at every WP | Independently re-ran the baseline command live: 56 passed, 0 failed, 1 warning - matches plan.md's stated baseline exactly |
 | C-002 (no six-id special case) | Yes | T001's extra differently-scoped id requirement | |
-| C-003 (no absolute source_path) | Implicit | Not exercised by a dedicated new test | Mission does not touch `source_path` construction; risk low |
-| C-004 (public-repo hygiene) | N/A (process) | Enforced by mission conduct, not a WP task | Verified: the only `/home/` string in spec.md is inside C-004's own illustrative placeholder text, not a real leak |
-| Invariants I1-I5 + carve-out + `_raw_kind_repository` degrade | Yes | T002-T006 (WP01), T009-T012 (WP02) | Full 7-row ATDD table mapped; live-source line numbers for `_raw_kind_repository` (compiler.py:1073-1093), `_render_kind_references` (1096-1141), `graph.unresolved` loop (1250-1251), and `_resolve_transitive_reference_graph`'s except branch (1298-1307/1306-1307) all re-verified against HEAD and match plan.md's citations |
-| Operator rulings, plan.ruling.md rounds 3-7 | Yes | Confirmed present in reviews/plan.ruling.md (rounds 3-7 headings all exist) and restated faithfully in plan.md/WP02 | |
+| C-003 (no absolute source_path) | Implicit | Mapped to WP02; not exercised by a dedicated new test | Mechanism the fix touches (placeholder summary) is disjoint from source_path construction; risk correctly assessed as low, not a gap |
+| C-004 (public-repo hygiene) | N/A (process) | Enforced by mission conduct | Independently grepped mission dir for /home/: the only hit is C-004's own illustrative placeholder text in spec.md; no real leak |
+| Invariants I1-I5 + carve-out + _raw_kind_repository degrade | Yes | T002-T006 (WP01), T009-T012 (WP02) | Live-source line citations independently re-checked: _raw_kind_repository (compiler.py:1073-1093, fallback `return getattr(doctrine_service, kind)` confirmed real, matches described pre-fix bug), _render_kind_references/_build_references_from_service/_resolve_transitive_reference_graph's `except Exception: return fallback` (line 1306) all confirmed present as cited |
+| Operator rulings, plan.ruling.md rounds 3-7 | Yes | Confirmed present and faithfully restated in plan.md/WP02 | |
 
-**Charter Alignment Issues:**
+**Charter Alignment:** No violations found. C-011 (ATDD-first) satisfied - WP01's two red-first
+commits, WP03's T016, and WP04's T019 are each sequenced strictly before their implementation
+commits; WP02 legitimately has no internal red-first commit (turns WP01's already-red tests
+green). C-007 (__all__) satisfied - independently confirmed compiler.py already declares
+__all__ (line 54) and the new classify-and-placeholder helper is planned as module-private,
+matching the existing unlisted-private-helper precedent. Campsite standing order satisfied -
+plan.md explicitly declines a separate campsite-clean commit with stated reasoning (a prior
+extraction commit would be immediately overwritten by the functional change). All three tracer
+files exist and carry substantive, dated entries. Pre-existing Failure Reporting Rule: plan.md's
+"no pre-existing red in this mission's blast radius" claim was independently re-run live this
+pass (not merely trusted) - `.venv/bin/python -m pytest -q tests/doctrine/test_activation_parity_guard.py
+tests/charter/test_active_languages_idempotency.py tests/charter/test_context_catalog_miss.py
+tests/charter/test_catalog_completeness_4785.py` -> 56 passed, 0 failed, 1 warning - no filing
+needed.
 
-- DIRECTIVE_044 (single canonical authority) — prior HIGH finding D1 is now closed: WP02 reuses `_diagnose_catalog_miss`/`_available_catalog_ids` instead of a parallel classify helper, verified against live source.
-- C-011 (ATDD-first) — satisfied: WP01's two red-first commits, WP03's T016, and WP04's T019 are each sequenced before their implementation commits with explicit RED-verification steps; WP02 legitimately has no internal red-first commit since it turns WP01's already-red tests green (does not violate C-011).
-- C-007 (`__all__`) — satisfied on paper: new classify-and-placeholder helper and `RefreshOutcome` are both explicitly module-private, matching existing `compiler.py` precedent (`_render_kind_references`, `_doctrine_model_reference`, `_doctrine_yaml_reference` are likewise unlisted).
-- Campsite/tracer files — plan explicitly declines a separate campsite-clean commit with stated reasoning; three tracer files exist and are being appended each phase (confirmed non-empty, substantive content).
-- Pre-existing Failure Reporting Rule — plan.md states no pre-existing red in this mission's blast radius (56 passed, 0 failed); not independently re-run this pass (out of scope for a non-remediating cross-artifact analysis), but the claim is internally consistent with the stated baseline command and file set.
+**Cross-artifact consistency:** Every lane's write_scope in lanes.json equals its WP's
+owned_files in wps.yaml for all four lanes (lane-a/WP01, lane-b/WP02, lane-c/WP03,
+lane-d/WP04) - independently diffed this pass. A prior analyze pass's MEDIUM finding (lane-c's
+write_scope omitting the WP03 test file) is now resolved: tracer-tooling-friction.md's "Tasks
+re-finalize pass" entry documents a sanctioned finalize-tasks re-run that fixed it, and the
+current lanes.json (computed_at 2026-09-28T18:19:47Z, after the analysis-report.md this pass
+supersedes) confirms lane-c now carries both files. No new inconsistency found across
+spec/plan/tasks/wps.yaml/lanes.json/WP files/contract.
 
-**Unmapped Tasks:** None found — every subtask T001-T019 maps to a named WP, requirement, or plan concern; no orphaned subtask IDs and no gaps in the T001-T019 sequence.
+**Terminology canon:** No --feature flag usage found in mission artifacts; canonical --mission
+vocabulary used throughout.
+
+**Unmapped Tasks:** None - every subtask T001-T019 maps to a named WP, requirement, or plan
+concern.
 
 **Metrics:**
 
@@ -75,18 +98,30 @@ findings:
 - Total Invariants: 5 (I1-I5) + 1 carve-out row + 1 residual-fixture row = 7 ATDD table rows
 - Total Tasks/Subtasks: 19 (T001-T019) across 4 WPs
 - Coverage %: 100% of FR/NFR/C/SC/invariants have at least one mapped WP/subtask
-- Ambiguity Count: 0 (no vague adjectives or unresolved placeholders found in spec.md/plan.md/tasks.md/WP files)
-- Duplication Count: 0 (prior HIGH finding D1 closed this round)
+- Ambiguity Count: 0
+- Duplication Count: 0
 - Critical Issues Count: 0
 - High Issues Count: 0
-- Medium Issues Count: 1 (W1)
+- Medium Issues Count: 0
+- Low Issues Count: 0
 
 ## Next Actions
 
-No CRITICAL or HIGH issues remain. One MEDIUM finding (W1, a `lanes.json` write-scope ledger gap for WP03) does not block `/implement` given the mission's strict linear WP dependency chain (WP01 → WP02 → WP03; WP04 independent), but should be corrected via a sanctioned `finalize-tasks` regeneration before or during WP03's lane setup so the write-scope disjointness ledger stays trustworthy for any future re-planning.
-
-Suggested command: proceed to `/spec-kitty.implement` (or the mission's `agent action implement` entry point) for WP01; optionally re-run `spec-kitty agent mission finalize-tasks` first if the operator wants W1's `lanes.json` gap closed before implementation starts.
+No issues found. Proceed to /spec-kitty.implement (or agent action implement WP01) - WP01 is
+the sole unblocked lane per lanes.json's dependency graph (lane-b/WP02 depends on lane-a; lane-c/WP03
+depends on lane-b; lane-d/WP04 is independently unblocked in parallel).
 
 ## tooling_notes
 
-- **lanes.json lane-a `predicted_surfaces: ["api", "artifact-rendering", "legacy-cleanup"]` mischaracterizes a tests-only WP (prior finding L1).** WP01 owns only two new files under `tests/charter/` with no `src/` change, yet is tagged with generic dashboard-classification surfaces that plainly do not describe a red-first test-authoring WP. This is `lanes.json`'s `predicted_surfaces` metadata specifically — the field this mission's dispatch explicitly names as generator output no sanctioned command can regenerate in isolation (`spec-kitty agent mission finalize-tasks --help` was checked this round per `tracer-tooling-friction.md`'s "Analyze fix-round phase" entry: it has no flag to recompute `lanes.json` metadata alone without also mutating WP frontmatter/status, and `--validate-only` skips all writes). Already recorded in `tracer-tooling-friction.md`; carried forward here as a tooling note, not a finding, per this run's dispatch instructions. Not blocking.
+- **lanes.json lane-a predicted_surfaces: ["api", "artifact-rendering", "legacy-cleanup"]
+  mischaracterizes a tests-only WP.** WP01 owns only two new files under tests/charter/ with no
+  src/ change, yet is tagged with generic dashboard-classification surfaces that do not describe
+  a red-first test-authoring WP. This is CLI-generated state (lanes.json's predicted_surfaces
+  field) - no sanctioned command can regenerate it in isolation: finalize-tasks --help shows no
+  flag to recompute lane metadata alone without also mutating WP frontmatter/status, and
+  --validate-only skips all writes. finalize-tasks was re-run this mission (see
+  tracer-tooling-friction.md's "Tasks re-finalize pass" entry, which fixed the separate,
+  now-resolved write_scope gap) and did not change this field, confirming it is not something
+  the sanctioned command surface currently corrects. Already recorded in
+  tracer-tooling-friction.md; carried forward here as a tooling note, not a finding, per this
+  mission's own prior disposition. Not blocking.
