@@ -11,5 +11,7 @@
   "purpose_tldr": "Charter generation drops configured scoped references and breaks parity",
   "slug": "charter-generation-drops-scoped-references-01M3M1KF",
   "target_branch": "fix/charter-generation-drops-scoped-references-5257",
-  "topology": "single_branch"
+  "topology": "single_branch",
+  "vcs": "git",
+  "vcs_locked_at": "2026-09-28T18:45:29.115141+00:00"
 }

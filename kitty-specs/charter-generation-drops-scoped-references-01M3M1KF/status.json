@@ -30,7 +30,8 @@
       "last_transition_at": "2026-09-28T20:59:14.641193+00:00",
       "model": "__resolved_model_absent__",
       "notes": [
-        "T001-T006 red-first tests committed (2 commits); ruff+ruff format pass; baseline 56 passed unaffected."
+        "T001-T006 red-first tests committed (2 commits); ruff+ruff format pass; baseline 56 passed unaffected.",
+        "Reviewer (reviewer-renata, fresh context) approved cycle 1: all expected-red tests fail on assertions, negative control justified, ruff clean, CI shard charter selects both files. Verdict: kitty-specs/charter-generation-drops-scoped-references-01M3M1KF/reviews/wp-WP01.yaml"
       ],
       "provider": "__resolved_provider_absent__",
       "review_result": {
