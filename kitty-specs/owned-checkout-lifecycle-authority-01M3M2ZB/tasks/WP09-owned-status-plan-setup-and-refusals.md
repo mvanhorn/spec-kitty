@@ -382,6 +382,7 @@ Each functional commit turns its slice of T044/T049 green.
      | case | construction (same fixture instance) | expected code |
      |---|---|---|
      | missing path | `tmp_path / "does-not-exist"` | `OWNERSHIP_BROKEN_POINTER` (pinned by WP02's `test_missing_path_is_refused`) |
+     | directory outside any repository | a plain `tmp_path` directory that exists but has no `git init` anywhere above it (no `.git`, not inside R or any other repository) | `OWNERSHIP_BROKEN_POINTER` (US1-AS3; pinned by WP02's `test_directory_outside_any_repository_is_refused`, `tests/core/test_owned_mission_minter.py`, T007) |
      | non-worktree dir inside R | `R / "docs"` | `OWNERSHIP_NESTED` (pinned by WP02's `test_non_worktree_directory_is_refused`) |
      | foreign repository | a fresh `git init` elsewhere | `OWNERSHIP_FOREIGN` (existing, `test_explicit_checkout_commands.py:279-289`) |
      | repository root itself | `R` | `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` |
@@ -393,7 +394,7 @@ Each functional commit turns its slice of T044/T049 green.
      | non-single_branch mission | `make_owned_checkouts(topology="lanes_with_coord")` | `OWNED_TOPOLOGY_UNSUPPORTED` |
      | **valid P (control)** | P unchanged | `status` / `setup-plan` / `context-resolve`: success; implement / review: `OWNED_ACTION_UNSUPPORTED` |
 
-  2. Put the expected-code table in a module constant. For the three rows marked "WP02's minter test pins", read `tests/core/test_owned_mission_minter.py` and `tests/core/test_adopt_owned_checkout.py` and copy the pinned code, citing the test name in a comment. The NFR-004 registry (data-model.md) already lists `OWNED_CHECKOUT_IS_MISSION_WORKTREE` for both the lane and the coordination case; if WP02's tests pin a different code for a row, stop and raise it with the reviewer rather than inventing one.
+  2. Put the expected-code table in a module constant. For the **five** rows whose expected code cites a WP02 pin — missing path, directory outside any repository, non-worktree dir inside R, lane worktree, coordination worktree — read `tests/core/test_owned_mission_minter.py` (WP02 T007's `test_missing_path_is_refused`, `test_directory_outside_any_repository_is_refused` and `test_non_worktree_directory_is_refused`) and `tests/core/test_adopt_owned_checkout.py` (the lane/coordination minter tests) and copy the pinned code, citing the test name in a comment. The NFR-004 registry (data-model.md) already lists `OWNED_CHECKOUT_IS_MISSION_WORKTREE` for both the lane and the coordination case; if WP02's tests pin a different code for a row, stop and raise it with the reviewer rather than inventing one.
   3. For every row assert:
      - exit 1;
      - the code is in the registered set;
@@ -404,7 +405,7 @@ Each functional commit turns its slice of T044/T049 green.
 - **Files**: `tests/integration/test_owned_lifecycle_acceptance_cli.py`.
 - **Parallel?**: the red commit comes right after T044; the rows turn green as T045 to T047 land.
 - **Validation checklist**:
-  - [ ] 5 commands × 11 cases, including the valid control, all green at WP end.
+  - [ ] 5 commands × 12 cases, including the valid control, all green at WP end.
   - [ ] Each fixture mutation (branch, protection, topology) happens on a fresh fixture instance per parametrised case, never shared across cases.
   - [ ] Runtime is acceptable for per-PR CI. If the matrix is slow, share one `r_snapshot` baseline per case, but never share state across cases.
 - **Edge cases**:

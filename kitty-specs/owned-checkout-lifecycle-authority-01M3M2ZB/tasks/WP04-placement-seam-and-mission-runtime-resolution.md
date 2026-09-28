@@ -334,7 +334,7 @@ Close the fall-back to the repository root checkout **at its source**, in the mi
 
 ### Subtask T021 – Convert the remaining bare owned roots in `resolution.py` and `mission_runtime/context.py`
 
-- **Purpose**: Leave `resolution.py` with one internal representation of "owned", so WP18's deletion is mechanical (research R-03: 14 of the 92 bare parameters live in `resolution.py`).
+- **Purpose**: Leave `resolution.py` with one internal representation of "owned", so WP18's deletion is mechanical (research R-03: 14 of all bare owned-root parameters (census in plan Scale/Scope) live in `resolution.py`).
 - **Steps**:
   1. Run WP01's scanner on the two files (a throwaway local script, not a committed test) to list every G4/G5 hit in `resolution.py` and `context.py`:
      ```bash

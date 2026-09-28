@@ -98,7 +98,7 @@ Done means:
 
 ## Context & Constraints
 
-- **Mission docs**: `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/` → `spec.md` (FR-001, FR-022), `plan.md` (Staging Strategy; IC-10a; Scale/Scope), `research.md` R-03 (the 92-parameter census and "convert all 92 … G4/G5 empty allowlist"), `data-model.md` (OwnedCheckout fields), `contracts/owned-checkout-carrier.md` §3 and §7, `contracts/architectural-gate.md` (G4/G5 are what this WP is burning down), `occurrence_map.yaml`.
+- **Mission docs**: `kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/` → `spec.md` (FR-001, FR-022), `plan.md` (Staging Strategy; IC-10a; Scale/Scope), `research.md` R-03 (bare owned-root parameter census now deferred to plan Scale/Scope, not R-03; "convert all bare owned-root parameters … G4/G5 empty allowlist"), `data-model.md` (OwnedCheckout fields), `contracts/owned-checkout-carrier.md` §3 and §7, `contracts/architectural-gate.md` (G4/G5 are what this WP is burning down), `occurrence_map.yaml`.
 - **Landed prerequisites** (verify their actual shapes on your lane base before editing):
   - WP01: `from mission_runtime import OwnedCheckout` (public import only — MR-1/MR-2 forbid `mission_runtime.owned_checkout` submodule imports). Canonical fields: `owned_root`, `repository_root`, `mission_dir`, `mission_slug`, `topology`, `target_branch`. The legacy properties (`root`, `primary`, `directory`, `slug`, `target`) are transitional and deleted by WP18 — do not read them.
   - WP04: `placement_seam(..., owned=)` (dual keyword until WP18), and whatever WP04/T021 did to `mission_runtime.resolve_artifact_surface` (`resolution.py:2320` on the planning base) and `mission_runtime.declared_read_surface` (`resolution.py:2125`).
