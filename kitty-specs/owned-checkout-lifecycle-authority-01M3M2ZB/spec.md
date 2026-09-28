@@ -50,12 +50,7 @@ The validator records the mission's stored topology in the validated fact. **Eac
 
 The actor is an **operator or agent harness** that created mission M with `--owned-checkout P` in linked checkout P. The repository root checkout R may be on another branch or running another mission.
 
-**Common fixture.** R is created with `spec-kitty init`, and P is a linked worktree of R. Handles are parametrised over slug, mid8 and mission id. The **R snapshot** records:
-- every tracked, untracked **and ignored** file under R's working tree, including `.kittify/`, excluding the shared git directory;
-- R's `HEAD`;
-- R's index.
-
-"R unchanged" means all three are identical before and after.
+**Common fixture.** R is created with `spec-kitty init`, and P is a linked worktree of R. Handles are parametrised over slug, mid8 and mission id. "R unchanged" is defined by NFR-001, which is the single authority for what the **R snapshot** covers (working tree including ignored files and excluding exactly P's resolved subtree, `HEAD`, index, the shared lock root, and an isolated `SPEC_KITTY_HOME`); this paragraph does not restate a narrower definition.
 
 ### User Story 1 - Plan an owned mission (Priority: P1)
 
@@ -74,8 +69,9 @@ After an owned create and a substantive spec commit, the operator checks status 
    - R is unchanged.
 2. **Given** M with a substantive committed spec in P, **When** `agent mission setup-plan --owned-checkout P --mission H` runs, **Then** `plan.md` is created and committed on P's branch, and R is unchanged.
 3. **Given** each invalid `--owned-checkout` value, **When** each of `agent tasks status`, `setup-plan` or `context resolve` runs with it, **Then** it exits non-zero with the listed code and writes nothing to P or R. The invalid values and codes are:
-   - a missing path;
-   - a non-worktree directory;
+   - a missing path (`OWNERSHIP_BROKEN_POINTER`);
+   - a plain directory inside a checkout, e.g. `R/docs` (`OWNERSHIP_NESTED`);
+   - a directory outside any repository (`OWNERSHIP_BROKEN_POINTER`, the same code as a missing path);
    - R itself (`OWNED_CHECKOUT_IS_REPOSITORY_ROOT`);
    - a lane or coordination worktree (`OWNED_CHECKOUT_IS_MISSION_WORKTREE`);
    - a mismatched or detached branch (`OWNED_BRANCH_REFUSED`);
@@ -202,7 +198,7 @@ Decision `01M3M4GTA4ENB73A0HDS65WZ1P`: a flagless command run from **inside a li
 
 | ID | Title | User Story | Priority | Status | Delivery | No-op passable? |
 |----|-------|------------|----------|--------|----------|-----------------|
-| FR-001 | One ownership validator | As a maintainer, I want the canonical owned-mission validator to be the only code that turns an ownership claim into a validated ownership fact, so that ownership has one authority. An architectural check fails if the ownership-claim primitive is called anywhere else outside that validator, and if any parameter or field anywhere in `src/` carries an owned root as a bare path. The allowlist is empty (operator decision `01M3M65D…`: all 92 bare-path parameters are converted in this mission, with no ratchet ledger). | High | Open | [build] | no — red on main: `next` calls the claim primitive directly (O9), and context resolution adopts cwd (O10) |
+| FR-001 | One ownership validator | As a maintainer, I want the canonical owned-mission validator to be the only code that turns an ownership claim into a validated ownership fact, so that ownership has one authority. An architectural check fails if the ownership-claim primitive is called anywhere else outside that validator, and if any parameter or field anywhere in `src/` carries an owned root as a bare path. Named rule-based exemptions are defined in `contracts/architectural-gate.md` (the `OwnedCheckout` carrier's own fields, the CLI claim-input alias, the org-pack module sense of `effective_root`, and historical migrations); there is no site-level allowlist. The allowlist is empty (operator decision `01M3M65D…`: all bare owned-root parameters are converted in this mission — census in plan Scale/Scope — with no ratchet ledger). | High | Open | [build] | no — red on main: `next` calls the claim primitive directly (O9), and context resolution adopts cwd (O10) |
 | FR-002 | `next` uses the validator | As an operator, I want `next --owned-checkout` to go through the canonical validator, including its branch and protection checks, so that it enforces the same ownership rules as every other owned command. | High | Open | [build] | no — red on main: `next --owned-checkout` with a protected target is accepted today |
 | FR-003 | Validated once per command | As an operator, I want ownership validated exactly once per owned command invocation and the fact handed to every downstream read, so that reads are consistent and cheap (NFR-002). | High | Open | [build] | no — the check asserts exactly 1 validation through the CLI; 0 or ≥2 fails |
 | FR-004 | Owned status listing | As an operator, I want `agent tasks status --owned-checkout` to list the owned mission's WPs by any handle (US1-AS1, #3449). | High | Open | [build] | no — red on main (MISSION_NOT_FOUND) |

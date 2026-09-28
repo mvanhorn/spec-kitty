@@ -381,8 +381,8 @@ Each functional commit turns its slice of T044/T049 green.
 
      | case | construction (same fixture instance) | expected code |
      |---|---|---|
-     | missing path | `tmp_path / "does-not-exist"` | the code WP02's minter test pins for a missing path (expected `OWNERSHIP_BROKEN_POINTER`) |
-     | non-worktree dir inside R | `R / "docs"` | `OWNERSHIP_NESTED` |
+     | missing path | `tmp_path / "does-not-exist"` | `OWNERSHIP_BROKEN_POINTER` (pinned by WP02's `test_missing_path_is_refused`) |
+     | non-worktree dir inside R | `R / "docs"` | `OWNERSHIP_NESTED` (pinned by WP02's `test_non_worktree_directory_is_refused`) |
      | foreign repository | a fresh `git init` elsewhere | `OWNERSHIP_FOREIGN` (existing, `test_explicit_checkout_commands.py:279-289`) |
      | repository root itself | `R` | `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` |
      | lane worktree | a registered lane worktree (see the edge cases) | `OWNED_CHECKOUT_IS_MISSION_WORKTREE` (pinned by WP02's minter tests) |

@@ -36,7 +36,7 @@ spec-kitty agent context resolve --owned-checkout "$P" --action implement --miss
 
 **Expected throughout**:
 - every command exits 0;
-- R's working tree, `HEAD` and index are unchanged;
+- R is unchanged, per spec.md NFR-001's definition (working tree including ignored files, `HEAD`, index, the shared lock root and `SPEC_KITTY_HOME`);
 - if R still holds an old copy of `demo-<mid8>`, every JSON payload carries `stale_repository_root_copy` and every path stays under P.
 
 **Not supported for owned missions**: `agent action implement` and `agent action review` refuse with `OWNED_ACTION_UNSUPPORTED` and point to the commands above. Full support is tracked in #5100.
