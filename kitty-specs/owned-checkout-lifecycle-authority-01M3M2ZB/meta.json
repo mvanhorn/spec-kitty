@@ -14,5 +14,7 @@
   "purpose_tldr": "Make a mission created in an explicitly owned checkout runnable end to end without any read or write leaking to the primary checkout.",
   "slug": "owned-checkout-lifecycle-authority-01M3M2ZB",
   "target_branch": "claude/sleepy-hamilton-5lelee",
-  "topology": "coord"
+  "topology": "coord",
+  "vcs": "git",
+  "vcs_locked_at": "2026-09-28T16:23:45.965238+00:00"
 }
