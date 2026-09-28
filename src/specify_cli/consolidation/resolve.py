@@ -22,9 +22,11 @@ from specify_cli.consolidation.state import (
     ConsolidationState,
     ConsolidationStateReadError,
     clear_state,
+    drop_post_fix_marker,
     load_state,
     save_state,
 )
+from specify_cli.consolidation.reconciliation import write_post_fix_marker
 from specify_cli.consolidation.workspace import cleanup_merge_workspace
 from specify_cli.mission_metadata import resolve_mission_identity
 from mission_runtime import MissionArtifactKind, placement_seam
@@ -227,6 +229,7 @@ def _load_or_create_merge_state(
     wp_order: list[str],
     push_requested: bool,
     skip_lanes: bool = False,
+    strategy: str | None = None,
 ) -> tuple[ConsolidationState, bool]:
     """Load canonical/legacy merge state, migrating legacy state to canonical.
 
@@ -235,6 +238,12 @@ def _load_or_create_merge_state(
     durable record for a genuinely-lanes.json-absent mission). A loaded
     (existing) state's own persisted value is never overwritten here --
     that survives resume exactly as recorded on the run that created it.
+
+    ``strategy`` follows the same fresh-only rule (#5111 landing fold): when
+    given, the fresh record is born with the strategy this run executes, so
+    its FIRST write is already truthful. Stamping it only in a second save
+    left a hard-kill window where a resumable record carried the inert
+    ``"merge"`` default instead of the operator's strategy.
     """
     canonical_state = load_state(main_repo, canonical_id)
     if canonical_state is not None:
@@ -246,6 +255,15 @@ def _load_or_create_merge_state(
         if state.mission_id != canonical_id:
             state.mission_id = canonical_id
             state.mission_slug = mission_slug
+            # #5111 / FR-012: a deliberate provenance strip, not a record clear.
+            # Only pre-fix code wrote non-canonical keys, so a migrated state is
+            # pre-fix and stays marker-less (its resume is refused, as before);
+            # never let an orphan marker already sitting in the canonical dir
+            # (e.g. from a pre-#5111 ``--abort``) vouch for it. One post-fix
+            # exception: ``migrate backfill-identity`` run mid-merge re-keys an
+            # in-flight record, which is then refused as pre-fix -- fail-closed,
+            # and recoverable with ``consolidate --abort``.
+            drop_post_fix_marker(main_repo, canonical_id)
             save_state(state, main_repo)
             if source_key is not None and source_key != canonical_id:
                 clear_state(main_repo, source_key)
@@ -259,6 +277,15 @@ def _load_or_create_merge_state(
         push_requested=push_requested,
         skip_lanes=skip_lanes,
     )
+    if strategy is not None:
+        state.strategy = strategy
+    # #5111 / FR-012: the reconciliation marker is part of the fresh transaction
+    # record and is written BEFORE ``state.json``, so a state on disk always
+    # implies its marker (a crash in between leaves only a harmless orphan
+    # marker, which the next fresh run re-stamps). Stamping it later, after the
+    # merge gates, let any pre-mutation exit leave a marker-less state that the
+    # next plain run then refused as "pre-fix in-flight".
+    write_post_fix_marker(main_repo, canonical_id)
     save_state(state, main_repo)
     return state, False
 
@@ -300,6 +327,12 @@ def _cleanup_merge_workspaces_for_state(
         cleanup_keys.append(mission_slug)
 
     for key in dict.fromkeys(key for key in cleanup_keys if key):
+        if state_entry is None:
+            # #5111: no state exists for this mission, so a reconciliation marker
+            # left here is an orphaned half of a transaction record (the marker
+            # survives workspace cleanup like state.json). Drop it through the
+            # single record-clear owner so the runtime dir can be removed.
+            clear_state(repo_root, key)
         cleanup_merge_workspace(key, repo_root)
 
 

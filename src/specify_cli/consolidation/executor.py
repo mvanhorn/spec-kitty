@@ -21,6 +21,8 @@ never imports the command shim.
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator
 import functools
 import subprocess
 import time
@@ -141,7 +143,6 @@ from specify_cli.consolidation.reconciliation import (
     VerifyResult,
     VerifyStatus,
     build_approved_wp_set,
-    clear_post_fix_marker,
     detect_legacy_in_flight_state,
     route_terminus,
     write_post_fix_marker,
@@ -534,15 +535,9 @@ def _assert_mission_terminal_ready(run: _MergeRunState) -> None:
         "(approved/done), or cancel them with operator provenance, then "
         "re-run the merge."
     )
-    # Landing-pass remediation (#4764): ``_load_or_create_merge_state``
-    # persists a FRESH state.json to disk before this precondition ever
-    # runs. Leaving that just-created file behind would mislabel the next
-    # plain ``spec-kitty consolidate`` attempt a ``--resume`` off a stale
-    # ``wp_order`` -- contradicting "the mission is unchanged" above. Clear
-    # ONLY this run's own fresh state; a pre-existing ``--resume``'s state
-    # must never be destroyed by a later, still-not-ready re-run.
-    if not run.is_resume:
-        clear_state(run.main_repo, run.canonical_id)
+    # Landing-pass remediation (#4764): the fresh run's own just-created state
+    # is cleared by :func:`_clear_fresh_record_on_pre_mutation_exit`, which owns that rule for
+    # EVERY pre-mutation exit (#5111), not just this one.
     raise typer.Exit(1)
 
 
@@ -2138,6 +2133,43 @@ def _enforce_resume_anchor_integrity(run: _MergeRunState, *, coord_topology: boo
             raise typer.Exit(1)
 
 
+@contextlib.contextmanager
+def _clear_fresh_record_on_pre_mutation_exit(run: _MergeRunState) -> Iterator[None]:
+    """Clear a FRESH run's own transaction record if a pre-mutation phase exits.
+
+    #5111 (and the #4764 landing-pass remediation it generalises): a fresh run
+    persisted its transaction record (``state.json`` + reconciliation marker) in
+    ``_load_or_create_merge_state`` before the gate/checkpoint/claim phases this
+    wraps, and none of them mutates a ref, worktree, or status log. So when ANY
+    of them exits -- a failed merge gate, the canonical-history guard, a
+    declined hollow-review prompt or Ctrl-C, a fail-closed claim refusal, or an
+    unexpected exception -- the mission is unchanged, and the fresh run's own
+    record is cleared: the operator's next plain ``spec-kitty consolidate`` is
+    then a genuinely fresh run that re-resolves target/strategy/push from its
+    own flags, instead of an auto-resume of a zero-progress state. A
+    pre-existing ``--resume``'s record is never destroyed here. A hard kill
+    cannot run this handler; the marker-with-state ordering keeps that residue
+    resumable (not "pre-fix").
+    """
+    try:
+        yield
+    except BaseException:
+        if not run.is_resume:
+            try:
+                clear_state(run.main_repo, run.canonical_id)
+            except OSError as clear_error:
+                # Never let a failed cleanup replace the real exit (a gate
+                # failure's typer.Exit, a Ctrl-C) as the operator's headline.
+                # A half-cleared record is at worst an orphan marker, which the
+                # next fresh run re-stamps.
+                logger.warning("Could not clear the fresh consolidation record for %s: %s", run.canonical_id, clear_error)
+                console.print(
+                    f"[yellow]Warning:[/yellow] could not clear this run's consolidation record ({clear_error}); "
+                    "a plain re-run still starts fresh."
+                )
+        raise
+
+
 def _capture_reconciliation_claim(run: _MergeRunState) -> None:
     """Capture the fail-closed, Lamport-sourced claim ONCE at transaction start.
 
@@ -2146,7 +2178,8 @@ def _capture_reconciliation_claim(run: _MergeRunState) -> None:
     post-merge target against a claim sourced from the PRE-mutation lane tips.
     Also enforces FR-012: a resumed pre-fix in-flight state (no post-fix marker)
     is refused here — before any mutation — rather than proceeding under the new
-    gate against unknown-shape state; a fresh merge stamps the marker itself.
+    gate against unknown-shape state. A fresh merge's marker was already written
+    with its ``state.json`` (#5111); the write below is an idempotent re-stamp.
     """
     legacy = detect_legacy_in_flight_state(
         run.main_repo, run.canonical_id, is_resume=run.is_resume
@@ -2951,10 +2984,10 @@ def _phase_finalize_and_summary(run: _MergeRunState) -> None:
     """Cleanup workspace + clear state, render stale findings."""
     # -- T002: Cleanup workspace (preserves state.json) then clear state --
     cleanup_merge_workspace(run.canonical_id, run.main_repo)
-    # terminus-merge-integrity WP06 (FR-012): drop the post-fix marker before the
-    # state is cleared, so a subsequent, unrelated merge for the same mission
-    # never mistakes a leftover marker for its own in-flight transaction.
-    clear_post_fix_marker(run.main_repo, run.canonical_id)
+    # terminus-merge-integrity WP06 (FR-012) / #5111: ``clear_state`` drops the
+    # state and its post-fix marker together (state first), so a subsequent,
+    # unrelated merge for the same mission never mistakes a leftover marker for
+    # its own in-flight transaction.
     clear_state(run.main_repo, run.canonical_id)
 
     _render_stale_findings(run.stale_report)
@@ -3190,6 +3223,7 @@ def _run_lane_based_consolidation_locked(
         wp_order=all_wp_ids,
         push_requested=push,
         skip_lanes=skip_lanes,
+        strategy=strategy.value,
     )
 
     # terminus-merge-integrity WP06 (C-1 wiring half / T029): reseed the manifest
@@ -3202,14 +3236,6 @@ def _run_lane_based_consolidation_locked(
     # passed in above, so this reseed is an identity no-op (proven safe for
     # NFR-004) that establishes the consumption seam. Flagged to WP09.
     lanes_manifest.target_branch = state.target_branch
-
-    # terminus-integrity-followups WP05 (T020, FR-003, F14): mirror the C-1 target
-    # reseed above for strategy — persist the strategy attempt-1 ACTUALLY executes
-    # (the CLI-resolved value threaded in here) so a ``--resume`` reads a truthful
-    # authority instead of the inert ``ConsolidationState.strategy`` default. Fresh-only; a
-    # resume's persisted value already sourced this run's strategy (WP04 CLI
-    # precedence) and must never be re-stamped.
-    _persist_executed_strategy(state, strategy, is_resume=is_resume, main_repo=main_repo)
 
     run = _MergeRunState(
         main_repo=main_repo,
@@ -3240,42 +3266,52 @@ def _run_lane_based_consolidation_locked(
     if run.is_resume:
         _heal_pending_coord_reconcile(run)
 
-    _phase_gates_and_state(run)
-    # T008 (FR-007/008): capture the pre-mutation checkpoint strictly before the
-    # first mutating phase. Consumed by the narrow backstop immediately below
-    # AND left available for the resume/doctor heal machinery.
-    #
-    # Scope note (git-level constraint, verified live): on a coord-topology
-    # mission whose lanes.json has MULTIPLE lanes, ``_phase_merge_lanes``
-    # produces MERGE commits on the coordination/mission branch (one per
-    # consolidated lane). ``git revert <sha>..HEAD`` cannot auto-revert a
-    # range that contains a merge commit without an explicit ``-m`` mainline
-    # per merge commit — attempting the WIDER revert (back through
-    # consolidation) for every later-phase failure corrupted two proven
-    # multi-lane coord-topology tests
-    # (``tests/specify_cli/cli/commands/test_merge_coord_worktree_resync_1826.py``)
-    # during this WP's development, so the backstop below is deliberately
-    # scoped to ONLY ``_phase_merge_lanes`` itself — the one phase with no
-    # PRE-EXISTING rollback coverage at all, and the only span where the
-    # pre-mutation checkpoint is guaranteed not to already contain a
-    # just-created merge commit from a SUCCESSFUL prior lane in this same
-    # call. Every later phase (baseline/bake through commit-and-assert)
-    # keeps its dense pre-existing granular rollback (``_restore_and_guard_
-    # coord_coherence`` / ``_restore_pre_target_if_at_baseline``), which
-    # never needs to cross a lane-consolidation merge commit because its own
-    # checkpoint is captured AFTER consolidation. A residual strand from a
-    # PARTIAL multi-lane consolidation failure (lane A ok, lane B fails) is
-    # not silently dropped either way: :func:`_reset_coord_to_checkpoint`
-    # degrades gracefully (abort + warn) rather than corrupting the branch,
-    # and :func:`_rollback_to_pre_mutation_checkpoint` still marks/heals via
-    # the SEPARATE, proven coordination-reconcile primitive.
-    _capture_pre_mutation_coord_checkpoint(run)
-    # terminus-merge-integrity WP06 (T027/T029): capture the fail-closed,
-    # Lamport-sourced reconciliation claim + the transaction-start target tip
-    # (CAS anchor / excluded-window base) NOW — before any mutation — and refuse
-    # a resumed pre-fix in-flight state (FR-012). The teardown gate compares the
-    # post-merge target against this pre-mutation claim.
-    _capture_reconciliation_claim(run)
+    with _clear_fresh_record_on_pre_mutation_exit(run):
+        # terminus-integrity-followups WP05 (T020, FR-003, F14): mirror the C-1 target
+        # reseed above for strategy — persist the strategy attempt-1 ACTUALLY executes
+        # (the CLI-resolved value threaded in here) so a ``--resume`` reads a truthful
+        # authority instead of the inert ``ConsolidationState.strategy`` default. Fresh-only; a
+        # resume's persisted value already sourced this run's strategy (WP04 CLI
+        # precedence) and must never be re-stamped. Inside the #5111 guard: it is the
+        # first write after the fresh record is created, so an I/O failure here
+        # clears that record too instead of leaving a zero-progress resume behind.
+        _persist_executed_strategy(run.state, run.strategy, is_resume=run.is_resume, main_repo=run.main_repo)
+        _phase_gates_and_state(run)
+        # T008 (FR-007/008): capture the pre-mutation checkpoint strictly before the
+        # first mutating phase. Consumed by the narrow backstop immediately below
+        # AND left available for the resume/doctor heal machinery.
+        #
+        # Scope note (git-level constraint, verified live): on a coord-topology
+        # mission whose lanes.json has MULTIPLE lanes, ``_phase_merge_lanes``
+        # produces MERGE commits on the coordination/mission branch (one per
+        # consolidated lane). ``git revert <sha>..HEAD`` cannot auto-revert a
+        # range that contains a merge commit without an explicit ``-m`` mainline
+        # per merge commit — attempting the WIDER revert (back through
+        # consolidation) for every later-phase failure corrupted two proven
+        # multi-lane coord-topology tests
+        # (``tests/specify_cli/cli/commands/test_merge_coord_worktree_resync_1826.py``)
+        # during this WP's development, so the backstop below is deliberately
+        # scoped to ONLY ``_phase_merge_lanes`` itself — the one phase with no
+        # PRE-EXISTING rollback coverage at all, and the only span where the
+        # pre-mutation checkpoint is guaranteed not to already contain a
+        # just-created merge commit from a SUCCESSFUL prior lane in this same
+        # call. Every later phase (baseline/bake through commit-and-assert)
+        # keeps its dense pre-existing granular rollback (``_restore_and_guard_
+        # coord_coherence`` / ``_restore_pre_target_if_at_baseline``), which
+        # never needs to cross a lane-consolidation merge commit because its own
+        # checkpoint is captured AFTER consolidation. A residual strand from a
+        # PARTIAL multi-lane consolidation failure (lane A ok, lane B fails) is
+        # not silently dropped either way: :func:`_reset_coord_to_checkpoint`
+        # degrades gracefully (abort + warn) rather than corrupting the branch,
+        # and :func:`_rollback_to_pre_mutation_checkpoint` still marks/heals via
+        # the SEPARATE, proven coordination-reconcile primitive.
+        _capture_pre_mutation_coord_checkpoint(run)
+        # terminus-merge-integrity WP06 (T027/T029): capture the fail-closed,
+        # Lamport-sourced reconciliation claim + the transaction-start target tip
+        # (CAS anchor / excluded-window base) NOW — before any mutation — and refuse
+        # a resumed pre-fix in-flight state (FR-012). The teardown gate compares the
+        # post-merge target against this pre-mutation claim.
+        _capture_reconciliation_claim(run)
     # #5021 residual 1 (Decision 3): a ``--resume`` whose persisted CAS anchor
     # proves reconciliation already PASSed for the target's CURRENT tip must
     # not re-run the consolidation/bake/mission->target/done-bookkeeping

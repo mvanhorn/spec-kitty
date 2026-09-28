@@ -17,7 +17,7 @@ from typing import Any
 from kernel.clock import now_utc_iso
 from kernel.errors import GuardedReadError
 from kernel.guarded_read import read_guarded
-from specify_cli.consolidation.workspace import get_merge_runtime_dir
+from specify_cli.consolidation.workspace import STATE_FILENAME, get_merge_runtime_dir, post_fix_marker_path
 
 __all__ = [
     "MergeAmbiguousStateError",
@@ -27,6 +27,7 @@ __all__ = [
     "save_state",
     "load_state",
     "clear_state",
+    "drop_post_fix_marker",
     "has_active_consolidation",
     "iter_pending_coord_reconcile_markers",
     "get_state_path",
@@ -40,7 +41,7 @@ __all__ = [
     "needs_number_assignment",
 ]
 
-_STATE_FILE = "state.json"
+_STATE_FILE = STATE_FILENAME
 _LOCK_FILE = "lock"
 
 
@@ -332,21 +333,34 @@ def _load_state_file(state_path: Path) -> ConsolidationState | None:
 
 
 def clear_state(repo_root: Path, mission_id: str | None = None) -> bool:
-    """Remove merge state file.
+    """Remove a merge transaction record: ``state.json`` and its reconciliation marker.
+
+    The FR-012 marker is created with a fresh ``state.json`` and must never
+    outlive it (#5111): a leftover marker would vouch for a later, unrelated
+    state, and a marker-less state is refused as pre-fix. Clearing both here
+    makes ``--abort``, the pre-mutation refusal clear, and finalize consistent
+    by construction -- ``clear_state`` is the ONLY owner of clearing the whole
+    record. The one marker-only removal (a legacy-migration provenance strip)
+    goes through :func:`drop_post_fix_marker` in this module, never a direct
+    unlink elsewhere.
 
     Args:
         repo_root: Repository root path
         mission_id: If given, clear only that mission's state.
 
     Returns:
-        True if a file was removed, False if it didn't exist
+        True if a state file was removed, False if it didn't exist (an orphan
+        marker is still removed, but does not count as cleared state)
     """
     if mission_id is not None:
         state_path = get_state_path(repo_root, mission_id)
-        if state_path.exists():
-            state_path.unlink()
-            return True
-        return False
+        cleared = state_path.exists()
+        # Mirror creation (marker, then state): delete the state FIRST, so a hard
+        # kill between the two unlinks leaves a harmless orphan marker -- never a
+        # marker-less state the next run would refuse as pre-fix.
+        state_path.unlink(missing_ok=True)
+        post_fix_marker_path(mission_id, repo_root).unlink(missing_ok=True)
+        return cleared
 
     # Clear the first active state found
     runtime_merge_dir = repo_root / ".kittify" / "runtime" / "merge"
@@ -355,9 +369,21 @@ def clear_state(repo_root: Path, mission_id: str | None = None) -> bool:
             state_file = candidate / _STATE_FILE
             if state_file.exists():
                 state_file.unlink()
+                post_fix_marker_path(candidate.name, repo_root).unlink(missing_ok=True)
                 return True
 
     return False
+
+
+def drop_post_fix_marker(repo_root: Path, mission_id: str) -> None:
+    """Remove only *mission_id*'s reconciliation marker, leaving any state in place.
+
+    For the legacy-migration provenance strip (#5111): a migrated state is
+    pre-fix and must stay marker-less, so an orphan marker already in the
+    canonical dir must not vouch for it. Every full-record clear goes through
+    :func:`clear_state` instead.
+    """
+    post_fix_marker_path(mission_id, repo_root).unlink(missing_ok=True)
 
 
 def has_active_consolidation(repo_root: Path, mission_id: str | None = None) -> bool:
