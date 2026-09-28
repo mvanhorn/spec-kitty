@@ -19,6 +19,12 @@ extension point WP04 installed at ``preflight.runner.refresh_references_if_neede
   gating predicate across the reachable cause-set combinations (see
   ``references_refresh``'s module docstring for why a bare ``built_in_only``
   project reaches a stale-without-``synthesized_drg`` cause set).
+* ``test_auto_refresh_reports_failure_when_generate_fails`` (T019, WP04
+  auto-refresh swallow fold-in, #5257): pins the pre-existing swallow bug at
+  ``preflight.runner._attempt_auto_refresh``'s references-parity extension
+  point -- a non-zero targeted ``generate`` exit must reach the boundary
+  heal's ``passed``/``blocked_reason`` contract, never be logged-and-
+  swallowed behind an unconditional manifest re-stamp.
 """
 
 from __future__ import annotations
@@ -32,7 +38,10 @@ import pytest
 from ruamel.yaml import YAML
 from typer.testing import CliRunner
 
+from specify_cli.charter_runtime.freshness import CharterFreshness, FreshnessSubState
 from specify_cli.charter_runtime.preflight import references_refresh
+from specify_cli.charter_runtime.preflight import runner as runner_module
+from specify_cli.charter_runtime.preflight.result import CharterPreflightCheck
 from specify_cli.cli.commands.charter import app as charter_app
 
 pytestmark = [pytest.mark.unit, pytest.mark.git_repo]
@@ -332,3 +341,130 @@ def test_read_catalog_mission_and_template_set_absent_charter_yaml(tmp_path: Pat
     """AC-B2: an absent ``charter.yaml`` yields the same absent
     ``(None, None)`` result as before the refactor."""
     assert references_refresh._read_catalog_mission_and_template_set(tmp_path) == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# T019 -- auto-refresh swallow fold-in (WP04, #5257): a non-zero targeted
+# `generate` exit inside `_attempt_auto_refresh`'s references-parity
+# extension point must reach the boundary heal's `passed`/`blocked_reason`
+# contract, never be logged-and-swallowed behind an unconditional manifest
+# re-stamp.
+# ---------------------------------------------------------------------------
+
+
+def _make_generate_failure_subprocess_fake(
+    seen_calls: list[list[str]], *, failure_detail: str
+) -> Any:
+    """Like :func:`_make_generate_subprocess_fake`, but the faked
+    ``spec-kitty charter generate`` invocation exits non-zero instead of
+    routing to the real in-process command -- for pinning T019 (the WP04
+    auto-refresh swallow fold-in). Every OTHER ``spec-kitty charter``
+    subcommand still no-ops successfully (returncode 0), isolating the
+    assertion to the generate-failure branch alone.
+    """
+    real_run = subprocess.run
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:1] == ["git"]:
+            return real_run(cmd, **kwargs)
+        seen_calls.append(list(cmd))
+        if tuple(cmd[:3]) == _GENERATE_CMD_PREFIX:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr=f"{failure_detail}\n"
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    return fake_run
+
+
+def test_auto_refresh_reports_failure_when_generate_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pins the pre-existing swallow bug at ``_attempt_auto_refresh``'s
+    references-parity extension point (``runner.py`` ~line 733): today,
+    ``refresh_references_if_needed`` never inspects the targeted `generate`
+    subprocess's ``CompletedProcess`` and unconditionally reports success,
+    so a genuine failure there is masked behind an unconditional manifest
+    re-stamp instead of reaching ``passed=False``/``blocked_reason``.
+
+    RED (pre-fix, verified against
+    ``af847be71d97c8a126e91c31a7d05629c69c93ba``): the swallow means
+    ``passed`` reports ``True`` despite the underlying ``generate``
+    failure. The post-refresh freshness recompute (faked below to report a
+    fully coherent repo, isolating the assertion from real doctrine-fixture
+    setup) simply re-observes "everything is fine" and reports success --
+    exactly the masking mechanism this fold-in removes (the WP's own
+    description: "the recompute afterward sees synthesized_drg='fresh'
+    even though generate FAILED to actually reconcile anything").
+
+    GREEN (post T017+T018): ``passed=False`` and ``blocked_reason`` names
+    the failure detail; the manifest restamp (a second ``synthesize`` call
+    after the failed ``generate``) never runs, and the freshness recompute
+    is never even reached.
+    """
+    _git_init(tmp_path)
+
+    seen_calls: list[list[str]] = []
+    failure_detail = "generate: doctrine pack root misconfigured (fixture-induced failure)"
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _make_generate_failure_subprocess_fake(seen_calls, failure_detail=failure_detail),
+    )
+
+    # Isolate the assertion from real freshness computation: the
+    # post-refresh recompute (``runner.compute_freshness``) reads real
+    # repo files, which this fixture never populates. Faking it to report
+    # a fully coherent repo means the ONLY thing that can make `passed`
+    # False is `_attempt_auto_refresh` itself reaching the fail-closed
+    # branch this fold-in adds -- not an unrelated missing-DRG artifact.
+    all_fresh = FreshnessSubState(state="fresh", last_change=None, remediation=None)
+    monkeypatch.setattr(
+        runner_module,
+        "compute_freshness",
+        lambda _repo_root: CharterFreshness(
+            charter_source=all_fresh, synced_bundle=all_fresh, synthesized_drg=all_fresh
+        ),
+    )
+
+    fresh = FreshnessSubState(state="fresh", last_change=None, remediation=None)
+    stale_drg = FreshnessSubState(
+        state="stale",
+        last_change=None,
+        remediation="spec-kitty charter synthesize",
+    )
+    freshness = CharterFreshness(
+        charter_source=fresh, synced_bundle=fresh, synthesized_drg=stale_drg
+    )
+    initial_checks = [
+        CharterPreflightCheck(name="charter_source", state="fresh", detail="ok", remediation=None),
+        CharterPreflightCheck(name="synced_bundle", state="fresh", detail="ok", remediation=None),
+        CharterPreflightCheck(
+            name="synthesized_drg",
+            state="stale",
+            detail="synthesized DRG is stale",
+            remediation="spec-kitty charter synthesize",
+        ),
+    ]
+
+    result = runner_module._attempt_auto_refresh(tmp_path, freshness, initial_checks)
+
+    assert any(tuple(c[:3]) == _GENERATE_CMD_PREFIX for c in seen_calls), (
+        f"fixture sanity: the targeted generate must actually be invoked; saw {seen_calls!r}"
+    )
+    assert result.auto_refresh_applied is True
+    assert result.passed is False, (
+        "a failed targeted `generate` must not let the boundary heal report "
+        "success -- the swallow bug lets `passed` report True here"
+    )
+    assert result.blocked_reason is not None
+    assert failure_detail in result.blocked_reason, result.blocked_reason
+
+    synthesize_calls = [
+        c for c in seen_calls if tuple(c[:3]) == ("spec-kitty", "charter", "synthesize")
+    ]
+    assert len(synthesize_calls) == 1, (
+        "the manifest restamp must be skipped when the targeted generate "
+        "failed -- restamping over unregenerated content is exactly the "
+        f"masking bug being fixed; saw {synthesize_calls!r}"
+    )
