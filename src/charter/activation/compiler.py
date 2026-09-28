@@ -14,8 +14,10 @@ from typing import TYPE_CHECKING, Any
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
+from charter.activation._catalog_miss import CatalogMissCause
 from charter.activation._io import load_charter_file
 from charter.activation.catalog import DoctrineCatalog, load_doctrine_catalog, resolve_doctrine_root
+from charter.activation.context_renderers.catalog_diagnosis import _diagnose_catalog_miss
 from charter.activation.charter_yaml_io import (
     PreparedYamlWrite,
     apply_yaml_write,
@@ -1093,6 +1095,90 @@ def _raw_kind_repository(doctrine_service: DoctrineService, kind: str) -> Any:
     return getattr(doctrine_service, kind)
 
 
+#: Shared free-text template for every unresolved-reference diagnostic line
+#: (issue #5257, FR-002/NFR-002). Extends the pre-existing
+#: ``"Unresolved reference: <kind>/<id>"`` format -- never replaces it --
+#: with a reason category and a human-readable detail, so an operator no
+#: longer has to read compiler source to tell "never existed" apart from
+#: "exists but filtered out" (User Story 3).
+_UNRESOLVED_DIAGNOSTIC_TEMPLATE = "Unresolved reference: {kind}/{artifact_id} ({cause}): {detail}"
+
+#: Decision 2 (plan.md "WP-CORE reconciliation"): the pre-existing baseline
+#: placeholder summary (``_doctrine_yaml_reference``'s own fallback, already
+#: committed verbatim in this repo's own ``.kittify/charter/charter.yaml``
+#: for still-unresolved ids) is kept byte-for-byte as a stable prefix; the
+#: reason-bearing suffix is appended, never substituted.
+_SCOPE_FILTERED_PLACEHOLDER_SUMMARY_TEMPLATE = "Definition unavailable in bundled doctrine. Reason: scope_filtered — {suggestion}"
+
+
+def _record_unresolved_reference(
+    *,
+    kind: str,
+    raw_id: str,
+    cause: str,
+    detail: str,
+    diagnostics: list[str],
+    unresolved_records: list[dict[str, str]],
+) -> None:
+    """Append the reason-bearing diagnostic string AND the structured record
+    for one unresolved reference.
+
+    Shared by the per-id classify-and-placeholder path
+    (:func:`_classify_and_placeholder_reference`) and every unattributable
+    ``graph.unresolved`` URN class (:func:`_route_unresolved_urn`), so both
+    stay in the identical free-text + structured-record shape (FR-002/
+    FR-004/NFR-002) rather than two near-duplicate append call sites.
+    """
+    diagnostics.append(_UNRESOLVED_DIAGNOSTIC_TEMPLATE.format(kind=kind, artifact_id=raw_id, cause=cause, detail=detail))
+    unresolved_records.append({"kind": kind, "id": raw_id, "cause": cause, "detail": detail})
+
+
+def _classify_and_placeholder_reference(
+    *,
+    kind: str,
+    raw_id: str,
+    repository: Any,
+    diagnostics: list[str],
+    unresolved_records: list[dict[str, str]],
+    project_root: Path | None = None,
+) -> CharterReference | None:
+    """Classify one raw-repository miss and, for a ``SCOPE_FILTERED`` cause
+    only, build a reason-bearing placeholder :class:`CharterReference`.
+
+    Reuses the canonical ``_diagnose_catalog_miss(raw_id, repository)`` gate
+    (``charter.activation.context_renderers.catalog_diagnosis`` -- round-8
+    fix, closes analyze findings D1/C1/U1) instead of re-deriving the
+    ``scope_filtered_ids``-check-then-``classify_catalog_miss``-fallback
+    sequence inline, and instead of threading a new ``active_languages``
+    parameter through this module's call chain -- the gate already reads
+    that off *repository*'s own ``_active_languages`` attribute.
+
+    A ``MISSING_ARTIFACT``/``TYPO_SUSPECTED`` cause stays diagnostics-only:
+    this function returns ``None`` and the id is NEVER placeholdered
+    (Contract C4, issue #4785 -- deliberately not superseded). Both
+    branches record a reason-bearing diagnostic string and a structured
+    ``(kind, id, cause, detail)`` record via
+    :func:`_record_unresolved_reference`, so a diagnostics-only miss is
+    still machine-readable.
+    """
+    diagnosis = _diagnose_catalog_miss(raw_id, repository)
+    detail = diagnosis.suggestion or ""
+    _record_unresolved_reference(
+        kind=kind,
+        raw_id=raw_id,
+        cause=diagnosis.cause.value,
+        detail=detail,
+        diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
+    )
+    if diagnosis.cause is not CatalogMissCause.SCOPE_FILTERED:
+        return None
+
+    summary = _SCOPE_FILTERED_PLACEHOLDER_SUMMARY_TEMPLATE.format(suggestion=detail)
+    source = {"id": raw_id, "title": raw_id, "summary": summary}
+    return _doctrine_yaml_reference(kind=kind, raw_id=raw_id, source=source, project_root=project_root)
+
+
 def _render_kind_references(
     ids: list[str],
     *,
@@ -1102,6 +1188,8 @@ def _render_kind_references(
     title_of: Callable[[Any], str],
     summary_of: Callable[[Any], str],
     diagnostics: list[str],
+    unresolved_records: list[dict[str, str]] | None = None,
+    project_root: Path | None = None,
 ) -> list[CharterReference]:
     """Render one :class:`CharterReference` per id, via a typed repository lookup.
 
@@ -1117,13 +1205,15 @@ def _render_kind_references(
     which legitimately reaches ids beyond direct config activation (#4785
     Finding 4b) -- looking those up against the activation-filtered view
     produced false "no bundled definition" misses for ids that resolve fine
-    against the raw repository. A miss against the raw repository IS a
-    genuine unresolved reference: it is recorded into *diagnostics* using the
-    same ``"Unresolved reference: <kind>/<id>"`` format
-    :func:`_build_references_from_service`'s own ``graph.unresolved`` loop
-    uses, rather than a silent placeholder ``CharterReference`` row (contract
-    C4).
+    against the raw repository. A miss against the raw repository is
+    classified via :func:`_classify_and_placeholder_reference` (issue #5257):
+    a ``SCOPE_FILTERED`` cause (present on disk, excluded solely by
+    language/scope) becomes a reason-bearing placeholder row; a
+    ``MISSING_ARTIFACT``/``TYPO_SUSPECTED`` cause stays diagnostics-only,
+    exactly as before (Contract C4).
     """
+    if unresolved_records is None:
+        unresolved_records = []
     references: list[CharterReference] = []
     for raw_id in ids:
         model = repository.get(raw_id)
@@ -1136,8 +1226,17 @@ def _render_kind_references(
                     summary=summary_of(model),
                 )
             )
-        else:
-            diagnostics.append(f"Unresolved reference: {kind}/{raw_id}")
+            continue
+        placeholder = _classify_and_placeholder_reference(
+            kind=kind,
+            raw_id=raw_id,
+            repository=repository,
+            diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+            project_root=project_root,
+        )
+        if placeholder is not None:
+            references.append(placeholder)
     return references
 
 
@@ -1150,8 +1249,11 @@ def _build_references_from_service(
     doctrine_service: DoctrineService,
     repo_root: Path | None,
     diagnostics: list[str],
+    unresolved_records: list[dict[str, str]] | None = None,
 ) -> list[CharterReference]:
     """Load references via typed repository queries and DRG-backed transitive resolution."""
+    if unresolved_records is None:
+        unresolved_records = []
     references: list[CharterReference] = []
 
     # Paradigms: still loaded via YAML scanning (no typed paradigm references in graph).
@@ -1188,6 +1290,8 @@ def _build_references_from_service(
             title_of=lambda d: str(d.title),
             summary_of=lambda d: str(d.intent),
             diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+            project_root=repo_root,
         )
     )
     references.extend(
@@ -1199,6 +1303,8 @@ def _build_references_from_service(
             title_of=lambda t: str(t.name),
             summary_of=lambda t: str(t.purpose or f"Tactic: {t.name}"),
             diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+            project_root=repo_root,
         )
     )
     references.extend(
@@ -1210,6 +1316,8 @@ def _build_references_from_service(
             title_of=lambda sg: str(sg.title),
             summary_of=lambda sg: str(sg.principles[0] if sg.principles else f"Styleguide: {sg.title}"),
             diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+            project_root=repo_root,
         )
     )
     references.extend(
@@ -1221,6 +1329,8 @@ def _build_references_from_service(
             title_of=lambda tg: str(tg.title),
             summary_of=lambda tg: str(tg.summary),
             diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+            project_root=repo_root,
         )
     )
     references.extend(
@@ -1232,6 +1342,8 @@ def _build_references_from_service(
             title_of=lambda proc: str(proc.name),
             summary_of=lambda proc: str(proc.purpose),
             diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+            project_root=repo_root,
         )
     )
     references.extend(
@@ -1243,6 +1355,8 @@ def _build_references_from_service(
             title_of=lambda ap: str(ap.name),
             summary_of=lambda ap: str(ap.description or f"Agent profile: {ap.name}"),
             diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
+            project_root=repo_root,
         )
     )
 
