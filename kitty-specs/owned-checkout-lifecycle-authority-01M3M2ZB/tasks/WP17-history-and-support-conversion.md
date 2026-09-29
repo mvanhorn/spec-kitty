@@ -164,6 +164,8 @@ Planning-base identifier lines: `issue_matrix.py` 8, `review/cycle.py` 15, `cons
 
 ### Subtask T090 – Convert `tasks/issue_matrix.py`
 
+> **Carry-forward from WP13.** WP13 added an additive `fold_into_caller_commit` keyword to `scaffold_issue_matrix`, so that finalize's issue-matrix scaffold rides the single final commit. T090's conversion to `owned=` must keep that keyword and its behaviour, including the tests in `tests/specify_cli/tasks/test_issue_matrix_scaffold.py`. It must also convert the `# bridging: WP17 converts` call site in `mission_finalize.py`.
+
 - **Purpose**: the issue-matrix writer and its finalize-time scaffold thread the owned root into the write seam and the placement seam. Owned `finalize-tasks` (O6) writes the issue matrix through here, so a missed site would write it into the repository root checkout.
 - **Steps**:
   1. Import (`:51`): replace `from specify_cli.core.owned_mission import effective_root_kwargs` with `OwnedCheckout` from `mission_runtime` (follow the module's `TYPE_CHECKING` style if it has one).
