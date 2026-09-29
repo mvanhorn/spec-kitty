@@ -457,3 +457,4 @@ Record the exact commands and pass/fail counts in the Activity Log and the PR's 
 ### Updating Status
 
 Status is managed via `status.events.jsonl`. Use `spec-kitty agent tasks move-task <WPID> --to <status>` to change WP status.
+- 2026-09-29T09:06:30Z – claude – shell_pid=18745 – Blocked (awaiting decision, all code committed): flagless adoption via resolve_owned_or_adopt makes tests/integration/test_explicit_checkout_commands.py::test_accept_without_opt_in_keeps_primary_resolution red (that test runs flagless FROM the owned checkout, not from the repository root checkout). FR-021 vs FR-022; not adapting the test. Also: dispatch's expected red count 2 is not reproducible on the lane base (count is 1); conditional owned kwargs kept for non-owned call shapes (3 existing test doubles pin them).

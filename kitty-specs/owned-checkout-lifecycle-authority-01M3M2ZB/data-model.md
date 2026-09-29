@@ -58,6 +58,8 @@ The new `resolution_kind` value is `"owned_checkout"`:
 | `OWNED_TOPOLOGY_UNSUPPORTED` | existing (semantics now per command) | the stored topology is outside the command's allowed set |
 | `OWNED_BRANCH_REFUSED` | existing | branch mismatch, detached HEAD, or a protected target |
 | `OWNED_INDEX_REFUSED` | existing | staged changes before a write operation |
+| `OWNED_OPTION_UNSUPPORTED` | existing (pre-existing wire string; becomes an `OwnedRefusalCode` member in WP14) | an option that is not supported together with `--owned-checkout` (e.g. `accept --diagnose --normalize-encoding`, auto-commit and `--resume-probe` in the task commands) |
+| `OWNED_INPUT_INVALID` | existing (pre-existing wire string; becomes an `OwnedRefusalCode` member in WP14) | the owned invocation's input is malformed |
 | `OWNED_CHECKOUT_IS_REPOSITORY_ROOT` | **new** | `--owned-checkout` names the repository root checkout |
 | `OWNED_CHECKOUT_IS_MISSION_WORKTREE` | **new** | `--owned-checkout` names a lane worktree of the mission or a coordination worktree (flagless adoption returns `None` for the same checkouts instead of refusing) |
 | `OWNED_ACTION_UNSUPPORTED` | **new** | `agent action implement` / `agent action review` with `--owned-checkout` |
