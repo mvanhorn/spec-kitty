@@ -491,3 +491,13 @@ Do not run `make test-full` or the bare `tests/architectural/` directory. Classi
 ### Updating Status
 
 Status is managed via `status.events.jsonl`. Use `spec-kitty agent tasks move-task <WPID> --to <status>` to change WP status.
+- 2026-09-29T01:12:56Z – claude – shell_pid=19362 – Status pipeline now carries the collapsed owned fact (owned_fact()) end to end. Summary:
+- T032: TransitionRequest.owned + owned_fact()/has_owned_root_only() (models.py, 3 TRANSITIONAL(WP18) markers).
+- T033: _identity_for_request builds from the fact with zero re-validation; _TransactionIdentity.primary_root deleted (identity.owned carries it); BookkeepingTransaction.acquire/commit/append_events converted to owned= (out-of-map completion of WP06 T030, declared).
+- T034: transition_pipeline/emit/bootstrap thread owned=; bootstrap_canonical_state's read no longer re-validates -- this was the observed finalize-tasks double-validation gap.
+- T035: campsite split of _commit_partition_group (complexity 15->11) then commit_for_mission/write_seam gained owned=.
+- T036: MissionHandle.owned + _placement_for/_owned_kwargs helpers in agent_tasks_ports.py (C-001 byte-parity preserved).
+- T037: CLI-level NFR-002 proof -- finalize-tasks --owned-checkout now performs exactly ONE ownership validation (was >=2 on base); move-task recorded as [ratchet] (its own re-validation sites are WP16-owned, out of this WP's files).
+Fixed a self-introduced dead field: _TransactionIdentity.primary_root was converted-away-from but not deleted; deleted in a follow-up commit.
+Tests: tests/status/ tests/specify_cli/coordination/ tests/coordination/ = 1951 passed, 18 skipped. FR-022 consumers (test_owned_checkout_move_task.py, test_owned_checkout_mark_status.py, test_tasks_cli_contract*.py, test_explicit_checkout_commands.py) all green unchanged. mypy --strict on the 14 listed files: 11 pre-existing errors, 0 new (verified against the lane base). Complexity gate clean on touched functions.
+Known open item: tests/architectural/test_no_dead_symbols.py::test_no_public_symbol_in_all_is_unimported goes red on this branch (OwnedMission, NEXT_OWNED_TOPOLOGIES, adopt_owned_checkout, resolve_owned_create_root, OwnedCheckoutPathRefused lose their last/only src/ import-site reference once status_transition.py's TYPE_CHECKING OwnedMission import is replaced with OwnedCheckout, per this WP's own explicit T032 instruction). CLAUDE.md lists this exact test as "judged at WP18" (pre-existing-known-red category); flagging for the reviewer/WP18 rather than silently reintroducing the OwnedMission import to paper over it.
