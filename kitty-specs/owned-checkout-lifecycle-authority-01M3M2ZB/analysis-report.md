@@ -4,12 +4,12 @@ artifact_type: spec-kitty.analysis-report
 command: /spec-kitty.analyze
 mission_slug: owned-checkout-lifecycle-authority-01M3M2ZB
 mission_id: 01M3M2ZB5D4A33B8070F97DKW7
-generated_at: '2026-09-28T21:35:27.653367+00:00'
+generated_at: '2026-09-29T09:08:02.340578+00:00'
 analyzer_agent: unknown
 input_artifacts:
   spec.md:
     path: kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/spec.md
-    sha256: 2fe924ad0e66ba0cb788a39451193eacce0505c2e702afd417b4d641052df386
+    sha256: d2381f5a14de3a4ce3585f69b7e132a7ae4c8022aea84d9dc7b9b8ed5cce9acf
   plan.md:
     path: kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/plan.md
     sha256: ce4663bf193ac75724fa76970f47e03930ddcb81dbad8413c741cca1df311325
@@ -21,10 +21,10 @@ input_artifacts:
     sha256: cae74c9f8d1895556c96391ed8d733a628ffd85fe6b57c9b5a1f05ab6c873539
 verdict: ready
 issue_counts:
-  low: 3
   critical: 0
   medium: 2
   high: 0
+  low: 3
   info: 0
 findings:
 - id: C2
@@ -146,3 +146,7 @@ The following are intentional design choices and are not flagged: the temporary 
 The only input change since the previous report is a clarification of NFR-001 in spec.md. The shared lock root now names exactly one tolerated delta: the pre-existing per-mission status mutex (`status/locking.py::feature_status_lock_path`), which may appear as a single empty `<mission>.status.lock`. The git common dir is shared by P and R by construction, so no owned transactional write can avoid it.
 
 The tolerance is defined once in `tests/_owned_fixtures.py`, and every other lock-root delta still fails. No requirement, task or coverage mapping changed, and no new finding arises. WP19 T102 step 8 and all NFR-001 oracles pick up the named tolerance from the shared fixture.
+
+### Re-analysis delta (NFR-004 registry alignment)
+
+The only input change is in spec.md. NFR-004's list of registered codes now names five pre-existing wire codes that owned commands already emit: `WORKTREE_REGISTRY_UNAVAILABLE`, `FEATURE_CONTEXT_UNRESOLVED`, `MISSION_CONTEXT_CONFLICT`, `OWNED_OPTION_UNSUPPORTED` and `OWNED_INPUT_INVALID`. data-model.md's Error code registry, the single authority, lists the same codes, so spec and registry now agree. No requirement, task or coverage mapping changed, and no new finding arises.
