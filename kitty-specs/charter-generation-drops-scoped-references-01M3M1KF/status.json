@@ -97,7 +97,8 @@
       "last_transition_at": "2026-09-29T07:44:12.348314+00:00",
       "model": "__resolved_model_absent__",
       "notes": [
-        "T014+T015+T016 done; unresolved_references wired additive-alongside diagnostics; RED->GREEN proven; gates pass (1 pre-existing unrelated fail)"
+        "T014+T015+T016 done; unresolved_references wired additive-alongside diagnostics; RED->GREEN proven; gates pass (1 pre-existing unrelated fail)",
+        "Reviewer (reviewer-renata, fresh context) approved cycle 1: --json field matches contract line-for-line, additive only, red-green-red proven. Mission-level structured-record assertion gap (WP03-C1-003) routed to post-squad fix round. Verdict: kitty-specs/charter-generation-drops-scoped-references-01M3M1KF/reviews/wp-WP03.yaml"
       ],
       "provider": "__resolved_provider_absent__",
       "review_result": {
