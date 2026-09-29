@@ -4,7 +4,7 @@
   "friendly_name": "Charter generation drops configured scoped references and breaks parity",
   "mid8": "01M3M1KF",
   "mission_id": "01M3M1KFFPC04BHFA54SSZ4CMG",
-  "mission_number": null,
+  "mission_number": 207,
   "mission_slug": "charter-generation-drops-scoped-references-01M3M1KF",
   "mission_type": "software-dev",
   "purpose_context": "This mission advances Charter generation drops configured scoped references and breaks parity on fix/charter-generation-drops-scoped-references-5257 so stakeholders can track the work from mission creation onward.",
