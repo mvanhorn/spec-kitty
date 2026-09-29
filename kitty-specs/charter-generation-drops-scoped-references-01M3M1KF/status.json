@@ -96,6 +96,9 @@
       "last_event_id": "01M3N6BZT990HTAX9TS71TBQM4",
       "last_transition_at": "2026-09-28T23:42:28.169724+00:00",
       "model": "__resolved_model_absent__",
+      "notes": [
+        "T014+T015+T016 done; unresolved_references wired additive-alongside diagnostics; RED->GREEN proven; gates pass (1 pre-existing unrelated fail)"
+      ],
       "provider": "__resolved_provider_absent__",
       "role": "implementer",
       "shell_pid": 2155546,
