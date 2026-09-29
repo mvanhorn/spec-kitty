@@ -164,7 +164,7 @@ Planning-base identifier lines: `issue_matrix.py` 8, `review/cycle.py` 15, `cons
 
 ### Subtask T090 – Convert `tasks/issue_matrix.py`
 
-> **Carry-forward from WP13.** WP13 added an additive `fold_into_caller_commit` keyword to `scaffold_issue_matrix`, so that finalize's issue-matrix scaffold rides the single final commit. T090's conversion to `owned=` must keep that keyword and its behaviour, including the tests in `tests/specify_cli/tasks/test_issue_matrix_scaffold.py`. It must also convert the `# bridging: WP17 converts` call site in `mission_finalize.py`.
+> **Carry-forward from WP13.** WP13 added an additive `fold_into_caller_commit` keyword to `scaffold_issue_matrix`, so that finalize's issue-matrix scaffold rides the single final commit. T090's conversion to `owned=` must keep that keyword and its behaviour, including the tests in `tests/specify_cli/tasks/test_issue_matrix_scaffold.py`. It must also convert the `# bridging: WP17 converts` call site in `mission_finalize.py`. When T090 converts `placement_seam(..., effective_root=)` to `owned=`, it must also drop the `("candidate_feature_dir_for_mission", "_compose_primary_feature_dir"): 4` row from `_RESOLVER_READ_LEDGER` in `tests/integration/test_owned_lifecycle_acceptance_finalize.py`. The ledger asserts equality, and those 4 reads, which take R's stored topology from `meta.json`, disappear with the bridge.
 
 - **Purpose**: the issue-matrix writer and its finalize-time scaffold thread the owned root into the write seam and the placement seam. Owned `finalize-tasks` (O6) writes the issue matrix through here, so a missed site would write it into the repository root checkout.
 - **Steps**:
