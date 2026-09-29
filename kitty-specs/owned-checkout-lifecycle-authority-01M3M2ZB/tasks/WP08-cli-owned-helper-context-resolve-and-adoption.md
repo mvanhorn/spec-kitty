@@ -481,3 +481,46 @@ Do not run `make test-full` or the bare `tests/architectural/` directory.
 ### Updating Status
 
 Status is managed via `status.events.jsonl`. Use `spec-kitty agent tasks move-task <WPID> --to <status>` to change WP status.
+- 2026-09-29T02:46:58Z – claude – shell_pid=23624 – Implemented WP08: _owned_checkout.py (T039), agent context resolve wired
+through resolve_owned_or_adopt/emit_owned_refusal with owned= (T040),
+stale-copy channel (T041), campsite extraction (T042), operation_context.py
+deletion + re-homed tests (T043). Commits (red-first, in order):
+ae17b50a8 test(WP08): red-first acceptance (T038, confirmed red on base:
+13 failed/8 passed for the documented reasons -- base-tree lane-manifest
+fold for O3/O4, an uncaught ValueError for O10, Typer usage error for the
+not-yet-existing --owned-checkout flag, zero ownership-validation count);
+9c228bb4a refactor(WP08): campsite extraction (T042, behaviour-preserving,
+resolve_context now C901<=11 vs 15 before); 54b87caa1 feat(WP08):
+_owned_checkout.py + 59 tests (T039, absorbs both WP02 review follow-ups:
+explicit-path WORKTREE_REGISTRY_UNAVAILABLE fail-closed test, and
+emit_owned_refusal's registry validation against OwnedRefusalCode plus
+WorktreeRegistryUnavailable.error_code/FEATURE_CONTEXT_UNRESOLVED/
+MISSION_CONTEXT_CONFLICT -- the latter two promoted to public constants in
+owned_mission.py); fb5695a1a feat(WP08): functional wiring + deletion
+(T040/T041/T043). TRANSITIONAL(WP18) markers added by this WP: 0.
+bridging: WP08 converts markers: none found in src (nothing to convert).
+Out-of-map edits (declared, minimal): src/specify_cli/core/owned_mission.py
+(WP02) -- renamed two private wire-code constants to public, aliases kept;
+tests/architectural/test_single_mission_surface_resolver.py (another
+mission) -- one new TBYD ContentDescriptor allowlist entry for the
+stale-copy reporter's deliberate raw R-path read.
+Tests: T038 acceptance file 21/21 green; test_owned_checkout_helper.py
+59/59 green; blast-radius (test_context_find_feature_directory,
+test_read_cli_surface_adoption, test_resolve_action_context_feature_dir,
+test_json_envelope_strict, test_cli_status_mediation) 53/53 green;
+architectural gates (test_single_mission_surface_resolver,
+test_json_contract_enumeration, test_layer_rules, test_no_legacy_terminology)
+296+8=304/304 green; owning subsystem (tests/specify_cli/cli/commands/ +
+tests/specify_cli/missions/, -n auto --dist loadfile) 4861 passed, 11
+failed -- all 11 confirmed pre-existing on the planning-base commit
+5ff83a621 (unrelated: CLI-surface golden 'decisions' subcommand drift,
+coordination-worktree/mission-type-fallback message wording), 16 skipped,
+2 xfailed. ruff check/format clean. mypy --strict --explicit-package-bases
+over _owned_checkout.py + context.py + owned_mission.py: 0 errors (base
+context.py alone: 1 pre-existing error, unrelated import-untyped notice --
+did not grow). Known pre-existing G2 residual (not WP08's remit): accept.py,
+tasks_mark_status.py, mission_finalize.py, mission_check_prerequisites.py,
+tasks_move_task.py, spec_commit_cmd.py still call resolve_owned_mission/
+adopt_owned_checkout directly -- WP09/WP13/WP16/WP19 migrate these per the
+mission's dependency graph; _owned_checkout.py's docstring documents the
+convention they must follow.
