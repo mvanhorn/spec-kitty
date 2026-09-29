@@ -472,3 +472,8 @@ Record exact commands and pass/fail counts in the Activity Log and the PR's *Tes
 ### Updating Status
 
 Status is managed via `status.events.jsonl`. Use `spec-kitty agent tasks move-task <WPID> --to <status>` to change WP status.
+
+## Carry-forward from WP17 (2026-09-29)
+- `src/specify_cli/status/transition_pipeline.py::_bare_root_subtasks_dir` carries the one `# bridging: WP18 converts` marker (placement_seam `effective_root=` for bare-root-only requests, WP07 MEDIUM-6). Delete it together with the `effective_root` parameter on `_default_resolve_subtasks_dir` when the seam's dual keyword goes.
+- `_flip_phase` keeps a conditional `**({"owned": owned} if owned is not None else {})` splat into `_resolve_primary_home_or_degrade` because the birth-cutover suites stub it with a one-argument lambda; re-point those stubs and make it a plain `owned=` keyword.
+- `tests/consolidation/test_pr_merge_baseline.py` mints its fact via the transitional `OwnedMission(...)` factory; re-point that construction under T097 when the factory is deleted.
