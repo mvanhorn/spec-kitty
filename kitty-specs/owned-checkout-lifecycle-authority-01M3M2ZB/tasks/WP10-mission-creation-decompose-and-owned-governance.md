@@ -11,6 +11,9 @@ requirement_refs:
 planning_base_branch: claude/sleepy-hamilton-5lelee
 merge_target_branch: claude/sleepy-hamilton-5lelee
 branch_strategy: Planning artifacts for this mission were generated on claude/sleepy-hamilton-5lelee. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/sleepy-hamilton-5lelee unless the human explicitly redirects the landing branch.
+base_branch: kitty/mission-owned-checkout-lifecycle-authority-01M3M2ZB
+base_commit: 7d9592022153ec54301cac731646c72b2f09d984
+created_at: '2026-09-29T04:08:44.750057+00:00'
 subtasks:
 - T050
 - T051
