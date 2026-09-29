@@ -283,3 +283,4 @@ make test-fast
 ### Updating Status
 
 Use `spec-kitty agent tasks move-task WP19 --to <status> --mission owned-checkout-lifecycle-authority-01M3M2ZB` and `spec-kitty agent tasks mark-status T101 … --status done`.
+- 2026-09-29T14:49:11Z – claude – shell_pid=21268 – Red-first: 3aa810c19 (10 red on base fa3b70961 in scratch worktree: O9, FR-003 x2, O8 uncaught ActionContextError, FR-021 flagless x3, FR-007 x2, AS6 count 4) before campsite ce6242c7c and fix fd2e48863. Carried edaa9cd83/1be5352ee (-x, Samuel Goff); 22f380055 DROP (WP11-owned). Markers: TRANSITIONAL(WP18) in next_cmd 0; bridging WP19 0. Out-of-map test edits: test_next_preflight, test_selector_resolution, test_context_validation_unit, test_lazy_command_module_imports, test_no_production_worktree_guard_bypass, test_next_owned_commit_guard, new test_next_owned_fact. Open: FR-022 create->next non-error is strict xfail (not green on base).
