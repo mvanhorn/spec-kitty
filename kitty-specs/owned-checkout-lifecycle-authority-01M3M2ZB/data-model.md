@@ -64,10 +64,13 @@ The new `resolution_kind` value is `"owned_checkout"`:
 | `OWNED_REVIEW_BASE_UNAVAILABLE` | **new** | no single claim commit, or no owned files |
 | `OWNED_COORDINATION_WORKSPACE_UNAVAILABLE` | **new** | the coordination-workspace probe fails for owned `next` |
 | `WORK_PACKAGE_UNRESOLVED` | existing (now scoped to P for owned) | the WP is absent from the owned mission dir |
+| `WORKTREE_REGISTRY_UNAVAILABLE` | existing (`WorktreeRegistryUnavailable.error_code`) | the git worktree registry cannot be read while validating an explicit `--owned-checkout`; the minter fails closed |
+| `FEATURE_CONTEXT_UNRESOLVED` | existing (`owned_mission.FEATURE_CONTEXT_UNRESOLVED`, a public module constant; pre-existing wire code, not an `OwnedRefusalCode` member) | the mission handle cannot be resolved inside the owned checkout |
+| `MISSION_CONTEXT_CONFLICT` | existing (`owned_mission.MISSION_CONTEXT_CONFLICT`, a public module constant; pre-existing wire code, not an `OwnedRefusalCode` member) | the handle and the owned checkout name conflicting missions |
 
 **Code constants.** Every code above is a member of `OwnedRefusalCode(StrEnum)` in `mission_runtime.owned_checkout` (value == name), exported from the `mission_runtime` root with `OwnedCheckout` (WP01). Code and tests import the member instead of repeating the literal; a `StrEnum` member compares equal to its string, so serialized payloads are unchanged.
 
-The four claim-primitive codes are defined by the error classes in `src/specify_cli/core/checkout_ownership.py` and pass through the minter unchanged (`ActionContextError(error.error_code, str(error))`); their strings are `do_not_change` (occurrence map `logs_telemetry`). `emit_owned_refusal` (WP08) validates every emitted `error_code` against this whole table.
+The four claim-primitive codes are defined by the error classes in `src/specify_cli/core/checkout_ownership.py` and pass through the minter unchanged (`ActionContextError(error.error_code, str(error))`); their strings are `do_not_change` (occurrence map `logs_telemetry`). `emit_owned_refusal` (WP08) validates every emitted `error_code` against this whole table, including the three pre-existing wire codes that are single named constants rather than `OwnedRefusalCode` members.
 
 ## Payload field (FR-007)
 
