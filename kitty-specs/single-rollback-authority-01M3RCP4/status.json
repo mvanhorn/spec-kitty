@@ -1,20 +1,20 @@
 {
-  "event_count": 7,
-  "last_event_id": "01M3RJVK3CTNQ842PHF7ESB8J6",
-  "materialized_at": "2026-09-30T07:18:25.644227+00:00",
+  "event_count": 8,
+  "last_event_id": "01M3RKHR2CY8MKCFVHDC41042H",
+  "materialized_at": "2026-09-30T07:30:31.628552+00:00",
   "mission_number": "",
   "mission_slug": "single-rollback-authority-01M3RCP4",
   "mission_type": "software-dev",
   "schema_version": 2,
   "summary": {
-    "approved": 0,
+    "approved": 1,
     "blocked": 0,
     "canceled": 0,
     "claimed": 0,
     "done": 0,
     "for_review": 0,
     "in_progress": 0,
-    "in_review": 1,
+    "in_review": 0,
     "planned": 2
   },
   "work_packages": {
@@ -25,14 +25,19 @@
       "agent_profile_version": "__resolved_profile_version_absent__",
       "force_count": 0,
       "implementer_of_record": "claude",
-      "lane": "in_review",
-      "last_event_id": "01M3RJVK3CTNQ842PHF7ESB8J6",
-      "last_transition_at": "2026-09-30T07:18:25.644227+00:00",
+      "lane": "approved",
+      "last_event_id": "01M3RKHR2CY8MKCFVHDC41042H",
+      "last_transition_at": "2026-09-30T07:30:31.628552+00:00",
       "model": "__resolved_model_absent__",
       "notes": [
         "Ready for review"
       ],
       "provider": "__resolved_provider_absent__",
+      "review_result": {
+        "reference": "auto-approval:WP01:20260930",
+        "reviewer": "Claude",
+        "verdict": "approved"
+      },
       "role": "reviewer",
       "shell_pid": 8588,
       "shell_pid_created_at": "1790752700.59",
