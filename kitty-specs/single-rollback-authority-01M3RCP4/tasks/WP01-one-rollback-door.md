@@ -17,6 +17,9 @@ requirement_refs:
 planning_base_branch: claude/5385-single-rollback-authority-qqt180
 merge_target_branch: claude/5385-single-rollback-authority-qqt180
 branch_strategy: Planning artifacts for this mission were generated on claude/5385-single-rollback-authority-qqt180. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into claude/5385-single-rollback-authority-qqt180 unless the human explicitly redirects the landing branch.
+base_branch: kitty/mission-single-rollback-authority-01M3RCP4
+base_commit: e0235952dc5794a1f0a4129183d8d117ba430752
+created_at: '2026-09-30T05:55:56.665110+00:00'
 subtasks:
 - T001
 - T002
@@ -26,14 +29,15 @@ subtasks:
 - T006
 - T013
 phase: Phase 1 - Core
+agent: claude
 history:
 - at: '2026-09-30T06:10:00Z'
   actor: system
   action: Prompt generated via /spec-kitty.tasks
 agent_profile: python-pedro
-role: implementer
-agent: claude
 authoritative_surface: src/specify_cli/consolidation/executor.py
+create_intent:
+- tests/terminus/test_repro_5385_rollback_door.py
 execution_mode: code_change
 owned_files:
 - src/specify_cli/consolidation/executor.py
@@ -51,8 +55,7 @@ owned_files:
 - tests/terminus/test_repro_5318_abort.py
 - tests/consolidation/test_done_bookkeeping_rollback_coherence.py
 - tests/consolidation/test_issue_4474_topology_aware_bake.py
-create_intent:
-- tests/terminus/test_repro_5385_rollback_door.py
+role: implementer
 ---
 
 # WP01 — One rollback door for the post-mutation span
