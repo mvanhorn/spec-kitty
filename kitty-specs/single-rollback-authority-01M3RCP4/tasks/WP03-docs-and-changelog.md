@@ -30,6 +30,7 @@ owned_files:
 - docs/adr/3.x/2026-09-19-1-terminus-safety-invariant.md
 - docs/changelog/CHANGELOG.md
 - CLAUDE.md
+- AGENTS.md
 ---
 
 # WP03 — Docs and changelog
@@ -54,11 +55,11 @@ In `docs/adr/3.x/2026-09-19-1-terminus-safety-invariant.md`, after the 2026-09-2
 
 ### T015 — CLAUDE.md
 
-In the "Refusals and failures roll back through one authority" paragraph of `CLAUDE.md`, replace "the other in-phase exits are residual #5385" with the new behaviour (all post-mutation exits, the preflight, the named residuals) in the same terse style. Check `AGENTS.md` for a mirrored paragraph (`rg -n "residual #5385" -- *.md docs`) and list any other hit in your report for the orchestrator.
+In the "Refusals and failures roll back through one authority" paragraph of `CLAUDE.md`, replace "the other in-phase exits are residual #5385" with the new behaviour (all post-mutation exits, the preflight, the named residuals) in the same terse style. `AGENTS.md` is a byte-identical regular file (not a symlink): apply the same edit there and keep the two identical. List any other hit of `rg -n "residual #5385" -- *.md docs` in your report.
 
 ### T016 — CHANGELOG
 
-`docs/changelog/CHANGELOG.md` `[Unreleased]`: one entry, bold impact-first lead with `(#5385)`, then before -> after, consumer-focused (what an operator running `spec-kitty consolidate` sees). No version bump.
+`docs/changelog/CHANGELOG.md` `[Unreleased]`: one entry, bold impact-first lead with `(#5385)`, then before -> after, consumer-focused (what an operator running `spec-kitty consolidate` sees). No version bump. Root `CHANGELOG.md` is a symlink to this file; bump the file's `updated:` frontmatter date.
 
 ## Validation
 

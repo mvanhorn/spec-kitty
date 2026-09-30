@@ -18,7 +18,7 @@
 | T010 | Consolidation preflight + pre-lock call in the executor | WP02 | |
 | T011 | `--dry-run` parity in the forecast | WP02 | [P] |
 | T012 | Readable `BookkeepingPolicyRefused` at the consolidate command layer | WP02 | [P] |
-| T013 | Re-home the `--abort` repro fixture that relied on the #5385 crash | WP02 | |
+| T013 | Re-home the `--abort` repro fixture that relied on the #5385 crash | WP01 | |
 | T014 | ADR 2026-09-19-1 follow-up note: residual #5385 closed | WP03 | [P] |
 | T015 | CLAUDE.md consolidation section update | WP03 | [P] |
 | T016 | CHANGELOG `[Unreleased]` entry | WP03 | [P] |
@@ -33,6 +33,7 @@ T003 Retire the revert-based rollback helpers and their dead state (WP01)
 T004 Re-pin the tests that pinned the old keep-done / revert contract (WP01)
 T005 Grow the AST pin (span wrapped; no revert-based helper) with self-mutation cases (WP01)
 T006 Targeted runs, ruff, format, mypy, planted-break proof (WP01)
+T013 Re-home the `--abort` repro fixture that relied on the #5385 crash (WP01)
 
 **Independent test**: the T001 repro is red on `c34481d7` and green after T002/T003. **Dependencies**: none. **Risks**: re-pins must assert the new contract, never drop coverage; `typer.Exit(0)` must pass through.
 
@@ -46,7 +47,6 @@ T009 `status_write_refusal` probe in the transactional status door (WP02)
 T010 Consolidation preflight + pre-lock call in the executor (WP02)
 T011 `--dry-run` parity in the forecast (WP02)
 T012 Readable `BookkeepingPolicyRefused` at the consolidate command layer (WP02)
-T013 Re-home the `--abort` repro fixture that relied on the #5385 crash (WP02)
 
 **Independent test**: T007 repro. **Dependencies**: depends on WP01 (both edit `consolidation/executor.py`; the preflight call is one out-of-map line). **Risks**: over-refusal; the probe must follow the real write's arm selection.
 
