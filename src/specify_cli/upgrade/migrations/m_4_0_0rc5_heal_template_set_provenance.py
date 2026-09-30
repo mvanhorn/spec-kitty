@@ -14,6 +14,7 @@ paths without checkout evidence stay unchanged and are reported by the doctor.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import stat
 import tomllib
@@ -249,8 +250,16 @@ def _healable_references(project_path: Path, document: Any | None = None) -> lis
 
     if document is None:
         document = _load_charter_document(charter_path)
-    catalog = document.get("catalog") if hasattr(document, "get") else None
-    if not isinstance(catalog, dict):
+    # PR-FRESH2-002 fix (#5257, HALT round-3 operator ruling): the same
+    # `collections.abc.Mapping` predicate the shared accessor
+    # (charter_yaml_io.catalog_field_from_document) now uses, replacing the
+    # permissive `hasattr(document, "get")` gate this function used to carry
+    # locally -- a mismatched pair of "is this document-like" checks on the
+    # same `document` value let a Mapping-like-but-not-`dict` document (e.g.
+    # `types.MappingProxyType`) pass this local gate while
+    # `catalog_mission_from_document` below silently returned `None` for it.
+    catalog = document.get("catalog") if isinstance(document, Mapping) else None
+    if not isinstance(catalog, Mapping):
         return []
 
     # PR-FRESH-001 fix (#5257): read `catalog.mission` from the ALREADY-LOADED
@@ -303,8 +312,16 @@ def describe_template_set_ambiguities(project_path: Path) -> list[str]:
         return []
 
     document = _load_charter_document(charter_path)
-    catalog = document.get("catalog") if hasattr(document, "get") else None
-    if not isinstance(catalog, dict):
+    # PR-FRESH2-002 fix (#5257, HALT round-3 operator ruling): the same
+    # `collections.abc.Mapping` predicate the shared accessor
+    # (charter_yaml_io.catalog_field_from_document) now uses, replacing the
+    # permissive `hasattr(document, "get")` gate this function used to carry
+    # locally -- a mismatched pair of "is this document-like" checks on the
+    # same `document` value let a Mapping-like-but-not-`dict` document (e.g.
+    # `types.MappingProxyType`) pass this local gate while
+    # `catalog_mission_from_document` below silently returned `None` for it.
+    catalog = document.get("catalog") if isinstance(document, Mapping) else None
+    if not isinstance(catalog, Mapping):
         return []
     # PR-FRESH-001 fix (#5257): read the mission from the document this
     # function just loaded -- shared pure accessor, no second disk read --

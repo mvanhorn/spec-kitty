@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import subprocess
+import types
 from typing import Any
 
 import pytest
@@ -368,6 +369,75 @@ def test_healable_references_honours_caller_supplied_document_over_a_second_disk
     reference, token = healable[0]
     assert reference["id"] == "TEMPLATE_SET:software-dev-default"
     assert token == "${SPEC_KITTY_PACKS_ROOT}/built-in/missions/software-dev/mission.yaml"
+
+
+def test_healable_references_accepts_a_mappingproxytype_document_with_a_valid_mission(tmp_path: Path, packs_root: Path) -> None:
+    """Regression for PR-FRESH2-002 (#5257, HALT round-3 operator ruling):
+    a caller-supplied ``document`` that is Mapping-like but not a literal
+    ``dict`` (here ``types.MappingProxyType``, a genuine
+    ``collections.abc.Mapping``) must still be healed.
+
+    RED pre-fix: this function's own local ``catalog`` gate
+    (``hasattr(document, "get")``) accepted the ``MappingProxyType``
+    document, but the shared accessor ``catalog_mission_from_document`` it
+    delegates to gated on the stricter ``isinstance(document, dict)`` and
+    returned ``None`` for the very same document -- so ``mission`` came
+    back ``None``, the ``_mission_token(None)`` guard fired, and
+    ``_healable_references`` silently reported "nothing to heal" for a
+    document that genuinely had a healable reference. GREEN post-fix: both
+    gates agree on ``collections.abc.Mapping`` and the reference is healed.
+    """
+    source = packs_root / "built-in" / "missions" / "software-dev" / "mission.yaml"
+    charter_path = _charter_path(tmp_path)
+    charter_path.parent.mkdir(parents=True, exist_ok=True)
+    # Content is irrelevant -- the passed-in `document` below must be used
+    # instead of re-reading this file. It only needs to exist so the
+    # function's own `charter_path.is_file()` precondition passes.
+    charter_path.write_text("catalog: {}\n")
+    document = types.MappingProxyType(
+        {
+            "catalog": {
+                "mission": "software-dev",
+                "template_set": "software-dev-default",
+                "references": [_template_ref(str(source))],
+            }
+        }
+    )
+
+    healable = provenance_migration._healable_references(tmp_path, document=document)
+
+    assert healable != [], "a Mapping-like (non-dict) document with a valid mission must still be healed"
+    reference, token = healable[0]
+    assert reference["id"] == "TEMPLATE_SET:software-dev-default"
+    assert token == "${SPEC_KITTY_PACKS_ROOT}/built-in/missions/software-dev/mission.yaml"
+
+
+def test_healable_references_still_rejects_a_plain_get_only_document(tmp_path: Path, packs_root: Path) -> None:
+    """A plain object exposing only ``.get`` (not a real
+    ``collections.abc.Mapping``) must NOT be treated as a document after
+    the PR-FRESH2-002 fix -- the widened predicate is a real ``isinstance``
+    check against ``Mapping``, not a duck-typed ``hasattr(doc, "get")``
+    check reintroduced under a different name. Output is unchanged from
+    before the fix ("nothing to heal"), but for the right reason: the local
+    gate itself now refuses the object instead of accepting it and then
+    relying on a downstream strict-``dict`` check to (coincidentally) catch
+    it.
+    """
+    source = packs_root / "built-in" / "missions" / "software-dev" / "mission.yaml"
+    charter_path = _charter_path(tmp_path)
+    charter_path.parent.mkdir(parents=True, exist_ok=True)
+    charter_path.write_text("catalog: {}\n")
+
+    class GetOnly:
+        def get(self, key: str, default: object = None) -> object:
+            catalog = {
+                "mission": "software-dev",
+                "template_set": "software-dev-default",
+                "references": [_template_ref(str(source))],
+            }
+            return {"catalog": catalog}.get(key, default)
+
+    assert provenance_migration._healable_references(tmp_path, document=GetOnly()) == []
 
 
 @pytest.fixture

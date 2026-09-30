@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import functools
 import copy
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import hashlib
 from io import StringIO
@@ -551,9 +552,19 @@ def catalog_field_from_document(document: Any, field: str) -> Any | None:
     Returns ``None`` when *document* is not a mapping, its ``catalog``
     section is absent or not a mapping, or ``field`` itself is absent from
     that section.
+
+    Gates on ``collections.abc.Mapping`` (PR-FRESH2-002, #5257 HALT
+    round-3 operator ruling), not the narrower ``dict`` -- a prior fix
+    round's ``isinstance(document, dict)`` rejected any Mapping-like
+    document that is not literally a ``dict``/``CommentedMap`` (e.g. a
+    ``types.MappingProxyType``), even though such a document already
+    satisfies every real caller's own "document-like" gate elsewhere
+    (``hasattr(document, "get")``). Both ``dict`` and ruamel's
+    ``CommentedMap`` are themselves ``Mapping`` instances, so this widening
+    changes no existing caller's behaviour.
     """
-    catalog = document.get("catalog") if isinstance(document, dict) else None
-    if not isinstance(catalog, dict):
+    catalog = document.get("catalog") if isinstance(document, Mapping) else None
+    if not isinstance(catalog, Mapping):
         return None
     return catalog.get(field)
 
