@@ -249,6 +249,55 @@ def test_whole_kind_graph_unresolved_routing_fails_closed(monkeypatch: pytest.Mo
         _call_build_references(monkeypatch, graph)
 
 
+def test_whole_kind_missing_artifact_fails_closed_is_deterministic_across_repeat_invocations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """I5 (determinism), Fixture A: plan.md's ATDD invariant table commits
+    to an idempotency assertion on the whole-kind-unresolved fixture -- run
+    twice, assert both invocations fail closed identically (same
+    ``RuntimeError``, same kind named). Fixture A's whole-kind check is a
+    pure function of its inputs with no state mutated before the raise, so
+    two invocations on the identical fixture must raise with the identical
+    message.
+
+    RED pre-fix (PR-TESTS-002): this file called
+    ``_call_build_references`` for this fixture exactly once; plan.md's I5
+    row committed to appending this idempotency assertion and that
+    commitment was unfulfilled.
+    """
+    graph = ResolveTransitiveRefsResult(styleguides=["misconfigured-pack-root-id"])
+    repositories = {"styleguides": _StubRepository(known={})}
+
+    with pytest.raises(RuntimeError, match="styleguide") as first_invocation:
+        _call_build_references(monkeypatch, graph, repositories=repositories)
+    with pytest.raises(RuntimeError, match="styleguide") as second_invocation:
+        _call_build_references(monkeypatch, graph, repositories=repositories)
+
+    assert str(first_invocation.value) == str(second_invocation.value)
+
+
+def test_whole_kind_graph_unresolved_routing_fails_closed_is_deterministic_across_repeat_invocations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """I5 (determinism), Fixture B: the same idempotency commitment as
+    above, for the ``graph.unresolved``-routing whole-kind fail-closed
+    path -- run twice on the identical fixture, assert both invocations
+    raise ``RuntimeError`` with the identical message naming the same kind.
+
+    RED pre-fix (PR-TESTS-002): unfulfilled for the same reason as Fixture
+    A's sibling test above.
+    """
+    urn = "agent_profile:orphan-no-drg-node-01M3M1KF"
+    graph = ResolveTransitiveRefsResult(unresolved=[(urn, urn)])
+
+    with pytest.raises(RuntimeError, match="agent_profile") as first_invocation:
+        _call_build_references(monkeypatch, graph)
+    with pytest.raises(RuntimeError, match="agent_profile") as second_invocation:
+        _call_build_references(monkeypatch, graph)
+
+    assert str(first_invocation.value) == str(second_invocation.value)
+
+
 def test_scope_filtered_id_among_missing_ids_does_not_trip_whole_kind_check(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
