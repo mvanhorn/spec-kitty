@@ -330,6 +330,46 @@ def test_missing_template_path_without_checkout_evidence_stays_ambiguous(tmp_pat
     assert "ambiguous" in describe_template_set_ambiguities(tmp_path)[0]
 
 
+def test_healable_references_honours_caller_supplied_document_over_a_second_disk_read(tmp_path: Path, packs_root: Path) -> None:
+    """Regression for PR-FRESH-001: ``_healable_references`` must read
+    ``catalog.mission`` from the ALREADY-LOADED ``document`` a caller passes
+    in -- never a second, independent disk read of ``charter.yaml``.
+
+    Before the fix, this function called
+    ``read_catalog_mission(project_path)``, which re-opens and re-parses
+    charter.yaml from disk with a fail-OPEN failure philosophy (swallows
+    ``YAMLError``/``OSError``/``UnicodeDecodeError``, returns ``None``)
+    completely independent of the fail-CLOSED ``document`` the caller
+    already loaded. Here the on-disk file is deliberately unparseable, so a
+    second read of it would silently yield ``mission=None`` and (via
+    ``_mission_token(None)``) an empty healable list -- "nothing to heal" --
+    even though the passed-in ``document`` is a perfectly valid, healable
+    charter with a real mission. RED pre-fix: this asserted a non-empty
+    healable list where HEAD's second-disk-read code path returned ``[]``.
+    """
+    source = packs_root / "built-in" / "missions" / "software-dev" / "mission.yaml"
+    charter_path = _charter_path(tmp_path)
+    charter_path.parent.mkdir(parents=True, exist_ok=True)
+    # Deliberately unparseable on disk -- any second read of this file must
+    # fail (fail-open callers would silently return None for every field).
+    charter_path.write_bytes(b"catalog: [unclosed\n")
+
+    loaded_document = {
+        "catalog": {
+            "mission": "software-dev",
+            "template_set": "software-dev-default",
+            "references": [_template_ref(str(source))],
+        }
+    }
+
+    healable = provenance_migration._healable_references(tmp_path, document=loaded_document)
+
+    assert healable != [], "must heal using the passed-in document, not a second (failing) disk read"
+    reference, token = healable[0]
+    assert reference["id"] == "TEMPLATE_SET:software-dev-default"
+    assert token == "${SPEC_KITTY_PACKS_ROOT}/built-in/missions/software-dev/mission.yaml"
+
+
 @pytest.fixture
 def registry_restore() -> Any:
     original = MigrationRegistry._migrations.copy()

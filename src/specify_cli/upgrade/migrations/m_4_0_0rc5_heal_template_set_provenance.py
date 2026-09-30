@@ -241,7 +241,7 @@ def _load_charter_document(charter_path: Path) -> Any:
 
 
 def _healable_references(project_path: Path, document: Any | None = None) -> list[tuple[dict[str, Any], str]]:
-    from charter.activation.charter_yaml_io import read_catalog_mission  # noqa: PLC0415
+    from charter.activation.charter_yaml_io import catalog_mission_from_document  # noqa: PLC0415
 
     charter_path = _charter_path(project_path)
     if not charter_path.is_file():
@@ -253,16 +253,16 @@ def _healable_references(project_path: Path, document: Any | None = None) -> lis
     if not isinstance(catalog, dict):
         return []
 
-    # PR-fold-in (#5257): read through the single shared accessor
-    # (charter.activation.charter_yaml_io.read_catalog_mission) rather than
-    # a second, independent direct catalog-mapping mission-field parse --
-    # pre-existing SSOT violation on main, folded in here per operator ruling (see
-    # tests/specify_cli/cli/commands/charter/test_recompile_preserves_mission_4908.py
-    # ::test_catalog_mission_has_exactly_one_reader_outside_the_shared_accessor).
-    # Safe: this re-read happens before any write in every caller below, so
-    # it observes the identical, already-successfully-loaded `charter.yaml`
-    # content as `document`/`catalog` above.
-    mission = read_catalog_mission(project_path)
+    # PR-FRESH-001 fix (#5257): read `catalog.mission` from the ALREADY-LOADED
+    # `document` via the shared, pure, in-memory accessor
+    # (charter.activation.charter_yaml_io.catalog_mission_from_document) --
+    # never a second, independent disk read. The prior fold-in called
+    # `read_catalog_mission(project_path)` here, which re-opens and
+    # re-parses charter.yaml from disk with a DIFFERENT (fail-open) failure
+    # philosophy than this function's own fail-closed `_load_charter_document`
+    # load path; this now uses exactly one read, honouring a caller-supplied
+    # `document` instead of silently re-reading past it.
+    mission = catalog_mission_from_document(document)
     template_set = catalog.get("template_set")
     if not isinstance(template_set, str) or not template_set:
         return []
@@ -296,7 +296,7 @@ def describe_template_set_leaks(project_path: Path) -> list[str]:
 
 def describe_template_set_ambiguities(project_path: Path) -> list[str]:
     """Return candidate legacy template paths whose checkout identity is unproven."""
-    from charter.activation.charter_yaml_io import read_catalog_mission  # noqa: PLC0415
+    from charter.activation.charter_yaml_io import catalog_mission_from_document  # noqa: PLC0415
 
     charter_path = _charter_path(project_path)
     if not charter_path.is_file():
@@ -306,9 +306,10 @@ def describe_template_set_ambiguities(project_path: Path) -> list[str]:
     catalog = document.get("catalog") if hasattr(document, "get") else None
     if not isinstance(catalog, dict):
         return []
-    # PR fold-in (#5257): shared accessor, not a second hand-rolled read --
+    # PR-FRESH-001 fix (#5257): read the mission from the document this
+    # function just loaded -- shared pure accessor, no second disk read --
     # see the matching comment in `_healable_references` above.
-    suffix = _expected_mission_suffix(read_catalog_mission(project_path))
+    suffix = _expected_mission_suffix(catalog_mission_from_document(document))
     if suffix is None:
         return []
     template_set = catalog.get("template_set")
