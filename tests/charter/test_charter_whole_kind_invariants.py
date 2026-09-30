@@ -138,16 +138,23 @@ def _call_build_references(
     *,
     repositories: dict[str, _StubRepository] | None = None,
     config_roots: ConfigActivatedRoots | None = None,
-) -> tuple[list[Any], list[str]]:
+) -> tuple[list[Any], list[str], list[dict[str, str]]]:
     """Call ``_build_references_from_service`` with *graph* injected in place
     of a real ``_resolve_transitive_reference_graph`` call.
 
     ``monkeypatch.setattr`` on the module attribute is effective even for the
     call from inside ``_build_references_from_service`` itself, since that
     call resolves the name via the module's global namespace at call time.
+
+    Returns ``(references, diagnostics, unresolved_records)`` -- the third
+    element is the structured ``{kind, id, cause, detail}`` sink WP02 exposes
+    (compiler.py's ``unresolved_records`` parameter), threaded through so
+    callers can assert on the STRUCTURED record shape directly rather than
+    only the plain-text ``diagnostics`` strings (PR-TESTS-005 / WP03-C1-003).
     """
     monkeypatch.setattr(compiler_module, "_resolve_transitive_reference_graph", lambda **_kwargs: graph)
     diagnostics: list[str] = []
+    unresolved_records: list[dict[str, str]] = []
     doctrine_service = _StubDoctrineService(**(repositories or {}))
     references = compiler_module._build_references_from_service(
         mission="software-dev",
@@ -157,8 +164,9 @@ def _call_build_references(
         doctrine_service=doctrine_service,
         repo_root=None,
         diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
     )
-    return references, diagnostics
+    return references, diagnostics, unresolved_records
 
 
 def _write_dangling_edge_project_overlay(repo_root: Path) -> None:
@@ -272,17 +280,53 @@ def test_scope_filtered_id_among_missing_ids_does_not_trip_whole_kind_check(
 # T003 -- I3: four unattributable `graph.unresolved` URN classes
 # ---------------------------------------------------------------------------
 
-_UNATTRIBUTABLE_URN_CASES: tuple[tuple[str, str, str, str], ...] = (
-    # (case label, urn, expected cause substring, expected kind-label substring)
-    ("malformed-no-colon", "malformed-urn-no-colon-at-all", "malformed_urn", "_unattributed"),
-    ("unrecognized-kind-prefix", "action:some-action-id", "unattributed_kind", "action"),
-    ("valid-kind-none-repository", "template:some-template-id", "unattributed_kind", "template"),
-    ("valid-kind-untracked", "paradigm:some-paradigm-id", "unattributed_kind", "paradigm"),
+_UNATTRIBUTABLE_URN_CASES: tuple[tuple[str, str, str, str, str, str], ...] = (
+    # (case label, urn, expected cause, expected kind label, expected bare id, expected detail)
+    (
+        "malformed-no-colon",
+        "malformed-urn-no-colon-at-all",
+        "malformed_urn",
+        "_unattributed",
+        "malformed-urn-no-colon-at-all",
+        "malformed URN, no kind prefix",
+    ),
+    (
+        "unrecognized-kind-prefix",
+        "action:some-action-id",
+        "unattributed_kind",
+        "action",
+        "some-action-id",
+        "unrecognized artifact kind: action",
+    ),
+    # NOTE: the stub ``_StubDoctrineService.raw_repository`` (above) never
+    # returns ``None`` -- it defaults to an empty ``_StubRepository()`` for
+    # any kind not explicitly configured -- so this fixture exercises the
+    # "valid, real-repository kind outside the six tracked kinds" contract
+    # shape (item 4), not the "genuinely-None-repository" shape (item 3),
+    # even though ``template`` is one of the three kinds whose REAL
+    # production repository is ``None``. Asserted against the detail this
+    # fixture actually produces, not the theoretical production one.
+    (
+        "valid-kind-none-repository",
+        "template:some-template-id",
+        "unattributed_kind",
+        "template",
+        "some-template-id",
+        "kind 'template' is not one of the six DRG-backed kinds tracked for reference resolution",
+    ),
+    (
+        "valid-kind-untracked",
+        "paradigm:some-paradigm-id",
+        "unattributed_kind",
+        "paradigm",
+        "some-paradigm-id",
+        "kind 'paradigm' is not one of the six DRG-backed kinds tracked for reference resolution",
+    ),
 )
 
 
 @pytest.mark.parametrize(
-    ("case_label", "urn", "expected_cause", "expected_kind_label"),
+    ("case_label", "urn", "expected_cause", "expected_kind_label", "expected_id", "expected_detail"),
     _UNATTRIBUTABLE_URN_CASES,
     ids=[case[0] for case in _UNATTRIBUTABLE_URN_CASES],
 )
@@ -292,30 +336,39 @@ def test_unattributable_graph_unresolved_urn_gets_a_shaped_diagnostic(
     urn: str,
     expected_cause: str,
     expected_kind_label: str,
+    expected_id: str,
+    expected_detail: str,
 ) -> None:
     """I3: each of the four unattributable ``graph.unresolved`` URN classes
     (contracts/charter-generate-json-diagnostics.md's "Round-5 addition")
-    gets a defined ``kind``/``cause`` shape rather than the current opaque
-    ``"Unresolved reference: <urn>/<urn>"`` duplicate-URN string.
+    gets a defined ``kind``/``id``/``cause``/``detail`` shape rather than the
+    prior opaque ``"Unresolved reference: <urn>/<urn>"`` duplicate-URN
+    string.
 
-    TODO(WP02): also assert the structured record (``kind``/``id``/``cause``/
-    ``detail``) directly once compiler.py exposes the structured-records
-    sink -- the sink does not exist pre-fix, so this asserts against the
-    plain-string ``diagnostics`` list per T003's guidance.
-
-    RED pre-fix: ``resolve_transitive_refs`` records an unknown start URN as
-    ``(urn, urn)`` (see ``query.py``'s ``unresolved.append((urn, urn))``),
-    and today's loop renders that as ``f"Unresolved reference: {urn}/{urn}"``
-    -- containing neither the expected cause value nor the expected kind
-    label, so the substring assertion below fails on real, observed content.
+    Asserts BOTH the plain-text ``diagnostics`` entry (kept -- still
+    genuinely useful, human-facing coverage) AND the STRUCTURED
+    ``unresolved_records`` dict directly (PR-TESTS-005 / WP03-C1-003:
+    fulfills the former ``TODO(WP02)`` marker now that compiler.py exposes
+    the structured-records sink).
     """
     graph = ResolveTransitiveRefsResult(unresolved=[(urn, urn)])
 
-    _, diagnostics = _call_build_references(monkeypatch, graph)
+    _, diagnostics, unresolved_records = _call_build_references(monkeypatch, graph)
 
     assert any(expected_cause in line and expected_kind_label in line for line in diagnostics), (
         f"[{case_label}] expected a diagnostic naming cause={expected_cause!r} and kind={expected_kind_label!r} for urn={urn!r}, got: {diagnostics!r}"
     )
+
+    matching_records = [record for record in unresolved_records if record.get("kind") == expected_kind_label and record.get("id") == expected_id]
+    assert matching_records, (
+        f"[{case_label}] expected a structured unresolved_records entry for kind={expected_kind_label!r}/id={expected_id!r}, got: {unresolved_records!r}"
+    )
+    assert matching_records[0] == {
+        "kind": expected_kind_label,
+        "id": expected_id,
+        "cause": expected_cause,
+        "detail": expected_detail,
+    }, f"[{case_label}] structured record shape mismatch: {matching_records[0]!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +402,7 @@ def test_total_graph_load_failure_yields_loud_diagnostic_not_fail_closed(tmp_pat
         agent_profiles=[],
     )
     diagnostics: list[str] = []
+    unresolved_records: list[dict[str, str]] = []
 
     references = real_compiler_module._build_references_from_service(
         mission="software-dev",
@@ -358,6 +412,7 @@ def test_total_graph_load_failure_yields_loud_diagnostic_not_fail_closed(tmp_pat
         doctrine_service=doctrine_service,
         repo_root=tmp_path,
         diagnostics=diagnostics,
+        unresolved_records=unresolved_records,
     )
 
     # Positive control (already true pre-fix, not part of the red set):
@@ -365,9 +420,17 @@ def test_total_graph_load_failure_yields_loud_diagnostic_not_fail_closed(tmp_pat
     reference_ids = {reference.id for reference in references}
     assert "STYLEGUIDE:python-conventions" in reference_ids, "direct-root id must still resolve when the transitive graph fails to load"
 
-    # TODO(WP02): also assert the structured `_graph`/`_load_failure`
-    # sentinel record once compiler.py exposes the structured-records sink.
     assert any("Graph load failed" in line for line in diagnostics), f"expected a loud graph-load-failure diagnostic, got: {diagnostics!r}"
+
+    # PR-TESTS-005 / WP03-C1-003: the structured `_graph`/`_load_failure`
+    # sentinel record (contracts/charter-generate-json-diagnostics.md's
+    # "Round-3 addition") directly, not only its plain-text diagnostics line.
+    graph_load_failure_records = [record for record in unresolved_records if record.get("kind") == "_graph"]
+    assert len(graph_load_failure_records) == 1, f"expected exactly one _graph/_load_failure sentinel record, got: {unresolved_records!r}"
+    sentinel = graph_load_failure_records[0]
+    assert sentinel["id"] == "_load_failure"
+    assert sentinel["cause"] == "graph_load_failed"
+    assert sentinel["detail"], "sentinel record must carry a non-empty exception summary as detail"
 
 
 def test_i1_i2_carve_out_transitive_only_id_under_graph_load_failure(tmp_path: Path) -> None:
@@ -401,8 +464,9 @@ def test_i1_i2_carve_out_transitive_only_id_under_graph_load_failure(tmp_path: P
         agent_profiles=[],
     )
 
-    def _run() -> tuple[list[Any], list[str]]:
+    def _run() -> tuple[list[Any], list[str], list[dict[str, str]]]:
         diagnostics: list[str] = []
+        unresolved_records: list[dict[str, str]] = []
         references = real_compiler_module._build_references_from_service(
             mission="software-dev",
             template_set="default",
@@ -411,11 +475,12 @@ def test_i1_i2_carve_out_transitive_only_id_under_graph_load_failure(tmp_path: P
             doctrine_service=doctrine_service,
             repo_root=tmp_path,
             diagnostics=diagnostics,
+            unresolved_records=unresolved_records,
         )
-        return references, diagnostics
+        return references, diagnostics, unresolved_records
 
-    references_1, diagnostics_1 = _run()
-    references_2, diagnostics_2 = _run()
+    references_1, diagnostics_1, unresolved_records_1 = _run()
+    references_2, diagnostics_2, unresolved_records_2 = _run()
 
     # No per-id record for anything transitively-only-reachable: only the
     # directive's own bare id (a direct root, not a DRG-backed kind this
@@ -426,12 +491,25 @@ def test_i1_i2_carve_out_transitive_only_id_under_graph_load_failure(tmp_path: P
         f"a transitively-only-reachable id must not gain a per-id reference under total graph-load failure, got kinds: {transitively_reachable_kinds!r}"
     )
 
-    # TODO(WP02): also assert the structured `_graph`/`_load_failure`
-    # sentinel record once compiler.py exposes the structured-records sink.
     assert any("Graph load failed" in line for line in diagnostics_1), f"expected a loud graph-load-failure diagnostic, got: {diagnostics_1!r}"
 
-    # I5 determinism: identical sentinel diagnostic and content across repeats.
+    # PR-TESTS-005 / WP03-C1-003: the structured `_graph`/`_load_failure`
+    # sentinel record directly -- and no per-id record exists for the
+    # transitively-only-reachable id (it cannot -- the closure was never
+    # reconstructed), matching the carve-out (I1/I2).
+    graph_load_failure_records = [record for record in unresolved_records_1 if record.get("kind") == "_graph"]
+    assert len(graph_load_failure_records) == 1, f"expected exactly one _graph/_load_failure sentinel record, got: {unresolved_records_1!r}"
+    sentinel = graph_load_failure_records[0]
+    assert sentinel["id"] == "_load_failure"
+    assert sentinel["cause"] == "graph_load_failed"
+    assert sentinel["detail"]
+    assert not ({"styleguide", "tactic", "toolguide", "procedure", "agent_profile"} & {record.get("kind") for record in unresolved_records_1}), (
+        f"a transitively-only-reachable id must not gain a per-id unresolved record either, got: {unresolved_records_1!r}"
+    )
+
+    # I5 determinism: identical sentinel diagnostic/record and content across repeats.
     assert diagnostics_1 == diagnostics_2
+    assert unresolved_records_1 == unresolved_records_2
 
 
 # ---------------------------------------------------------------------------
