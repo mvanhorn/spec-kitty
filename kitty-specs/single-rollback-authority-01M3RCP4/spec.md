@@ -27,10 +27,11 @@ An operator consolidates a mission. The squash lands on the target, then a later
 
 **Acceptance Scenarios**:
 
-1. **Given** a mission whose consolidation squashes onto the target, **When** a step after the squash and before the reconciliation gate fails, **Then** the target, mission and coordination branches are back at their pre-run tips, lane branches are untouched, and the output carries the rollback report and a non-zero exit.
+1. **Given** a mission whose consolidation squashes onto the target, **When** a step after the squash and before the reconciliation gate fails, **Then** the target, mission and coordination branches are back at their pre-run tips, the rollback moves no lane branch, and the output carries the rollback report and a non-zero exit.
 2. **Given** the same failure raised as an unexpected exception (not a handled refusal), **When** consolidate exits, **Then** the rollback still runs before the exception leaves consolidate.
 3. **Given** a failure during lane consolidation itself, **When** consolidate exits, **Then** the mission or coordination branch is back at its pre-run tip even when several lanes had already been merged (merge commits in the range).
-4. **Given** the rollback ran in full, **When** the operator re-runs consolidate after fixing the cause, **Then** the run succeeds from the pre-run state (no "produced no changes" wedge).
+4. **Given** the rollback ran in full, **When** the operator re-runs consolidate after fixing the cause, **Then** the run resumes the kept merge record from the pre-run branch state and succeeds (no "produced no changes" wedge).
+5. **Given** the post-merge working-tree invariant fails because the target checkout carries unexpected changes, **When** consolidate exits, **Then** the target is reported NOT restored (the checkout is dirty, and the rollback never overwrites it), every other movable branch is restored, the merge record is kept, and the exit is non-zero.
 
 ### User Story 2 - A protected-target mission that cannot write its bookkeeping is refused up front (Priority: P1)
 
@@ -68,6 +69,9 @@ A maintainer changing consolidate cannot quietly add a second rollback mechanism
 - A dirty checkout of a branch the rollback restores: reported NOT restored rather than overwritten (existing authority guarantee).
 - The rollback itself raises: the original failure is still the one reported; the rollback failure is printed alongside it, never swallowed silently.
 - A `--resume` of a partially consolidated run whose earlier attempt was fully rolled back starts again from the snapshot (lane merges re-run).
+- An interrupt (Ctrl-C) inside the span also triggers the rollback; a hard kill does not, and leaves the record for `--abort`.
+- A resume whose work packages are all already `done` writes no done bookkeeping, so the preflight does not refuse it.
+- A `--target` override does not change where status bookkeeping is written (the mission's recorded target), so the preflight judges the recorded target.
 
 ## Requirements *(mandatory)*
 
@@ -117,6 +121,13 @@ A maintainer changing consolidate cannot quietly add a second rollback mechanism
 - Working-tree byte restores of bookkeeping files that run before the branch restore stay; they touch only toolchain-generated files the authority's checkout resync tolerates.
 - Tests that pinned the older keep-done-on-failure contract (#1826 resume truthfulness, #2367 strand shape, #2786 revert-failure strands) are re-pinned to the snapshot-restore contract per DM-01M3RCRDBS2RKWVVZH07AZ1B4M.
 - Existing `--abort` repro fixtures that relied on the #5385 crash to leave residue get an explicit, documented crash-residue injection instead.
+
+## Known residuals (named, not closed here)
+
+- A stale lane auto-rebased during lane consolidation receives a merge commit on the lane branch. The rollback never moves lane branches, so that commit stays after a rollback (report-only lanes, authority guarantee 2a).
+- The resume-start coordination strand heal is a forward revert that runs before the attempt begins; a later rollback treats that commit as the restore floor.
+- A checkout whose resync failed after its branch moved looks dirty to the rollback and is reported NOT restored.
+- On a protected SINGLE_BRANCH landing, the write checkout that was switched to the target stays there after a rollback.
 
 ## Success Criteria *(mandatory)*
 
