@@ -24,6 +24,18 @@
       "verdict": "in-mission",
       "wp": "WP01"
     },
+    "#2711": {
+      "evidence_ref": "lane-a 843bd6a7..3bf48d09; guard tests re-pinned to the snapshot-restore contract (DM-01M3RCRDBS2RKWVVZH07AZ1B4M)",
+      "fr": null,
+      "nfr": null,
+      "repo": null,
+      "sc": null,
+      "scope": null,
+      "source_file": null,
+      "title": null,
+      "verdict": "in-mission",
+      "wp": "WP01"
+    },
     "#2786": {
       "evidence_ref": "lane-a 843bd6a7..3bf48d09; guard tests re-pinned to the snapshot-restore contract (DM-01M3RCRDBS2RKWVVZH07AZ1B4M)",
       "fr": null,
