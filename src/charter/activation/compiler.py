@@ -1211,15 +1211,35 @@ _MALFORMED_URN_KIND_LABEL = "_unattributed"
 _MALFORMED_URN_CAUSE = "malformed_urn"
 _UNATTRIBUTED_KIND_CAUSE = "unattributed_kind"
 
-#: The plural repository keys for the six DRG-backed kinds
-#: :func:`_build_references_from_service` actually tracks (directive,
-#: tactic, styleguide, toolguide, procedure, agent_profile) -- distinct from
-#: the nine-kind gated ``_RAW_REPOSITORY_KINDS`` set in
-#: ``charter.activation.resolver``, which additionally includes ``paradigms``,
-#: ``mission_step_contracts`` and ``glossary_packs`` (valid, real
-#: repositories, but not one of the six this function renders per-id
-#: references for).
-_TRACKED_REFERENCE_KIND_PLURALS: frozenset[str] = frozenset({"directives", "tactics", "styleguides", "toolguides", "procedures", "agent_profiles"})
+#: Single source of truth for the six DRG-backed kinds
+#: :func:`_build_references_from_service` tracks (directive, tactic,
+#: styleguide, toolguide, procedure, agent_profile), mapping each singular
+#: kind to the :class:`~charter.offering.drg.query.ResolveTransitiveRefsResult`
+#: attribute name that carries its direct-source bucket -- consumed by
+#: :func:`_check_whole_kind_unresolved` (I2's "graph.<kind> non-empty" half
+#: of the OR condition). Distinct from the nine-kind gated
+#: ``_RAW_REPOSITORY_KINDS`` set in ``charter.activation.resolver``, which
+#: additionally includes ``paradigms``, ``mission_step_contracts`` and
+#: ``glossary_packs`` (valid, real repositories, but not one of the six this
+#: function renders per-id references for).
+#:
+#: PR-BOUNDARY-001 fix: this dict is the ONLY hand-written declaration of the
+#: six-kind set; every other view of it (the plural-keys frozenset below, and
+#: any future consumer) derives from it, so the two can never silently drift.
+_TRACKED_KIND_TO_GRAPH_ATTR: dict[str, str] = {
+    "directive": "directives",
+    "tactic": "tactics",
+    "styleguide": "styleguides",
+    "toolguide": "toolguides",
+    "procedure": "procedures",
+    "agent_profile": "agent_profiles",
+}
+
+#: The plural repository keys for the same six DRG-backed kinds, derived
+#: from :data:`_TRACKED_KIND_TO_GRAPH_ATTR` (its values are exactly the
+#: plural repository/graph-attribute names) rather than hand-duplicated --
+#: see the module-level docstring on that dict.
+_TRACKED_REFERENCE_KIND_PLURALS: frozenset[str] = frozenset(_TRACKED_KIND_TO_GRAPH_ATTR.values())
 
 
 def _route_unresolved_urn(
@@ -1371,21 +1391,6 @@ def _render_kind_references(
         if placeholder is not None:
             references.append(placeholder)
     return references
-
-
-#: Maps each of the six DRG-backed kinds :func:`_build_references_from_service`
-#: tracks to the :class:`~charter.offering.drg.query.ResolveTransitiveRefsResult`
-#: attribute name that carries its direct-source bucket -- used by
-#: :func:`_check_whole_kind_unresolved` (I2's "graph.<kind> non-empty" half
-#: of the OR condition).
-_TRACKED_KIND_TO_GRAPH_ATTR: dict[str, str] = {
-    "directive": "directives",
-    "tactic": "tactics",
-    "styleguide": "styleguides",
-    "toolguide": "toolguides",
-    "procedure": "procedures",
-    "agent_profile": "agent_profiles",
-}
 
 
 def _check_whole_kind_unresolved(

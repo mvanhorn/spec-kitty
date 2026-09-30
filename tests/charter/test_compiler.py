@@ -1,6 +1,8 @@
 """Scope: mock-boundary tests for charter compiler bundle generation -- no real git."""
 
+import ast
 import dataclasses
+import inspect
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -726,3 +728,52 @@ def test_write_compiled_charter_no_library_materialization(tmp_path: Path) -> No
     # Only charter.yaml should be written (WP03: charter.md clobber removed,
     # references.yaml writer retired -- data-model.md Landmine 3).
     assert set(result.files_written) == {"charter.yaml"}
+
+
+def test_tracked_reference_kind_plurals_is_derived_from_the_graph_attr_mapping() -> None:
+    """PR-BOUNDARY-001: `_TRACKED_REFERENCE_KIND_PLURALS` (gates which
+    ``graph.unresolved`` URNs `_route_unresolved_urn` attributes to a
+    tracked kind) must be a SINGLE, derived view of
+    `_TRACKED_KIND_TO_GRAPH_ATTR` (gates which kinds
+    `_check_whole_kind_unresolved` evaluates at all) -- never a second,
+    independently hand-written six-member literal. Before this fix the two
+    constants encoded the same six-kind set twice, with nothing pinning
+    them together: a future kind added to one but not the other would
+    silently reopen a whole-kind-unresolved blind spot with no red test
+    catching it (both constants' *values* already agreed, so a plain
+    equality assertion alone would not have caught the drift risk -- the
+    bug was the absence of a structural guarantee, not a current mismatch).
+
+    Structural (AST) check, not a value-equality check: inspects
+    compiler.py's own source to confirm `_TRACKED_REFERENCE_KIND_PLURALS`'s
+    assignment actually references `_TRACKED_KIND_TO_GRAPH_ATTR` by name,
+    proving derivation rather than coincidental agreement between two
+    separate literals.
+    """
+    import charter.activation.compiler as compiler_module
+
+    source = inspect.getsource(compiler_module)
+    tree = ast.parse(source)
+
+    assignment = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "_TRACKED_REFERENCE_KIND_PLURALS"
+    )
+
+    value = assignment.value
+    assert isinstance(value, ast.Call), (
+        "_TRACKED_REFERENCE_KIND_PLURALS must be computed via a call deriving "
+        f"from _TRACKED_KIND_TO_GRAPH_ATTR, not a literal; got {ast.dump(value)!r}"
+    )
+    referenced_names = {node.id for node in ast.walk(value) if isinstance(node, ast.Name)}
+    assert "_TRACKED_KIND_TO_GRAPH_ATTR" in referenced_names, (
+        "_TRACKED_REFERENCE_KIND_PLURALS's derivation must reference "
+        f"_TRACKED_KIND_TO_GRAPH_ATTR as its single source of truth; got referenced names: {referenced_names!r}"
+    )
+
+    # Belt-and-suspenders behavioral check: the derived set must still equal
+    # the graph-attr mapping's values.
+    assert frozenset(compiler_module._TRACKED_KIND_TO_GRAPH_ATTR.values()) == compiler_module._TRACKED_REFERENCE_KIND_PLURALS
