@@ -681,7 +681,9 @@ DOCTRINE_ROOT: Path = _REPO_ROOT / "src" / "charter" / "offering"
 #:     unification), ``directive:DIRECTIVE_043`` (close the class by
 #:     construction), ``directive:DIRECTIVE_040`` (recurrence escalation), and
 #:     ``styleguide:adversarial-squad-cadence`` (the investigation-squad
-#:     mechanism). PURE golden counts move +1 NODE / +5 edges:
+#:     mechanism; re-pointed to ``procedure:adversarial-squad-deployment`` by
+#:     entry (25), when that styleguide was deleted and folded into the
+#:     procedure). PURE golden counts move +1 NODE / +5 edges:
 #:     ``_EXPECTED_NODE_COUNT`` auto-tracks via ``pure_builtin_node_count()``
 #:     (the new file bumps the inventory glob and the graph in lockstep — no
 #:     frozen literal to hand-reconcile), ``_EXPECTED_EDGE_COUNT`` is not frozen
@@ -768,6 +770,53 @@ DOCTRINE_ROOT: Path = _REPO_ROOT / "src" / "charter" / "offering"
 #:     REACHABILITY: DIRECTIVE_052 remains action-unreachable, the same INERT
 #:     shape as entries (22)/(23); it joins the live action-unreachable ``dead``
 #:     partition, which asserts no frozen membership, so nothing there moves.
+#: (25) Single-owner doctrine (regeneration after the content changes that
+#:     retired eight ids and moved each rule to one owner). Measured via
+#:     ``load_built_in_graph()`` on both sides of the change (entry (24) above
+#:     landed first): before it gives 357 nodes / 1051 edges (suggests 465, requires 348,
+#:     scope 202, refines 0); after it gives 354 nodes / 1064 edges (suggests 471,
+#:     requires 354, scope 201, refines 2). Entry (24)'s one edge is present on
+#:     both sides and untouched by this entry, so the delta is unaffected by it. The
+#:     one overlay change is an edge-source swap (``tactic:common-
+#:     docs-curation --requires--> asset:common-docs-structural-lint`` becomes
+#:     ``tactic:common-docs-write --requires-->`` the asset), so ``HAND_AUTHORED_
+#:     NODES``/``HAND_AUTHORED_EDGES`` keep their counts and the PURE delta equals
+#:     the shipped delta: -3 NODES / +13 edges.
+#:     NODES -8: ``styleguide:adversarial-squad-cadence``,
+#:     ``tactic:{bug-fixing-checklist, locality-of-change, common-docs-curation,
+#:     boring-code-review, behavior-driven-development, iterative-deepening-
+#:     review}``, ``procedure:tracker-organisation-workflow`` (the last two moved
+#:     to ``packs/internal``). NODES +5: ``styleguide:boring-code-review`` (same
+#:     id, new kind), ``tactic:bdd-scenario-formulation``,
+#:     ``toolguide:{javascript,python,java}-supply-chain``.
+#:     EDGES -51 / +64. Every removed edge touches a retired node, except two:
+#:     ``DIRECTIVE_001 --requires--> paula-patterns-architecture-scout-review``
+#:     becomes ``suggests`` (curated; no action d=1/d=2 or profile
+#:     reachability member lost), and ``adversarial-squad-deployment
+#:     --requires--> five-paradigm-parallel-debugging`` is dropped (YAML
+#:     reference removed). ``DIRECTIVE_052 --suggests-->`` is re-pointed from the
+#:     deleted styleguide to the procedure (entry (22)).
+#:     Curated additions (``_CURATED_ARTIFACT_EDGES``): squad procedure
+#:     --suggests--> ``model-task-routing``; ``mission-tracer-files`` --suggests-->
+#:     squad procedure; the two fixed-lens tactics --refines--> squad procedure
+#:     (the first built-in ``refines`` edges); ``test-first-bug-fixing``
+#:     --suggests--> ``DIRECTIVE_052`` and ``disciplined-defect-diagnosis``
+#:     (a second inbound edge to DIRECTIVE_052, beside entry (24)'s
+#:     ``disciplined-defect-diagnosis --suggests-->`` one; both are kept);
+#:     ``testing-principles``, ``bdd-scenario-formulation`` and
+#:     ``bdd-scenario-lifecycle`` --requires--> their Quad-A / given-when-then
+#:     owner (each alongside the ``suggests`` twin its YAML/path reference
+#:     mints). The rest are extractor-minted from the changed content's YAML
+#:     (retargeted profile, procedure, tactic, paradigm and styleguide
+#:     references) and from the action indexes (``boring-code-review`` now
+#:     ``scope``d as a styleguide at implement and review).
+#:     Relation histogram: ``requires`` +6, ``suggests`` +6, ``scope`` -1 (the
+#:     documentation mission type drops its curation-tactic scope; its three
+#:     successors were already scoped), ``refines`` +2. ORPHAN SETS UNCHANGED
+#:     (``_SHIPPED_ORPHANS`` stays at 21: every new node is edge-incident).
+#:     REACHABILITY: see the ledger block in
+#:     ``tests/doctrine/drg/test_reachability.py`` (only the retired ids leave
+#:     any channel).
 #: Node count DERIVED from the ``packs/built-in`` inventory (#3234), not frozen: a
 #: fresh ``generate_graph`` (pure, no overlay) must produce exactly one node per
 #: shipped source file across the file-backed kinds, plus the structurally-derived

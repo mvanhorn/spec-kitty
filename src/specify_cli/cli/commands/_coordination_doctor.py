@@ -965,8 +965,9 @@ def _fix_never_created_branches(
     Targets only ``COORDINATION_WORKTREE_NEVER_CREATED`` findings that carry
     a ``meta_path`` in their ``extra`` dict (populated by
     :func:`_collect_coordination_findings`). After removal, call
-    :func:`~specify_cli.migration.backfill_topology.backfill_topology_repo` so
-    topology is re-derived from the now-absent key.
+    :func:`~specify_cli.migration.backfill_topology.backfill_topology_repo` with
+    ``runtime_reading=True`` so topology is re-stamped with its RUNTIME reading
+    (never a derived ``single_branch``) from the now-absent key.
 
     When *repo_root* is given (the real ``--fix`` dispatch path always passes
     it, via :func:`_apply_never_created_fix`), each finding's coordination
@@ -1004,7 +1005,7 @@ def _fix_never_created_branches(
                 continue
         # Canonical three-mutation flatten (#3219 / FR-015 / D-PLAN-17), converged
         # onto the ONE shared primitive: clears `coordination_branch`, pops the
-        # stale `topology` so `backfill_topology_repo` re-derives it (backfill
+        # stale `topology` so the caller re-stamps it (backfill
         # never overwrites an existing topology, and every mission minted
         # post-#2069 stores `topology` at create time -- leaving it would keep
         # the mission routed through coordination, a false-green flatten), and
@@ -1354,8 +1355,12 @@ def _apply_never_created_fix(findings: list[DoctorFinding], repo_root: Path) -> 
         )
     if fixed_slugs:
         from specify_cli.migration.backfill_topology import backfill_topology_repo
+
+        # runtime_reading (#5100): an unattended --fix must never opt a
+        # flattened mission into single_branch; a derived single_branch cell is
+        # stamped as lanes, which is how the unstamped mission already ran.
         for slug in fixed_slugs:
-            backfill_topology_repo(repo_root, mission_slug=slug)
+            backfill_topology_repo(repo_root, mission_slug=slug, runtime_reading=True)
         console.print(
             "[green]Topology backfilled.[/green] "
             "Run `spec-kitty doctor coordination` to verify."
@@ -1909,7 +1914,7 @@ def run_coordination_health(
     when the branch is remote-only). It also removes stale ``coordination_branch``
     keys from ``meta.json`` for any ``COORDINATION_WORKTREE_NEVER_CREATED``
     findings, re-runs :func:`~specify_cli.migration.backfill_topology.backfill_topology_repo`
-    to re-derive topology from the now-absent key, then attempts the WP06
+    with ``runtime_reading=True`` (never a derived ``single_branch``), then attempts the WP06
     Gap-1 coord-vs-target fast-forward (:func:`_apply_coord_staleness_fixes`)
     for every coordinated mission. A per-mission unsafe precondition -- a
     diverged coord branch, a dirty coord worktree, a coord worktree that does

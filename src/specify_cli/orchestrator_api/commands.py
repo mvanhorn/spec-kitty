@@ -35,7 +35,13 @@ Error codes used:
   MISSION_CREATE_FAILED       -- specify: mission creation failed for a reason
                                  other than a typed duplicate signal (WP03)
   PLAN_SETUP_FAILED           -- plan: the delegate plan-scaffold call failed and
-                                 carried no more specific error_code of its own (WP03)
+                                 carried no more specific error_code of its own (WP03);
+                                 ALSO the envelope code when the delegate raised a
+                                 typed but contract-unregistered code (e.g.
+                                 SPEC_REQUIREMENT_IDS_INVALID, SPEC_FILE_MISSING,
+                                 TEMPLATE_CONFIGURATION_ERROR, PLAN_CONTEXT_UNRESOLVED)
+                                 -- the real code travels as data["reason"]
+                                 (requirement-id-grammar-01M3NRCA WP05)
   TASKS_FINALIZE_FAILED       -- tasks: the delegate finalize-tasks call failed and
                                  carried no more specific error_code of its own (WP03)
   CHECK_PREREQUISITES_FAILED  -- check-prerequisites: the delegate validation call
@@ -320,6 +326,9 @@ _MISSION_NOT_FOUND_MESSAGE = "Mission '{mission}' not found in kitty-specs/"
 _HELP_WP_ID = "Work package ID"
 _HELP_ACTOR = "Actor identity"
 _HELP_POLICY = "Policy metadata JSON (required)"
+
+# Host-CLI create-payload keys that are NOT part of the orchestrator-api contract.
+_SPECIFY_HOST_ONLY_PAYLOAD_KEYS = ("mission_branch", "commit_to_target")
 _HELP_ANALYZER_AGENT = "Agent name that produced the analysis report"
 
 # WP04 / NFR-004 / SK-93: the enforced wall-clock bound record-analysis's
@@ -477,6 +486,37 @@ def _fail_from_destructive_op_refused(cmd: str, mission_dir: Path, target_branch
     if exc.dirty_entries:
         data["dirty_entries"] = list(exc.dirty_entries)
     _fail(cmd, envelope_code, "Merge refused: destructive operation safety check failed", data)
+
+
+#: Fallback envelope code for the ``plan`` verb (WP05,
+#: requirement-id-grammar-01M3NRCA). ``PLAN_SETUP_FAILED`` is ALREADY
+#: registered in ``upstream_contract.json``'s ``allowed_error_codes`` -- this
+#: constant exists only so ``_plan_contract_error`` below never restates the
+#: literal, and so the one remaining literal ``_fail(cmd, "PLAN_SETUP_FAILED"``
+#: call the static contract scan sees stays byte-identical to this value.
+_PLAN_SETUP_FAILED_FALLBACK = "PLAN_SETUP_FAILED"
+
+
+def _plan_contract_error(error_code: str, error_data: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """FR-015: keep the ``plan`` verb's envelope in contract.
+
+    ``_classify_delegate_error`` trusts any ``error_code`` the ``setup_plan``
+    delegate payload already carries verbatim -- correct for the
+    contract-registered ones, but ``SPEC_REQUIREMENT_IDS_INVALID`` (WP05) and
+    the pre-existing ``SPEC_FILE_MISSING`` / ``TEMPLATE_CONFIGURATION_ERROR`` /
+    ``PLAN_CONTEXT_UNRESOLVED`` codes ``setup_plan`` can also raise are NOT
+    registered for ``orchestrator_api`` (the latent leak this WP closes,
+    scoped to ``plan`` only -- ``tasks``/``specify`` still share
+    ``_classify_delegate_error`` unchanged and are not touched here). A
+    registered code passes through unchanged; an unregistered one degrades to
+    :data:`_PLAN_SETUP_FAILED_FALLBACK`, with the real code preserved as
+    ``data["reason"]`` (never silently dropped, never leaked past the
+    contract) -- mirrors ``_fail_from_decision_error``'s
+    ``_DECISION_UNREGISTERED_CODE_FALLBACK`` pattern above.
+    """
+    if is_allowed_error_code("orchestrator_api", error_code):
+        return error_code, error_data
+    return _PLAN_SETUP_FAILED_FALLBACK, {**error_data, "reason": error_code}
 
 
 def _fail_decision_index_unreadable(cmd: str, mission: str, exc: DecisionIndexReadError) -> NoReturn:
@@ -906,7 +946,7 @@ def _apply_lane_merge_cleanup(
     from specify_cli.coordination.coherence import is_toolchain_generated_churn
     from specify_cli.core.git_ops import run_command
     from specify_cli.git.destructive_guard import guarded_worktree_remove
-    from specify_cli.lanes.branch_naming import lane_branch_name, worktree_path
+    from specify_cli.lanes.branch_naming import code_lane_branch_name, worktree_path
     from specify_cli.lanes.compute import is_planning_lane
 
     if retention.remove_worktree:
@@ -942,11 +982,7 @@ def _apply_lane_merge_cleanup(
                     "git",
                     "branch",
                     "-D",
-                    lane_branch_name(
-                        mission_slug,
-                        lane.lane_id,
-                        planning_base_branch=lanes_manifest.target_branch,
-                    ),
+                    code_lane_branch_name(mission_slug, lane.lane_id),
                 ],
                 cwd=main_repo_root,
                 check_return=False,
@@ -1263,6 +1299,41 @@ class _StartWorkspace:
     lane_base_ref: str | None = None
 
 
+def _status_execution_mode_for_start_workspace(start_ws: _StartWorkspace | None) -> str:
+    """``ResolvedWorkspace.status_execution_mode``'s value for a ``_StartWorkspace`` (#5100 R-10).
+
+    ``None`` (no workspace was resolved -- every topology except single_branch
+    for a non-claim transition) stamps ``"worktree"``, exactly as before R-10.
+
+    The orchestrator-api's own workspace resolver (:func:`_resolve_start_workspace`
+    / :func:`_resolve_existing_workspace`) returns ``_StartWorkspace``, not a
+    :class:`~specify_cli.workspace.context.ResolvedWorkspace` -- so it cannot
+    read the property directly. ``is_repo_root_lane`` is duck-typed on any
+    object carrying a ``lane_id`` attribute (the same trick ``implement.py``'s
+    ``_resolve_execution_lane`` already relies on for ``ResolvedWorkspace``
+    itself), so this reuses the ONE canonical repo-root-lane predicate instead
+    of re-deriving a second, divergent ``"direct_repo"`` check.
+    """
+    from specify_cli.lanes.compute import is_repo_root_lane
+
+    return "direct_repo" if start_ws is not None and is_repo_root_lane(start_ws) else "worktree"
+
+
+def _repo_root_lane_branch(main_repo_root: Path, mission: str, manifest: Any) -> str:
+    """Branch a repo-root lane WP executes on (#5100 B1).
+
+    The mission's recorded ``meta.mission_branch`` applies ONLY to a mission whose
+    STORED topology is ``single_branch``; in a ``lanes`` / coordination mission a
+    repo-root (planning-artifact) WP runs on the target branch. The rule is the
+    one :func:`mission_runtime.resolve_single_branch_write_ref` -- never
+    ``manifest.mission_branch``, a stale copy after a protected landing clears
+    the meta field.
+    """
+    from mission_runtime import resolve_single_branch_write_ref
+
+    return resolve_single_branch_write_ref(main_repo_root, mission, str(manifest.target_branch))
+
+
 def _lane_base_ref(main_repo_root: Path, mission: str, manifest: object) -> str:
     """Back-compat delegator to the hoisted single base-ref authority.
 
@@ -1340,6 +1411,25 @@ def _lane_assignment_or_legacy(main_repo_root: Path, mission: str, wp: str) -> t
     return manifest, lane
 
 
+def _ensure_repo_root_checkout_or_fail(cmd: str, main_repo_root: Path, mission: str, mission_dir: Path, wp: str) -> None:
+    """Run ``implement``'s WRITE_CHECKOUT_* refusals for a repo-root lane (#5100 B5)."""
+    from kernel.errors import GuardedReadError
+    from specify_cli.core.errors import StructuredError
+    from specify_cli.lanes.implement_support import _ensure_repo_root_checkout_available
+    from specify_cli.workspace.context import resolve_workspace_for_wp
+
+    try:
+        resolved = resolve_workspace_for_wp(main_repo_root, mission, wp)
+        _ensure_repo_root_checkout_available(main_repo_root, mission, wp, resolved)
+    except StructuredError as exc:
+        _fail(cmd, exc.error_code, str(exc), {**_mission_identity_payload(mission_dir), "wp_id": wp, **exc.to_dict()})
+    except (ValueError, FileNotFoundError, GuardedReadError) as exc:
+        # The resolver's real failure set: unusable WP metadata / a WP outside
+        # every lane (ValueError), a missing WP file (FileNotFoundError), and
+        # the typed corrupt/missing lanes.json + meta reads (GuardedReadError).
+        _fail(cmd, "LANE_ALLOCATION_FAILED", str(exc), {**_mission_identity_payload(mission_dir), "wp_id": wp, "reason": str(exc)})
+
+
 def _resolve_start_workspace(cmd: str, main_repo_root: Path, mission: str, mission_dir: Path, wp: str) -> _StartWorkspace:
     """Resolve (allocating if needed) the workspace for ``wp``.
 
@@ -1363,6 +1453,28 @@ def _resolve_start_workspace(cmd: str, main_repo_root: Path, mission: str, missi
     if isinstance(assignment, _StartWorkspace):
         return assignment
     manifest, lane = assignment
+
+    from specify_cli.lanes.compute import is_repo_root_lane
+
+    if is_repo_root_lane(lane):
+        # Repo-root lane: the WP executes directly in the write checkout,
+        # never a ``.worktrees/…`` path — ``allocate_lane_worktree`` /
+        # ``predict_lane_worktree`` refuse the planning lane id (#5100,
+        # T009). Record the claim base ONCE (idempotent-by-absence) so the
+        # for_review gate has a starting point (WP02/T007).
+        from specify_cli.lanes.claim_base import record_claim_base
+
+        # #5100 B5: the single_branch write-checkout refusals (wrong branch /
+        # occupied / dirty) run on this path too, so sequential execution cannot
+        # be bypassed by driving the orchestrator API instead of ``implement``.
+        _ensure_repo_root_checkout_or_fail(cmd, main_repo_root, mission, mission_dir, wp)
+        record_claim_base(main_repo_root, main_repo_root, mission, wp)
+        return _StartWorkspace(
+            workspace_path=str(main_repo_root),
+            lane_id=lane.lane_id,
+            lane_branch=_repo_root_lane_branch(main_repo_root, mission, manifest),
+            lane_base_ref=_lane_base_ref(main_repo_root, mission, manifest),
+        )
 
     from specify_cli.lanes.worktree_allocator import (
         DependencyLaneMergeConflictError,
@@ -1438,12 +1550,23 @@ def _resolve_existing_workspace(main_repo_root: Path, mission: str, wp: str) -> 
     so the read-only mirror can never diverge from what the write authority
     would create.
     """
+    from specify_cli.lanes.compute import is_repo_root_lane
     from specify_cli.lanes.worktree_allocator import predict_lane_worktree
 
     assignment = _lane_assignment_or_legacy(main_repo_root, mission, wp)
     if isinstance(assignment, _StartWorkspace):
         return assignment
     manifest, lane = assignment
+
+    if is_repo_root_lane(lane):
+        # Repo-root lane: mirrors _resolve_start_workspace's read side, but
+        # this function is read-only (no allocation, no claim-base write).
+        return _StartWorkspace(
+            workspace_path=str(main_repo_root),
+            lane_id=lane.lane_id,
+            lane_branch=_repo_root_lane_branch(main_repo_root, mission, manifest),
+            lane_base_ref=_lane_base_ref(main_repo_root, mission, manifest),
+        )
 
     worktree_path, lane_branch = predict_lane_worktree(main_repo_root, mission, lane.lane_id)
     return _StartWorkspace(
@@ -1452,6 +1575,28 @@ def _resolve_existing_workspace(main_repo_root: Path, mission: str, wp: str) -> 
         lane_branch=lane_branch,
         lane_base_ref=_lane_base_ref(main_repo_root, mission, manifest),
     )
+
+
+def _existing_workspace_for_stamp(cmd: str, main_repo_root: Path, mission: str, mission_dir: Path, wp: str) -> _StartWorkspace | None:
+    """Existing-lane mirror used ONLY to stamp a status event's ``execution_mode`` (#5100 R-10).
+
+    A repo-root-lane WP exists only in a STORED ``single_branch`` mission, so
+    only there does the stamp differ from the historical ``"worktree"``; every
+    other topology returns ``None`` (stamp ``"worktree"``) WITHOUT reading
+    ``lanes.json`` -- a corrupt manifest must not break a ``--to done`` /
+    ``--to approved`` transition on a mission that never needed it. Inside
+    single_branch, an unreadable manifest / WP maps to the error envelope, not
+    a traceback.
+    """
+    from kernel.errors import GuardedReadError
+    from mission_runtime import is_single_branch, resolve_topology
+
+    if not is_single_branch(resolve_topology(main_repo_root, mission)):
+        return None
+    try:
+        return _resolve_existing_workspace(main_repo_root, mission, wp)
+    except (ValueError, FileNotFoundError, GuardedReadError) as exc:
+        _fail(cmd, "TRANSITION_REJECTED", str(exc), {**_mission_identity_payload(mission_dir), "wp_id": wp, "reason": str(exc)})
 
 
 @app.command(name="resolve-workspace")
@@ -1570,6 +1715,7 @@ def start_implementation(
     start_ws = _resolve_start_workspace(cmd, main_repo_root, mission, mission_dir, wp)
     workspace_path = start_ws.workspace_path
     prompt_path = str(wp_path)
+    status_execution_mode = _status_execution_mode_for_start_workspace(start_ws)
 
     # Seam C-005 (#3281/FR-007): POST-materialize, after allocation/self-heal
     # above, BEFORE the claim transition below emits any status event. Never
@@ -1601,7 +1747,7 @@ def start_implementation(
             wp_id=wp,
             actor=actor,
             workspace_context=workspace_path,
-            execution_mode="worktree",
+            execution_mode=status_execution_mode,
             repo_root=main_repo_root,
             policy_metadata=policy_dict,
             ensure_sync_daemon=False,
@@ -1685,6 +1831,10 @@ def start_review(
     from specify_cli.status import WorkPackageClaimConflict, start_review_status
 
     prompt_path = str(wp_path)
+    # #5100 R-10: read-only mirror of the WP's EXISTING lane assignment (no
+    # allocation) -- start-review runs after implementation, so the WP is
+    # already lane-assigned; this is the honest stamp, not a hardcoded guess.
+    review_ws = _existing_workspace_for_stamp(cmd, main_repo_root, mission, mission_dir, wp)
 
     try:
         start_result = start_review_status(
@@ -1694,7 +1844,7 @@ def start_review(
             actor=actor,
             review_ref=review_ref,
             workspace_context=f"orchestrator-api:{main_repo_root}",
-            execution_mode="worktree",
+            execution_mode=_status_execution_mode_for_start_workspace(review_ws),
             repo_root=main_repo_root,
             policy_metadata=policy_dict,
             ensure_sync_daemon=False,
@@ -1839,14 +1989,20 @@ def transition(
 
     if to_lane == Lane.FOR_REVIEW:
         _enforce_for_review_commit_gate(cmd, main_repo_root, mission, mission_dir, wp, force)
+        transition_ws = _existing_workspace_for_stamp(cmd, main_repo_root, mission, mission_dir, wp)
     elif to_lane == Lane.CLAIMED:
         # Seam C-005 (#3281/FR-007): early-return-equivalent for every OTHER
         # target lane -- this predicate only ever runs for a raw `--to
         # claimed` transition. Allocates/self-heals the lane workspace
         # (mirrors start_implementation's own `_resolve_start_workspace`
         # call) and enforces ancestry BEFORE the `claimed` event below.
-        claim_ws = _resolve_start_workspace(cmd, main_repo_root, mission, mission_dir, wp)
-        _enforce_claim_ancestry(cmd, main_repo_root, mission, mission_dir, wp, Path(claim_ws.workspace_path))
+        transition_ws = _resolve_start_workspace(cmd, main_repo_root, mission, mission_dir, wp)
+        _enforce_claim_ancestry(cmd, main_repo_root, mission, mission_dir, wp, Path(transition_ws.workspace_path))
+    else:
+        # #5100 R-10: every other target lane still needs an honest stamp --
+        # read-only mirror of the WP's EXISTING lane, no allocation, and only
+        # for single_branch (elsewhere the historical "worktree" stamp stands).
+        transition_ws = _existing_workspace_for_stamp(cmd, main_repo_root, mission, mission_dir, wp)
 
     from specify_cli.coordination.status_transition import emit_status_transition_transactional
     from specify_cli.status import TransitionError
@@ -1867,7 +2023,7 @@ def transition(
                 review_result=review_result,
                 subtasks_complete=subtasks_complete,
                 implementation_evidence_present=implementation_evidence_present,
-                execution_mode="worktree",
+                execution_mode=_status_execution_mode_for_start_workspace(transition_ws),
                 repo_root=main_repo_root,
                 policy_metadata=policy_dict,
             ),
@@ -1876,6 +2032,16 @@ def transition(
     except TransitionError as exc:
         _fail(cmd, "TRANSITION_REJECTED", str(exc))
         return
+
+    # T032 (#5115 review cycle 2, Issue 2): this for_review transition does
+    # not always auto-commit, so under a foreign post-commit hook it is
+    # otherwise the only chance to record this lane's tip before a later
+    # touch. Gated on the RESOLVED event lane (covers --force too). Best-
+    # effort: never raises, never fails a transition that already landed.
+    if event.to_lane == Lane.FOR_REVIEW:
+        from specify_cli.lanes.lane_tip import record_tip_for_wp
+
+        record_tip_for_wp(main_repo_root, mission, wp)
 
     data = {
         **_mission_identity_payload(mission_dir),
@@ -2426,6 +2592,14 @@ def specify(
         main_repo_root = _get_main_repo_root()
         mission_dir = _resolve_mission_dir_or_fail(cmd, main_repo_root, mission)
         payload["mission_slug"] = _mission_identity_payload(mission_dir)["mission_slug"]
+    # #5100 (WP08): the host ``agent mission create --json`` payload gained
+    # ``mission_branch`` / ``commit_to_target``. They are host-CLI create
+    # diagnostics, NOT part of the versioned orchestrator-api contract
+    # (``upstream_contract.json``, pinned by
+    # ``_SPECIFY_SUCCESS_DATA_KEYS``), so they must not leak through this
+    # pass-through. Drop them rather than widening the external contract.
+    for host_only_key in _SPECIFY_HOST_ONLY_PAYLOAD_KEYS:
+        payload.pop(host_only_key, None)
     validate_outbound_payload(payload, "orchestrator_api")
     envelope = make_envelope(command=cmd, success=True, data=payload)
     _emit(envelope)
@@ -2468,9 +2642,15 @@ def plan(
         error_code, message, error_data = _classify_delegate_error(
             payload,
             raw_output,
-            fallback_code="PLAN_SETUP_FAILED",
+            fallback_code=_PLAN_SETUP_FAILED_FALLBACK,
             fallback_message="plan scaffolding failed",
         )
+        # FR-015: keep the envelope in contract -- an unregistered delegate
+        # code (e.g. SPEC_REQUIREMENT_IDS_INVALID) degrades to
+        # PLAN_SETUP_FAILED with the real code preserved as data["reason"];
+        # a registered code (including this except block's own fallback,
+        # already PLAN_SETUP_FAILED) passes through unchanged.
+        error_code, error_data = _plan_contract_error(error_code, error_data)
         _fail(cmd, error_code, message, error_data)
         return
 

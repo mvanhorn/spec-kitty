@@ -376,28 +376,54 @@ def _resolve_default_topology_phase(
     repo_root: Path | None,
     current_branch: str | None,
     pr_bound: bool,
+    owned_checkout: Path | None = None,
 ) -> MissionTopology:
-    """Derive the create-time topology default from branch/pr-bound context (#2581, #2533).
+    """Derive the create-time topology default from branch/pr-bound context (#2581, #2533, #2602).
 
-    An explicit ``--topology`` always wins. Otherwise the default keys on
-    *topology honesty* (INV-2): a coordination topology is minted only when
-    coordination routing is actually reachable, never as pure overhead.
+    ``single_branch`` is explicit-only (binding decision on #5100, comment
+    5870360497): it is produced ONLY by an explicit ``--topology
+    single_branch`` or by ``--owned-checkout`` — never as an implicit
+    default. Every other implicit arm below resolves to either ``coord`` or
+    ``lanes``, so default users on the ordinary create path keep worktree
+    isolation (US4/FR-013).
 
+    - An explicit ``--topology`` always wins.
+    - ``--owned-checkout`` is itself an explicit request for an isolated,
+      operator-managed write surface (ADR 2026-09-03-1: owned mode supports
+      ``single_branch`` only), so it also wins outright — before any
+      branch/pr-bound context is consulted. This is a genuine BEHAVIOUR
+      CHANGE, not a preservation of prior implicit routing: an owned
+      checkout with no configured ``origin`` has no protection/reachability
+      signal of its own, so ``resolve_primary_branch`` falls back to
+      reading the checkout's OWN current branch — making
+      ``current_branch == primary_branch`` true for that checkout
+      regardless of which branch it is on. Pre-WP06 that fallback quirk
+      routed a real owned-checkout create with no ``--topology`` to the
+      *primary-branch* ``coord`` arm, never to the non-primary arm's
+      (then-implicit) ``single_branch`` (#5100 review cycle 1, nit 3).
+    - Otherwise the default keys on *topology honesty* (INV-2): a
+      coordination topology is minted only when coordination routing is
+      actually reachable, never as pure overhead.
     - ``--pr-bound`` missions consult :func:`coord_topology_reachable` — coord
       is reachable iff ``primary_protected or current_is_primary``. A pr-bound
       mission on an **unprotected** primary target (e.g. created with
-      ``--start-branch <feature-branch>``) therefore defaults to
-      ``single_branch``, eliminating the stranded coord branch behind the #2533
-      split-brain. Protection is keyed on the **primary TARGET branch**
-      (``ProtectionPolicy`` + ``resolve_primary_branch``), NOT the current
-      checkout (the tripwire in ``test_mission_create.py`` proves this).
+      ``--start-branch <feature-branch>``) therefore defaults to ``lanes``,
+      eliminating the stranded coord branch behind the #2533 split-brain
+      without falling back to the no-longer-implicit ``single_branch``.
+      Protection is keyed on the **primary TARGET branch** (``ProtectionPolicy``
+      + ``resolve_primary_branch``), NOT the current checkout (the tripwire in
+      ``test_mission_create.py`` proves this).
     - A non-pr-bound mission created on the repository's primary branch keeps the
       historical ``coord`` default; one created on a non-primary feature/fork
-      branch defaults to ``single_branch`` — minting a coordination branch there
-      just to have the operator manually flatten it is the friction #2581 closes.
+      branch defaults to ``lanes`` — minting a coordination branch there just
+      to have the operator manually flatten it is the friction #2581 closed,
+      and #2602 keeps that friction closed via worktree isolation rather than
+      an implicit ``single_branch``.
     """
     if explicit_topology is not None:
         return explicit_topology
+    if owned_checkout is not None:
+        return MissionTopology.SINGLE_BRANCH
     # Fail-safe: without a resolvable repo/checkout we cannot key on target
     # protection, so keep the historical ``coord`` default. Hoisted ahead of the
     # pr-bound arm because that arm now needs a resolvable ``repo_root`` to read
@@ -414,10 +440,10 @@ def _resolve_default_topology_phase(
 
         primary_protected = ProtectionPolicy.resolve(repo_root).is_protected(primary_branch)
         current_is_primary = current_branch == primary_branch
-        return MissionTopology.COORD if coord_topology_reachable(pr_bound, primary_protected, current_is_primary) else MissionTopology.SINGLE_BRANCH
+        return MissionTopology.COORD if coord_topology_reachable(pr_bound, primary_protected, current_is_primary) else MissionTopology.LANES
     if current_branch == primary_branch:
         return MissionTopology.COORD
-    return MissionTopology.SINGLE_BRANCH
+    return MissionTopology.LANES
 
 
 def _print_worktree_navigation_hint(mission_slug: str, error_msg: str) -> None:
@@ -458,6 +484,7 @@ def _run_create_core_phase(
     topology: MissionTopology = MissionTopology.COORD,
     retain_branches: bool = False,
     retain_worktrees: bool = False,
+    commit_to_target: bool = False,
     allow_duplicate: bool = False,
 ) -> MissionCreationResult:
     """Invoke ``create_mission_core`` with the deterministic error funnel.
@@ -490,6 +517,7 @@ def _run_create_core_phase(
             owned_checkout=owned_checkout.resolve() if owned_checkout is not None else None,
             retain_branches=retain_branches,
             retain_worktrees=retain_worktrees,
+            commit_to_target=commit_to_target,
             allow_duplicate=allow_duplicate,
         )
     except CoordinationBranchDiverged as exc:
@@ -593,6 +621,11 @@ def _build_create_payload(result: MissionCreationResult) -> dict[str, object]:
         "meta_file": str(meta_file),
         "created_at": str(result.meta.get("created_at", "")),
         "created_files": [str(path) for path in result.created_files],
+        # #5100 FR-007/FR-008 (WP08): the protected-target single_branch mint,
+        # when it fired, or the explicit `commit_to_target` override, when
+        # set. `None` for every other mission (never a written empty string).
+        "mission_branch": result.meta.get("mission_branch"),
+        "commit_to_target": result.meta.get("commit_to_target"),
         # #2693: spec.md is scaffolded empty and left uncommitted on purpose
         # (#846) — it is committed later by /spec-kitty.specify once it holds
         # substantive content. Disclose it as a structured uncommitted artifact
@@ -637,6 +670,42 @@ def _build_create_payload(result: MissionCreationResult) -> dict[str, object]:
     return payload
 
 
+def _minted_mission_branch(result: MissionCreationResult) -> str | None:
+    """The protected-target mission branch the create left checked out, if one was minted."""
+    minted = result.meta.get("mission_branch")
+    return minted if isinstance(minted, str) and minted else None
+
+
+def _print_branch_line(result: MissionCreationResult, mission_branch: str | None) -> None:
+    """Human ``Branch:`` line -- the minted mission branch when create switched onto one."""
+    if mission_branch:
+        console.print(f"[bold cyan]Branch:[/bold cyan] {mission_branch} (mission branch; merges into {result.target_branch})")
+    else:
+        console.print(f"[bold cyan]Branch:[/bold cyan] {result.target_branch} (target for this mission)")
+
+
+def _print_meta_outcome(result: MissionCreationResult, mission_branch: str | None) -> None:
+    """Report where ``meta.json`` landed (or that it did not), naming the real branch."""
+    landed_branch = mission_branch or result.target_branch
+    meta_committed = (result.feature_dir / "meta.json") not in result.uncommitted_files
+    if mission_branch:
+        suffix = "; meta committed there" if meta_committed else ""
+        console.print(f"   Switched checkout to {mission_branch} (was {result.current_branch}){suffix}")
+    if meta_committed:
+        tail = "spec.md scaffold left untracked" if mission_branch else f"Meta committed to {result.target_branch}; spec.md scaffold left untracked"
+        console.print(f"   {tail}")
+        return
+    console.print(
+        f"   [yellow]Meta not committed:[/yellow] the scaffold commit to "
+        f"{landed_branch} was refused (protected or unavailable target "
+        f"branch); kitty-specs/{result.mission_slug}/ is left on disk, untracked"
+    )
+    console.print(
+        "   Planning artifacts must land on a feature branch, or land via the mission lane worktree "
+        "— switch to a feature branch first, or re-run 'agent mission create --start-branch <feature-branch>'."
+    )
+
+
 def _emit_create_result_phase(
     result: MissionCreationResult,
     *,
@@ -644,8 +713,9 @@ def _emit_create_result_phase(
     json_output: bool,
 ) -> None:
     """Emit the create result in JSON or human form (output stays in the CLI layer)."""
+    mission_branch = _minted_mission_branch(result)
     if not json_output:
-        console.print(f"[bold cyan]Branch:[/bold cyan] {result.target_branch} (target for this mission)")
+        _print_branch_line(result, mission_branch)
         if resolved_mission_type == MISSION_TYPE_DOCUMENTATION:
             console.print("[cyan]→ Documentation state initialized in meta.json[/cyan]")
 
@@ -654,7 +724,11 @@ def _emit_create_result_phase(
             _inject_branch_contract(
                 _build_create_payload(result),
                 target_branch=result.target_branch,
-                current_branch=result.current_branch,
+                # A minted mission branch is the real checkout after create
+                # (``result.current_branch`` is the pre-mint branch), so the
+                # contract describes it, not the protected merge target.
+                current_branch=mission_branch or result.current_branch,
+                expected_checkout_branch=mission_branch,
             )
         )
         # FR-008: signal atexit handlers that this invocation succeeded so
@@ -676,18 +750,7 @@ def _emit_create_result_phase(
         # target branch), meta.json sits in ``result.uncommitted_files`` — the
         # same evidence the ``--json`` envelope discloses via
         # ``uncommitted_artifacts`` — and claiming a commit would be false.
-        if (result.feature_dir / "meta.json") in result.uncommitted_files:
-            console.print(
-                f"   [yellow]Meta not committed:[/yellow] the scaffold commit to "
-                f"{result.target_branch} was refused (protected or unavailable target "
-                f"branch); kitty-specs/{result.mission_slug}/ is left on disk, untracked"
-            )
-            console.print(
-                "   Planning artifacts must land on a feature branch, or land via the mission lane worktree "
-                "— switch to a feature branch first, or re-run 'agent mission create --start-branch <feature-branch>'."
-            )
-        else:
-            console.print(f"   Meta committed to {result.target_branch}; spec.md scaffold left untracked")
+        _print_meta_outcome(result, mission_branch)
         console.print("   [yellow]Scaffold only:[/yellow] run [cyan]/spec-kitty.specify <intent>[/cyan] in your agent, or edit and commit spec.md before planning.")
 
 
@@ -715,10 +778,11 @@ def create_mission(
                 "Create-time mission shape: single_branch | lanes | coord | "
                 "lanes_with_coord. Coordination-bearing shapes (coord, "
                 "lanes_with_coord) mint a coordination branch; branch-flat "
-                "shapes (single_branch, lanes) do not. Default: context-derived "
-                "(#2581) — coord on the primary branch, with --pr-bound, or "
-                "when explicitly requested; single_branch on a non-primary "
-                "feature/fork branch without --pr-bound."
+                "shapes (single_branch, lanes) do not. Default: "
+                "context-derived (#2581, #2602) — coord on the primary "
+                "branch or with --pr-bound when coordination is reachable; "
+                "lanes otherwise. single_branch only when requested "
+                "explicitly (or via --owned-checkout)."
             ),
         ),
     ] = None,
@@ -770,6 +834,18 @@ def create_mission(
         typer.Option(
             "--retain-worktrees",
             help="Opt this mission's worktrees out of post-merge cleanup deletion.",
+        ),
+    ] = False,
+    commit_to_target: Annotated[
+        bool,
+        typer.Option(
+            "--commit-to-target/--no-commit-to-target",
+            help=(
+                "single_branch only: skip the protected-target mission-branch "
+                "mint (#5100 FR-008) and commit directly onto --target-branch, "
+                "even when it is protected. Persisted; honoured through "
+                "ProtectionPolicy for every later write."
+            ),
         ),
     ] = False,
     allow_duplicate: Annotated[
@@ -831,6 +907,7 @@ def create_mission(
             repo_root=command_checkout,
             current_branch=current_branch,
             pr_bound=pr_bound,
+            owned_checkout=owned_checkout,
         )
 
         # Import the tracker package here (NOT at module scope) so ``tracker/__init__.py``
@@ -857,6 +934,7 @@ def create_mission(
             json_output=json_output,
             retain_branches=retain_branches,
             retain_worktrees=retain_worktrees,
+            commit_to_target=commit_to_target,
             allow_duplicate=allow_duplicate,
         )
     _emit_create_result_phase(

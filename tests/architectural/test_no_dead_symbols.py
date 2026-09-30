@@ -1377,14 +1377,13 @@ _CATEGORY_C_MERGE_DECOMP_SHIM_REEXPORT_2057: frozenset[SymbolKey] = frozenset(
             "_already_baked", "7f804f49001d93332ab0a3fad3929f8c45b6d33de06c8d7c1c875af723b87327", source_module="specify_cli.consolidation.ordering"
         ),  # specify_cli.consolidation.ordering::_already_baked
         # specify_cli.consolidation.ordering::_is_assigned_mission_number
+        # Hash re-pinned (#4900): the function now delegates to the
+        # single canonical leaf definition
+        # (``consolidation.mission_number.is_assigned_mission_number``)
+        # instead of inlining its own (looser, 0/negative-accepting) check —
+        # body changed, content-tier hash re-pinned.
         SymbolKey(
-            "_is_assigned_mission_number", "4da9f3fde4e20df83693697787af0a7ef0e4399b21c99bd102b9b3a899e34fe1", source_module="specify_cli.consolidation.ordering"
-        ),
-        # specify_cli.consolidation.ordering::_mark_mission_number_baked
-        # Hash re-pinned (mission consolidate-canonical-terminology-01M3GSSV WP01
-        # / #3080): same MergeState -> ConsolidationState rename as _already_baked above.
-        SymbolKey(
-            "_mark_mission_number_baked", "9ccd842f4e2585df0b6b53617cff16da5b6b1af747d5a4e508a0d0a887abc3db", source_module="specify_cli.consolidation.ordering"
+            "_is_assigned_mission_number", "ae4e7967c63275fb2cc6e76c2a75fcf4159458d3f40c9d6963cdc9dfd9b0eba7", source_module="specify_cli.consolidation.ordering"
         ),
         SymbolKey(
             "check_push_safety", "893124ff3029dec30c538fd54577881f4afa05002067b4f1033ce550f52e0460", source_module="specify_cli.consolidation.push_preflight"
@@ -1670,17 +1669,6 @@ _CATEGORY_C_SCOPE_SOURCE_FACTORY_CONSTRUCTED: frozenset[SymbolKey] = frozenset(
 #   ``tests/acceptance/test_gate_execution_context.py``'s isolated-method cases. A
 #   type alias consumed purely as a signature annotation is never a ``from ... import``
 #   site by construction.
-# * ``acceptance/execution_context.py::CannotEvaluateReason`` -- its
-#   ``SURFACE_CANNOT_HOLD_FACT`` member is produced by ``surface_cannot_hold`` (wired
-#   into the acceptance-matrix gate via ``gates_core._matrix_surface_cannot_hold``) and
-#   its ``BELOW_MINIMUM_PHASE`` member by ``not_applicable_below`` (still genuinely
-#   unwired -- no gate in this mission's scope declares a phase floor yet). Both
-#   producing methods return the enum member as an attribute of the ``CannotEvaluate``
-#   they build; ``gates_core.py`` reads ``cannot.reason.value`` structurally off that
-#   instance (mirrored by the C5 path, which reads ``exc.error_code`` off the raised
-#   ``GateSurfaceRefMismatch`` the same way) rather than importing the enum type by
-#   name, so the type itself has no cross-module import site even though its members
-#   are live.
 # * ``acceptance/post_consolidation.py`` (``verify_deferred_invariants`` /
 #   ``PostConsolidationResult`` / ``PostConsolidationViolation`` /
 #   ``InvariantViolation``) is WP06/T031's Op, dispatched ad hoc via
@@ -1704,10 +1692,6 @@ _CATEGORY_C_SCOPE_SOURCE_FACTORY_CONSTRUCTED: frozenset[SymbolKey] = frozenset(
 #   ``test_auto_exempt_disjoint_from_hand_allowlist``).
 _CATEGORY_C_LIFECYCLE_GATE_EXECUTION_CONTEXT_2841: frozenset[SymbolKey] = frozenset(
     {
-        # specify_cli.acceptance.execution_context::CannotEvaluateReason
-        SymbolKey(
-            "CannotEvaluateReason", "169f6e0b84cc22cc54ed339999b26191c66ce24fb4b8c4f4d9e87ba82852c55d", source_module="specify_cli.acceptance.execution_context"
-        ),
         # specify_cli.acceptance.execution_context::SurfaceHeadResolver
         SymbolKey(
             "SurfaceHeadResolver", "1b5124eac062ce4ebeec680cbd3d867d602747896eab7ae166162f65427653a2", source_module="specify_cli.acceptance.execution_context"
@@ -2291,9 +2275,12 @@ _CATEGORY_C_TERMINUS_RECONCILIATION_5001: frozenset[SymbolKey] = frozenset(
         # structured divergence record). body_hash refreshed (#5001 #5020;
         # #5022 terminus-reconciliation-attribution-integrity): the squash axis
         # added `unattributable_blobs`, then `unattributable_deletions` + render branch.
+        # body_hash refreshed again (mixed-lane-authorship-soundness-01M3M7Y0
+        # WP05, #5046): added the `canceled_content` mixed-lane divergence field
+        # + its `describe()` render branch.
         SymbolKey(
             "Divergence",
-            "a828263627ea91b6bca3a12e26bdccacc4011309e631bdcbcf52ec13f7d4c662",
+            "366f59f9bd521f666b818153e1279e653d2cab1f397e26f5e188b1e3ff3b6cc6",
             source_module="specify_cli.consolidation.reconciliation",
         ),
         # specify_cli.consolidation.bookkeeping_projection::ProjectionResult -- the
@@ -2333,15 +2320,6 @@ _CATEGORY_C_TERMINUS_RECONCILIATION_5001: frozenset[SymbolKey] = frozenset(
             "lane_integrated_by_tree_or_ancestry",
             "ab4e79f1559ad1b71468df4342fa35d3a294f525ad4304f13abbab30e4833e99",
             source_module="specify_cli.consolidation.git_probes",
-        ),
-        # specify_cli.consolidation.state::read_merge_lock_owner -- FR-008
-        # owner-token lock-ownership probe; consumed only from within its
-        # own module (acquire_merge_lock) and by
-        # tests/consolidation/test_merge_state_authority.py today.
-        SymbolKey(
-            "read_merge_lock_owner",
-            "152d2a612a16091432a35d186dbb9b234ad12e673816a683bf61f4bfae44f0d7",
-            source_module="specify_cli.consolidation.state",
         ),
     }
 )

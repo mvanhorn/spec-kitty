@@ -50,9 +50,9 @@ __all__ = [
     "render_yaml_document",
     "prepare_charter_yaml_section",
     "yaml_documents_equal",
+    "catalog_field_from_document",
     "read_catalog_field",
     "read_catalog_mission",
-    "catalog_mission_from_document",
 ]
 
 
@@ -467,7 +467,7 @@ def _activation_keys() -> tuple[str, ...]:
     """
     from charter.activation.pack_manager import ACTIVATION_YAML_KEYS  # noqa: PLC0415 -- avoids import cycle (WP05)
 
-    return ACTIVATION_YAML_KEYS
+    return tuple(str(key) for key in ACTIVATION_YAML_KEYS)
 
 
 def __getattr__(name: str) -> object:
@@ -567,16 +567,6 @@ def catalog_field_from_document(document: Any, field: str) -> Any | None:
     if not isinstance(catalog, Mapping):
         return None
     return catalog.get(field)
-
-
-def catalog_mission_from_document(document: Any) -> Any | None:
-    """Read ``catalog.mission`` from an already-loaded document.
-
-    Thin wrapper over :func:`catalog_field_from_document`, mirroring
-    :func:`read_catalog_mission`'s disk-reading counterpart for callers that
-    already hold a loaded ``charter.yaml`` document and must not re-read it.
-    """
-    return catalog_field_from_document(document, "mission")
 
 
 def read_catalog_field(repo_root: Path, field: str) -> Any | None:

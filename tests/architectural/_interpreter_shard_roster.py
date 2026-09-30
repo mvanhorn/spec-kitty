@@ -86,14 +86,15 @@ workflow_dispatch run 36294808024 on `ubuntu-24.04`, mode=full):**
   so a stale or mis-bucketed regeneration is a loud, named CI failure, not a
   silently trusted one.
 
-Per-shard `timeout-minutes` (landing pass #5244, LAND-PAT-005): the actual
-values live in ONE place -- each shard job's own `timeout-minutes:` key in
-`ci-nightly.yml` -- and are deliberately NOT restated here, so this
-docstring can never drift from the committed workflow. The arithmetic behind
-those committed values (shard 1/2 from run 1's direct measurement; shards
-3-6 EXTRAPOLATED from shard 3's pre-redraw aggregate rate, headroomed ~2.15x,
-pending run 2's real per-shard validation per plan.md SS B point 3) is
-recorded in `tracer-design-decisions.md`.
+Per-shard `timeout-minutes` (landing pass #5244, LAND-PAT-005; re-derived
+#5378): the actual values live in ONE place -- each shard job's own
+`timeout-minutes:` key in `ci-nightly.yml` -- and are deliberately NOT
+restated here, so this docstring can never drift from the committed
+workflow. The recorded derivation (measured maximum suite wall-clock, the
+runs it came from, and the headroom formula) is the structured
+`# headroom (#5378)` comment directly above each `timeout-minutes:` line in
+`ci-nightly.yml`; `tests/ci/test_nightly_timeout_headroom.py` fails if a cap
+falls below its own comment's formula.
 """
 
 from __future__ import annotations
@@ -349,7 +350,10 @@ INTERPRETER_SHARDS: tuple[InterpreterShard, ...] = (
             "tests/specify_cli/test_mission_type_read_converters.py",
             "tests/specify_cli/test_mission_type_write_boundaries.py",
             "tests/specify_cli/test_read_seam_migration_core.py",
+            "tests/specify_cli/test_requirement_id_grammar.py",
+            "tests/specify_cli/test_requirement_id_lint.py",
             "tests/specify_cli/test_requirement_mapping.py",
+            "tests/specify_cli/test_requirement_reason_parity.py",
             "tests/specify_cli/test_state_contract.py",
             "tests/specify_cli/tool_surface",
             "tests/specify_cli/tracker",
@@ -402,6 +406,7 @@ INTERPRETER_SHARDS: tuple[InterpreterShard, ...] = (
             "tests/specify_cli/test_runtime_hard_fail.py",
             "tests/specify_cli/test_state_doctor.py",
             "tests/specify_cli/test_workspace_context_tombstone.py",
+            "tests/specify_cli/workspace",
             "tests/state",
             "tests/test_dashboard",
             "tests/upgrade",

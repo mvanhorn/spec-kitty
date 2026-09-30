@@ -3,7 +3,7 @@ title: 'ADR: Terminus-Safety Invariant — gate-then-mutate-with-rollback across
 description: 'Terminus-safety invariant: completion commands gate-then-mutate with rollback on failure, enforced by one shared terminal-readiness authority.'
 status: Accepted
 date: '2026-09-19'
-updated: '2026-09-19'
+updated: '2026-09-29'
 ---
 
 ## Context and Problem Statement
@@ -174,6 +174,74 @@ on `_phase_merge_lanes` resume-idempotency rather than a rewind. None of these d
 #4764 — the precondition does the closing — but the rollback should not be read as a peer atomic
 transaction across the whole merge.
 
+### Amendment 2026-09-29 — one pre-mutation snapshot, one CAS rollback authority (slice 10)
+
+> **Operator-ratified** in mission `consolidation-claim-rollback-integrity-01M3PD1T`
+> (Decision Moments `01M3PD3NAECRSVPYZ6J5KWDTDW` scope, `01M3PD3VP1YTQ4D17HT96JA0T2`
+> CAS ref restore, `01M3PJWGGKTRT9W03MJHFV44Q2` planning self-heal). Issues #5338, #5318,
+> #5332, #5296 under epic #5001.
+
+The "unify, don't fork" rule above is kept and extended; on the rollback path it is
+**superseded** in one respect — rollback is a compare-and-swap ref restore, not a forward
+`git revert`:
+
+- **A1 — Refuse before the first mutation.** A claim that fails its integrity check
+  (explicit claim refusal, unresolved coordination surface, empty claim against a non-empty
+  manifest) exits non-zero in `_capture_reconciliation_claim`, inside the pre-mutation
+  fresh-record guard, using the same predicate the gate uses
+  (`reconciliation.claim_integrity_refusal`). A resume whose reconciliation already passed for
+  the current target tip is exempt (#5021).
+- **A2 — One snapshot.** Before the first mutation the run persists
+  `ConsolidationState.pre_mutation_refs` (target, mission branch, coordination branch when
+  present, every lane branch). `--resume` never recaptures it; a snapshot first captured when an
+  older record (no snapshot) was resumed lists its live-captured entries in
+  `resume_seeded_refs`, and the report calls them "snapshot taken when this record was resumed",
+  not pre-consolidation. **Lane branches are report-only** (`snapshot_lane_branches`):
+  consolidation never moves them, so they are snapshotted for the report but never recorded and
+  never restored. After every mutating phase the run records `post_mutation_refs` — the
+  compare-and-swap expected value — **only for the target/mission/coordination branches whose tip
+  changed during that phase** (entry tips captured before the phase), except when the phase
+  failed on a compare-and-swap refusal (`RefAdvanceError`/`RefRestoreError`: that tip belongs to
+  another actor). A `RefResyncError` (the CAS write succeeded, only a checkout resync failed) IS
+  recorded: the ref holds this run's tip. Per attempt, `restore_targets` keeps an operator's own
+  change made between attempts.
+- **A3 — One rollback authority.** `consolidation/rollback.py::rollback_to_snapshot` restores
+  each snapshotted branch only while it is still at this run's recorded post tip, resyncs every
+  checkout of it (dirty-checked first, via the shared `ref_advance._resync_checkouts`), reports
+  per branch (restored / already at snapshot / lane kept / lane missing / NOT restored with
+  observed vs expected), and clears the bake/completed/passed bookkeeping only after a full
+  restore. A run-movable branch that moved with **no** recorded post tip (a kill inside a phase
+  before its recorder ran) is NOT restored — never reported untouched — so `--abort` keeps the
+  record and exits 1. A **missing** snapshotted branch never blocks the rest: a missing lane
+  branch is reported with a `git branch <b> <sha>` recreate hint; a missing target/mission/
+  coordination branch is NOT restored with the same hint. It is called by the gate/projection
+  wrapper in the driver and by `consolidate --abort` (before the record is cleared, under the
+  consolidation lock); an AST pin keeps the caller set closed. A landing verified by an earlier
+  attempt (anchor == live target tip) is never rolled back.
+- **A4 — Truthful text.** Refusal and failure output is followed by the rollback report; no
+  message in these paths claims that nothing was mutated when a branch moved.
+- **A5 — No dependency self-heal onto the target checkout.** A planning-lane claim whose
+  repository root checkout is on the target branch waives code-lane ancestry instead of merging
+  code lanes there; the code reaches the target only through consolidation's attribution window.
+
+**Remaining authorities (deprecated, retirement condition: routed through A3).**
+`_reset_coord_to_checkpoint`, `_revert_orphan_target_bake_commit`,
+`_rollback_target_after_failed_reconciliation` (now a redundant backstop that the authority
+reports as already-at-snapshot) and `coordination/coherence.py::repair_coord_strand`, plus the
+other in-phase exits between the first mutation and the gate — tracked as #5385. Resume-side
+residuals #5371 and #5372 are out of scope.
+
+**Residuals of A2/A3 (pre-PR squad, not closed here).**
+
+- *Same-phase foreign commit.* Recording compares tips at phase entry and exit, so a foreign
+  commit that lands on a run-movable branch inside the same phase, after this run's own CAS
+  advance of that branch and before the phase's recorder runs, is recorded as this run's and a
+  later rollback restores over it. The window is one phase long.
+- *Same-mission `--abort` racing a live run (F7).* `--abort` takes the global consolidation lock
+  owner-gated by the mission id, which a live run of the SAME mission also holds; an abort issued
+  while that run is still mutating is not excluded by the lock. This is the pre-existing
+  owner-token scheme, unchanged by this amendment.
+
 ## Consequences
 
 - **Positive.** A default-config command can no longer wedge an in-flight mission or push
@@ -203,6 +271,7 @@ transaction across the whole merge.
 ## References
 
 - Issues: #4764, #4765, #4474, #2745; epic #3897 (parent), #1795 (#2745's lane-mechanics epic).
+- Amendment 2026-09-29: #5338, #5318, #5332, #5296 (epic #5001); mission `kitty-specs/consolidation-claim-rollback-integrity-01M3PD1T/`; residuals #5385, #5371, #5372.
 - Mission: `kitty-specs/terminus-safety-invariant-01M2XFT7/spec.md`; Decision Moments
   `01M2XFVSK8JCCXMXCJNTBB0X5V` (scope), `01M2XFW9B71WKJ4XPCDCH8VYCQ` (warn semantics).
 - Related (separate): #3967 (shared integration view, epic #3894), #4161 (`next` FSM),

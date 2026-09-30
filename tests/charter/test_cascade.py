@@ -823,11 +823,48 @@ def test_mission_type_scope_edges_cover_every_governance_profile_selection(fresh
 #: WILL move as doctrine grows -- that is expected; a diff here is a prompt to
 #: re-verify the new total, not a regression by itself.
 _EXPECTED_CASCADE_TOTALS: dict[str, int] = {
-    "documentation": 44,
-    "research": 110,
+    "documentation": 131,
+    "research": 120,
     "software-dev": 165,
-    "plan": 147,
+    "plan": 139,
 }
+#: Cascade totals after the single-owner doctrine change, measured with
+#: ``cascade_activation_targets`` on the regenerated graph (the arrows start
+#: from the totals before that change, after #5258 below, which moved only
+#: ``plan`` and ``software-dev``):
+#:
+#: * every type loses the retired ids it reached (adversarial-squad-cadence,
+#:   behavior-driven-development, bug-fixing-checklist, locality-of-change,
+#:   boring-code-review as a tactic, common-docs-curation, and the two ids that
+#:   moved to packs/internal) and gains their successors where reached
+#:   (bdd-scenario-formulation, the boring-code-review styleguide);
+#: * the squad procedure now ``suggests`` model-task-routing, and
+#:   test-first-bug-fixing ``suggests`` DIRECTIVE_052 (-> DIRECTIVE_044 ->
+#:   canonical-source-unification), which every type that reaches them gains;
+#: * ``testing-principles`` then ``suggests`` ``testing-select-appropriate-level``
+#:   (the owner of the test-pyramid layer shape it now references instead of
+#:   restating), which adds that tactic to every type that reaches the
+#:   styleguide but not the tactic: documentation, research and plan +1 each
+#:   (129 -> 130, 118 -> 119, 137 -> 138); software-dev already reached it;
+#: * ``documentation`` 44 -> 129: it reaches
+#:   ``tactic:paula-patterns-architecture-scout-review``, whose new curated
+#:   ``refines`` edge to ``procedure:adversarial-squad-deployment`` is followed
+#:   by cascade (by design: refines is a cascade relation, not a
+#:   delivery relation), so the procedure's closure (+85) joins; lost only
+#:   common-docs-curation (its successors were already reached);
+#: * ``plan`` 147 -> 137 (-12 / +2): ``procedure:tracker-organisation-workflow``
+#:   moved to packs/internal, and with it the only plan path to
+#:   issue-triage-state-machine and its requires closure (test-first-bug-fixing,
+#:   disciplined-defect-diagnosis, requirements-validation-workflow,
+#:   testing-select-appropriate-level) -- and so also DIRECTIVE_052, which
+#:   #5258 made plan-reachable only through disciplined-defect-diagnosis (its
+#:   five outbound targets stay reached by other paths, e.g. the squad
+#:   procedure); plus the five retired ids plan reached; gains
+#:   avoid-gold-plating and bdd-scenario-formulation;
+#: * ``research`` 110 -> 118 (-2 / +10): the swaps above plus the closures of
+#:   model-task-routing and DIRECTIVE_044 (canonical-source-unification);
+#: * ``software-dev`` 165 -> 165: five retired ids out, their two successors
+#:   and the three supply-chain toolguides in.
 #: The built-in tactic ``acceptance-criteria-non-vacuity`` sits downstream of
 #: ``tactic:usage-examples-sync`` (already scoped to every governance-bearing
 #: mission type) via a forward step-level reference from
@@ -853,6 +890,16 @@ _EXPECTED_CASCADE_TOTALS: dict[str, int] = {
 #: totals are unchanged. The edge is advisory only -- it never auto-activates
 #: (activation cascade requires an explicit ``--cascade`` flag); this ratchet
 #: tracks reachability, not activation.
+#:
+#: #5351: ``styleguide:test-desiderata-and-boundaries`` now suggests
+#: ``procedure:development-assist-test-cleanup`` (and DIRECTIVE_041, already
+#: reached everywhere). ``plan``, ``research`` and ``documentation`` reach the
+#: styleguide but not the procedure by any other path, so each gains +1 on top
+#: of the single-owner baseline above (plan 138 -> 139, research 119 -> 120,
+#: documentation 130 -> 131 -- the single-owner change first gave documentation
+#: a path to the styleguide via the adversarial-squad-deployment closure).
+#: ``software-dev`` already reached the procedure through the wrap-up sequence.
+#: Advisory reachability only.
 
 
 @pytest.mark.parametrize("mission_type_id", ("documentation", "plan", "research", "software-dev"))

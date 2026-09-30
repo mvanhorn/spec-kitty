@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 import typer
 
 from mission_runtime import MissionArtifactKind, placement_seam
+from specify_cli.cli.commands._commit_recipes import safe_commit_recipe
 from specify_cli.cli.commands.agent.workflow_cores import (
     build_owned_files_review_pathspecs,
     has_prior_rejection,
@@ -1374,8 +1375,8 @@ def build_implement_prompt_lines(
     lines.append("✓ Implementation complete and tested:")
     lines.append("  1. **Commit your implementation files:**")
     lines.append("     git status  # Check what you changed")
-    lines.append("     git add <your-implementation-files>  # NOT WP status files")
-    lines.append(f'     git commit -m "feat({normalized_wp_id}): <brief description>"')
+    _implement_recipe = safe_commit_recipe(["<your-implementation-files>"], f"feat({normalized_wp_id}): <brief description>", workspace.branch_name)
+    lines.append(f"     {_implement_recipe}  # NOT WP status files")
     lines.append("     git log -1 --oneline  # Verify commit succeeded")
     lines.append("  2. Mark all subtasks as done:")
     lines.append(f"     spec-kitty agent tasks mark-status {subtask_cmd} --status done --mission {mission_slug}")
@@ -1451,8 +1452,8 @@ def build_implement_prompt_lines(
     lines.append("✅ Implementation complete and tested:")
     lines.append("   1. **Commit your implementation files:**")
     lines.append("      git status  # Check what you changed")
-    lines.append("      git add <your-implementation-files>  # NOT WP status files")
-    lines.append(f'      git commit -m "feat({normalized_wp_id}): <brief description>"')
+    _completion_recipe = safe_commit_recipe(["<your-implementation-files>"], f"feat({normalized_wp_id}): <brief description>", workspace.branch_name)
+    lines.append(f"      {_completion_recipe}  # NOT WP status files")
     lines.append("      git log -1 --oneline  # Verify commit succeeded")
     lines.append("      (Use fix: for bugs, chore: for maintenance, docs: for documentation)")
     lines.append("   2. Mark all subtasks as done:")
@@ -1511,7 +1512,8 @@ def implement_finalize_and_print(
     print(f"    cat {prompt_file}")
     print()
     print("After implementation, run:")
-    print(f'  1. git status && git add <your-files> && git commit -m "feat({normalized_wp_id}): <description>"')
+    _finalize_recipe = safe_commit_recipe(["<your-files>"], f"feat({normalized_wp_id}): <description>", workspace.branch_name)
+    print(f"  1. git status && {_finalize_recipe}")
     print(f"  2. spec-kitty agent tasks mark-status {subtask_cmd} --status done --mission {mission_slug}")
     print(f'  3. spec-kitty agent tasks move-task {normalized_wp_id} --to for_review --mission {mission_slug} --note "Ready for review"')
     print("     (Pre-flight check will verify no uncommitted changes)")
@@ -1532,6 +1534,41 @@ class ReviewLaneContext:
     review_workspace: ResolvedWorkspace
     status_execution_mode: str
     is_review_claimed: bool
+
+
+def _refuse_review_of_unmigrated_single_branch(main_repo_root: Path, mission_slug: str) -> None:
+    """Fail loud (``SINGLE_BRANCH_CODE_LANES_UNMIGRATED``) for an unmigrated single_branch mission (#5100 T020b).
+
+    Review, unlike ``implement`` (contracts/single-branch-execution.md), does
+    NOT get this refusal for free from manifest-shape routing alone: an
+    unmigrated single_branch mission's WPs still sit on CODE lanes in
+    ``lanes.json``, so they would otherwise resolve to an ordinary
+    ``.worktrees/`` lane workspace and review would silently create one --
+    contradicting the mission's stored ``single_branch`` topology instead of
+    surfacing the drift. This is the writer chokepoint that catches it before
+    :func:`_prepare_review_workspace` would ever run ``git worktree add``.
+    """
+    from mission_runtime import (
+        TopologyManifestMismatch,
+        assert_topology_matches_manifest,
+        is_single_branch,
+        resolve_topology,
+    )
+    from specify_cli.lanes.compute import has_code_lanes
+    from specify_cli.lanes.persistence import read_lanes_json
+
+    topology = resolve_topology(main_repo_root, mission_slug)
+    if not is_single_branch(topology):
+        return
+    lanes_dir = placement_seam(main_repo_root, mission_slug).read_dir(MissionArtifactKind.LANE_STATE)
+    lanes_manifest = read_lanes_json(lanes_dir)
+    if lanes_manifest is None:
+        return
+    try:
+        assert_topology_matches_manifest(topology, has_code_lanes=has_code_lanes(lanes_manifest), mission_slug=mission_slug)
+    except TopologyManifestMismatch as exc:
+        print(f"Error: {exc}")
+        raise typer.Exit(1) from exc
 
 
 def review_resolve_wp_and_lane_gate(
@@ -1570,7 +1607,8 @@ def review_resolve_wp_and_lane_gate(
     review_workspace = _wf().resolve_workspace_for_wp(
         main_repo_root, mission_slug, normalized_wp_id, write_intent=True
     )
-    status_execution_mode = "direct_repo" if review_workspace.resolution_kind == "repo_root" else "worktree"
+    status_execution_mode = review_workspace.status_execution_mode
+    _refuse_review_of_unmigrated_single_branch(main_repo_root, mission_slug)
     latest_event = None
     for event in reversed(rv_events):
         if getattr(event, "wp_id", None) == normalized_wp_id:

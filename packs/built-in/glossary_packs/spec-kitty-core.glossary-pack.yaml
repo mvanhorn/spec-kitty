@@ -15,8 +15,17 @@ terms:
     path, and dependency state. Passed to agents at step boundaries.
   status: active
   surface: action context
+- confidence: 0.85
+  definition: A bounded set of profile-loaded delegates, dispatched at an SDD
+    point-cut, each casting a distinct doctrine lens chosen for that
+    point-cut's question so independent perspectives converge on findings a
+    single reviewer would miss. Optional and advisory, never a gate. Owned
+    by the built-in adversarial-squad-deployment procedure (the single
+    owner of when, who, and how).
+  status: active
+  surface: adversarial squad
 - confidence: 0.75
-  definition: An execution mode in which the harness proposes answers to 
+  definition: An execution mode in which the harness proposes answers to
     interview questions for mission owner confirmation, without acting 
     autonomously. The mission owner retains final authority on every decision.
   status: draft
@@ -37,6 +46,17 @@ terms:
     immediate parent.\n"
   status: active
   surface: base branch
+- aliases:
+  - behavior-driven development
+  confidence: 0.9
+  definition: A collaboration practice, not a testing methodology, that
+    operates through Discovery (Three Amigos conversations produce
+    concrete behavioral examples), Formulation (examples become
+    plain-language Given/When/Then specifications), and Automation
+    (specifications connect to executable tests). See the paradigm and the
+    bdd-scenario-formulation tactic.
+  status: active
+  surface: behaviour-driven development
 - confidence: 0.95
   definition: "The mission-create guard for PR-bound missions that requires an explicit
     operator or agent decision before planning artifacts are written on a primary
@@ -753,3 +773,30 @@ terms:
   synonyms_to_avoid:
   - replaces
   - supersedes
+- confidence: 1.0
+  definition: A stable identifier for one spec requirement -- a kind (FR, NFR,
+    C, or SC), a digit string whose width is significant, an optional single
+    lowercase letter suffix, and an optional mission-slug qualifier; canonical
+    form is kind uppercase, digits verbatim, suffix lowercase. Not to be confused
+    with an implementation-concern ID (a separate plan-level grammar) or a work
+    package ID.
+  status: active
+  surface: requirement id
+- confidence: 1.0
+  definition: A measurable outcome a spec declares with the SC kind; it is a
+    requirement id that is tracked (reported in finalize-tasks' informational
+    success-criteria coverage) but not gating -- an undeclared SC ref cited on
+    a work package still fails as unknown_spec_id. Not to be confused with a
+    user story's acceptance scenario or a functional requirement, whose
+    mapping is coverage-gated.
+  status: active
+  surface: success criterion
+- confidence: 1.0
+  definition: A requirement id prefixed with another mission's slug and a hash
+    separator (foreign-qualified). It belongs to the named mission, is never
+    declared, required, flagged, or warned about, and is reported as
+    foreign-qualified -- never failing -- when cited in a work package's refs;
+    the qualifier itself is never resolved. Not to be confused with a GitHub
+    issue reference or a file path.
+  status: active
+  surface: qualified citation

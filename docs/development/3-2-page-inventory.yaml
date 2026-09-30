@@ -1130,6 +1130,24 @@
   owning_workstream: none
   current_target: true
   notes: null
+- path: docs/adr/3.x/2026-09-29-1-catalog-languages-states-and-reserved-unknown.md
+  tag: current
+  divio_type: none
+  owning_workstream: none
+  current_target: true
+  notes: null
+- path: docs/adr/3.x/2026-09-29-1-closed-world-refuse-on-mixed-lanes.md
+  tag: current
+  divio_type: none
+  owning_workstream: none
+  current_target: true
+  notes: null
+- path: docs/adr/3.x/2026-09-29-1-requirement-id-grammar-single-authority.md
+  tag: current
+  divio_type: none
+  owning_workstream: none
+  current_target: true
+  notes: null
 - path: docs/adr/3.x/README.md
   tag: current
   divio_type: none
@@ -1972,7 +1990,7 @@
   notes: null
 - path: docs/changelog/CHANGELOG.md
   tag: current
-  divio_type: none
+  divio_type: reference
   owning_workstream: none
   current_target: true
   notes: null
@@ -2241,6 +2259,12 @@
   current_target: true
   notes: null
 - path: docs/context/testing-taxonomy.md
+  tag: current
+  divio_type: none
+  owning_workstream: none
+  current_target: true
+  notes: null
+- path: docs/context/topology.md
   tag: current
   divio_type: none
   owning_workstream: none
@@ -2565,6 +2589,12 @@
   current_target: true
   notes: null
 - path: docs/guides/how-to/governance/create-an-org-doctrine-pack.md
+  tag: current
+  divio_type: how-to
+  owning_workstream: none
+  current_target: true
+  notes: null
+- path: docs/guides/how-to/governance/extend-charter-for-unsupported-language.md
   tag: current
   divio_type: how-to
   owning_workstream: none

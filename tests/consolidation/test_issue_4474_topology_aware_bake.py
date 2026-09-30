@@ -173,7 +173,10 @@ def test_coord_topology_bake_persists_to_primary_tree_when_reachable(tmp_path: P
     # Doctor-proxy: pending -> assigned AFTER the bake.
     assert needs_number_assignment(feature_dir) is False, "doctor-equivalent predicate must flip pending -> assigned"
 
-    assert state.mission_number_baked is True
+    # #4900: this write lands directly on target_branch, but the seam
+    # itself never marks mission_number_baked -- only the executor does,
+    # after ``assert_mission_number_on_target`` verifies it there.
+    assert state.mission_number_baked is False
 
 
 # ---------------------------------------------------------------------------
@@ -233,8 +236,12 @@ def test_genuinely_unreachable_primary_surfaces_instead_of_silent_fail_open(tmp_
             merge_state=state,
         )
 
-    # No number was ever committed anywhere reachable.
-    assert result is None, "a genuinely-unreachable primary tree must never fabricate an assigned number"
+    # #4900: the decided number is still RETURNED (never discarded),
+    # so the executor's unconditional target-tree write + read-back decides
+    # the outcome: that write refuses (``Error:`` + exit 1) when the target
+    # meta.json is absent, rather than the historical silent ``null`` + exit 0.
+    # Nothing was committed on the mission branch or the primary tree here.
+    assert result == 1, "the computed mission_number must reach the executor's target-tree write, not be discarded"
     assert state.mission_number_baked is False, "the baked flag must not be set when nothing was actually persisted"
 
     # The failure must be OBSERVABLE (a merge-summary line), never a silent skip.

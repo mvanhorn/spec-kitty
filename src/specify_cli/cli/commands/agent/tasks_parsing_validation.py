@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from specify_cli.workspace.context import ResolvedWorkspace
 
+from specify_cli.cli.commands._commit_recipes import safe_commit_recipe
 from specify_cli.cli.commands.agent.tasks_dependency_graph import (
     _count_behind_commits_outside_planning_artifacts,
 )
@@ -260,6 +261,44 @@ class _ConsoleLike(Protocol):
     def print(self, *values: object) -> None: ...
 
 
+def _attribute_blocking_entry(paths: tuple[str, ...], wp_id: str, mission_slug: str, blocking_set: set[str]) -> str:
+    """Return the honest attribution phrase for one blocking dirty entry.
+
+    *paths* is a single-element tuple for an ordinary add/modify/delete
+    porcelain line, or the ``(old, new)`` pair for a rename-form line
+    (PR-FRESH-001) -- checked in that order so a rename into the moving WP's
+    own directory is still reported as ``owned by {wp_id}`` even when the
+    *old* side belongs to someone else, never hiding that the moving WP
+    itself owns a side of the entry.
+
+    *blocking_set* is the same blocking-path set ``classify_dirty_paths``
+    already computed for this call (PR-FRESH2-001): ownership is derived
+    ONLY from the side(s) that are themselves members of that set, never
+    from a side ``_is_benign`` already exempted. Without this filter, a
+    benign-exempted side (self-bookkeeping churn such as ``meta.json``, or
+    any WP's flat ``tasks/WPxx-*.md`` task file) that merely happens to sit
+    under the moving WP's own directory could resolve to ``wp_id`` via
+    ``owning_wp_for_path`` alone and mislabel an entry that actually blocks
+    for a wholly different (genuinely unattributable) reason — diverging
+    from ``classify_dirty_paths``'s own blocking/benign partition, exactly
+    what spec.md's Key Entities section forbids.
+
+    FR-001/002/003 already route any path owned by a *different* WP into
+    ``benign`` (see dirty_classifier.classify_dirty_paths), so a blocking
+    entry's determined owner, for each blocking-side path, is always either
+    the moving WP itself (its own residue) or "not attributable" — never a
+    different, specific WP. See spec.md FR-005 / User Story 2.
+    """
+    from specify_cli.review.dirty_classifier import owning_wp_for_path
+
+    for path in paths:
+        if path not in blocking_set:
+            continue
+        if owning_wp_for_path(path, mission_slug) == wp_id:
+            return f"owned by {wp_id}"
+    return "not attributable to a specific work package"
+
+
 def _validate_research_artifacts(
     *,
     main_repo_root: Path,
@@ -288,8 +327,15 @@ def _validate_research_artifacts(
     # expected during concurrent multi-agent work and must NOT block handoff.
     from specify_cli.review.dirty_classifier import classify_dirty_paths
 
-    raw_paths = []
-    raw_lines = []
+    # Each entry pairs one raw porcelain line with the path(s) it names.
+    # A rename entry (PR-FRESH-001) reports as ONE composite line,
+    # "old -> new" -- git's own convention for a staged/detected rename --
+    # and must be judged on BOTH paths: it blocks if EITHER side would
+    # block for the moving WP, and is benign only when BOTH sides are.
+    # Splitting here, before either path string ever reaches the
+    # classifier, keeps a rename from ever presenting a composite string to
+    # a single-path classifier/regex.
+    entries: list[tuple[str, tuple[str, ...]]] = []
     for line in uncommitted_in_main.split("\n"):
         if not line.strip():
             continue
@@ -302,41 +348,53 @@ def _validate_research_artifacts(
         # ``.gitignore``.
         if _is_dossier_snapshot(file_part):
             continue
-        raw_paths.append(file_part)
-        raw_lines.append(line)
+        if " -> " in file_part:
+            old_path, new_path = file_part.split(" -> ", 1)
+            paths: tuple[str, ...] = (old_path, new_path)
+        else:
+            paths = (file_part,)
+        entries.append((line, paths))
 
-    blocking, benign = classify_dirty_paths(
-        dirty_paths=raw_paths,
+    flat_paths = [path for _line, paths in entries for path in paths]
+    blocking, _benign = classify_dirty_paths(
+        dirty_paths=flat_paths,
         wp_id=wp_id,
         mission_slug=mission_slug,
     )
+    blocking_set = set(blocking)
+    blocking_entries = [(line, paths) for line, paths in entries if blocking_set & set(paths)]
 
-    if benign:
-        # Log info only — benign dirty files do not block review handoff
-        console.print(f"[dim]Note: {len(benign)} unrelated dirty file(s) ignored (not owned by {wp_id})[/dim]")
+    if len(entries) > len(blocking_entries):
+        # Log info only — benign dirty files/entries do not block review handoff
+        benign_entry_count = len(entries) - len(blocking_entries)
+        console.print(f"[dim]Note: {benign_entry_count} unrelated dirty file(s) ignored (not owned by {wp_id})[/dim]")
 
-    if not blocking:
+    if not blocking_entries:
         return None
 
     guidance: list[str] = []
-    # Only show lines whose file_part is in the blocking list
-    blocking_set = set(blocking)
-    blocking_lines = [line for line, fp in zip(raw_lines, raw_paths, strict=False) if fp in blocking_set]
-    guidance.append(f"Blocking: {len(blocking)} uncommitted file(s) owned by {wp_id}:")
+    guidance.append(f"Blocking: {len(blocking_entries)} uncommitted file(s):")
     guidance.append("")
     guidance.append("Modified files in kitty-specs/:")
-    for line in blocking_lines[:5]:
-        guidance.append(f"  {line}")
-    if len(blocking_lines) > 5:
-        guidance.append(f"  ... and {len(blocking_lines) - 5} more")
+    for line, paths in blocking_entries[:5]:
+        attribution = _attribute_blocking_entry(paths, wp_id, mission_slug, blocking_set)
+        guidance.append(f"  {line} ({attribution})")
+    if len(blocking_entries) > 5:
+        guidance.append(f"  ... and {len(blocking_entries) - 5} more")
     guidance.append("")
     guidance.append(f"Commit these files before moving to {target_lane}.")
     guidance.append(f"  cd {main_repo_root}")
-    guidance.append(f"  git add kitty-specs/{mission_slug}/")
-    if mission_type == MISSION_TYPE_RESEARCH:
-        guidance.append(f'  git commit -m "research({wp_id}): <describe your research outputs>"')
-    else:
-        guidance.append(f'  git commit -m "docs({wp_id}): <describe your changes>"')
+    _research_message = f"research({wp_id}): <describe your research outputs>"
+    _docs_message = f"docs({wp_id}): <describe your changes>"
+    _commit_message = _research_message if mission_type == MISSION_TYPE_RESEARCH else _docs_message
+    # FR-018 (WP03 review cycle 1, #1): name --to-branch, resolved from
+    # main_repo_root's own checked-out branch (the planning-artifact
+    # destination) -- one extra git call on this error-guidance path is
+    # acceptable.
+    from specify_cli.core.git_ops import get_current_branch as _get_branch_for_research
+
+    _research_branch = _get_branch_for_research(main_repo_root)
+    guidance.append(f"  {safe_commit_recipe([f'kitty-specs/{mission_slug}/'], _commit_message, _research_branch)}")
     guidance.append("")
     guidance.append(f"Then retry: spec-kitty agent tasks move-task {wp_id} --to {target_lane}")
     return guidance
@@ -533,8 +591,15 @@ def _check_uncommitted_worktree_changes(
     guidance.append("")
     guidance.append("Commit your work first:")
     guidance.append(f"  cd {worktree_path}")
-    guidance.append("  git add <deliverable-path-1> <deliverable-path-2> ...")
-    guidance.append(f'  git commit -m "feat({wp_id}): <describe implementation>"')
+    # FR-018 (WP03 review cycle 1, #1): name --to-branch, resolved from
+    # worktree_path's own checked-out branch.
+    from specify_cli.core.git_ops import get_current_branch as _get_branch_for_deliverable
+
+    _deliverable_branch = _get_branch_for_deliverable(worktree_path)
+    _deliverable_recipe = safe_commit_recipe(
+        ["<deliverable-path-1>", "<deliverable-path-2>", "..."], f"feat({wp_id}): <describe implementation>", _deliverable_branch
+    )
+    guidance.append(f"  {_deliverable_recipe}")
     guidance.append("")
     guidance.append(f"Then retry: spec-kitty agent tasks move-task {wp_id} --to {target_lane}")
     return guidance
@@ -563,8 +628,15 @@ def _check_implementation_commit_present(
     guidance.append("  2. Or verify work is complete (use --force if nothing to commit)")
     guidance.append("")
     guidance.append(f"  cd {worktree_path}")
-    guidance.append("  git add <deliverable-path-1> <deliverable-path-2> ...")
-    guidance.append(f'  git commit -m "feat({wp_id}): <describe implementation>"')
+    # FR-018 (WP03 review cycle 1, #1): name --to-branch, resolved from
+    # worktree_path's own checked-out branch.
+    from specify_cli.core.git_ops import get_current_branch as _get_branch_for_commit_present
+
+    _no_commit_branch = _get_branch_for_commit_present(worktree_path)
+    _deliverable_recipe = safe_commit_recipe(
+        ["<deliverable-path-1>", "<deliverable-path-2>", "..."], f"feat({wp_id}): <describe implementation>", _no_commit_branch
+    )
+    guidance.append(f"  {_deliverable_recipe}")
     guidance.append("")
     guidance.append(f"Then retry: spec-kitty agent tasks move-task {wp_id} --to {target_lane}")
     return guidance
@@ -658,10 +730,48 @@ def _check_kitty_specs_contamination(
     guidance.append(f"Clean the branch before moving to {target_lane}:")
     guidance.append(f"  cd {worktree_path}")
     guidance.append(f"  git restore --source {_guard_base} --staged --worktree -- {KITTY_SPECS_DIR}/")
-    guidance.append('  git commit -m "chore: remove planning artifacts from lane branch"')
+    # FR-018 (WP03 review cycle 1, #1): --to-branch must name worktree_path's
+    # OWN checked-out branch, resolved here with one extra git call -- never
+    # check_branch/_guard_base, which is the comparison BASE this lane
+    # diverges from, not the destination the commit must land on. Naming
+    # check_branch would print a recipe safe-commit's own HEAD-match guard
+    # then refuses to run.
+    from specify_cli.core.git_ops import get_current_branch as _get_branch_for_cleanup
+
+    _cleanup_branch = _get_branch_for_cleanup(worktree_path)
+    _cleanup_recipe = safe_commit_recipe([f"{KITTY_SPECS_DIR}/"], "chore: remove planning artifacts from lane branch", _cleanup_branch)
+    guidance.append(f"  {_cleanup_recipe}")
     guidance.append("")
     guidance.append(f"Then retry: spec-kitty agent tasks move-task {wp_id} --to {target_lane}")
     return guidance
+
+
+def _validate_repo_root_workspace(
+    *,
+    workspace: ResolvedWorkspace,
+    workspace_override: ResolvedWorkspace | None,
+    main_repo_root: Path,
+    mission_slug: str,
+    wp_id: str,
+    target_lane: str,
+) -> tuple[bool, list[str]]:
+    """Readiness verdict for a WP that runs in the repository-root checkout.
+
+    A branchless planning_artifact WP (and an owned checkout, which has its own
+    implementation guard) keeps the historic short-circuit. A repo-root WP that
+    owns a real branch (single_branch code WP) has no worktree to inspect, so
+    the shared claim-base ``for_review`` gate (:mod:`specify_cli.lanes.for_review_gate`,
+    the same one ``agent status emit`` and the orchestrator use) decides.
+    """
+    if workspace_override is not None or str(getattr(target_lane, "value", target_lane)) != "for_review" or getattr(workspace, "branch_name", None) is None:
+        return True, []
+
+    from specify_cli.lanes.for_review_gate import evaluate_for_review_gate
+
+    decision = evaluate_for_review_gate(main_repo_root, mission_slug, wp_id)
+    if decision.passed:
+        return True, []
+    return False, [decision.reason]
 
 
 def _validate_worktree_state(
@@ -704,7 +814,14 @@ def _validate_worktree_state(
             workspace = None
 
     if workspace is not None and workspace.resolution_kind == "repo_root":
-        return True, []
+        return _validate_repo_root_workspace(
+            workspace=workspace,
+            workspace_override=workspace_override,
+            main_repo_root=main_repo_root,
+            mission_slug=mission_slug,
+            wp_id=wp_id,
+            target_lane=target_lane,
+        )
 
     worktree_path = _resolve_worktree_path(
         main_repo_root=main_repo_root,

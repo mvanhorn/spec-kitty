@@ -8,9 +8,12 @@ has the branch checked out. That worktree is left with an index/working tree
 deletions, and a plain ``git commit`` from its stale index would silently
 delete the advanced commits' files from the branch (#1826).
 
-:func:`advance_branch_ref` is the single sanctioned way for the merge
-pipeline to advance a branch ref. **Invariant: no worktree may be left
-checked out behind a ref this function advanced.** An architectural ratchet
+:func:`advance_branch_ref` is the sanctioned way for the merge pipeline to
+advance a branch ref. Safe commits use the narrower
+:func:`advance_branch_ref_for_commit`, which CAS-advances only when the target
+branch is checked out exactly in the worktree whose requested index paths the
+caller reconciles. **Invariant: no sibling worktree may be left checked out
+behind a ref either function advanced.** An architectural ratchet
 (``tests/architectural/test_merge_pipeline_ratchets.py``) enforces that no
 raw ``update-ref`` subprocess invocation exists in ``src/specify_cli``
 outside this module (AC-B3).
@@ -79,10 +82,39 @@ def _cas_expected_old(expected_old_sha: str | None, observed_old_sha: str) -> st
     return _ZERO_OID if candidate == _UNBORN else candidate
 
 
+def _update_branch_ref_cas(
+    repo_root: Path,
+    ref: str,
+    new_sha: str,
+    expected_old_sha: str,
+    *,
+    env: dict[str, str] | None = None,
+    message: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Perform the single canonical compare-and-swap ref write."""
+    args = ["update-ref"]
+    if message is not None:
+        args.extend(["-m", message])
+    args.extend([ref, new_sha, expected_old_sha])
+    return _run_git(repo_root, args, env=env)
+
+
 class RefAdvanceError(RuntimeError):
     """A branch-ref advance failed at the git level (non-dirty cause)."""
 
     error_code = "REF_ADVANCE_FAILED"
+
+
+class RefResyncError(RefAdvanceError):
+    """The compare-and-swap ref write SUCCEEDED but a checkout resync failed.
+
+    Unlike a plain :class:`RefAdvanceError` (e.g. a CAS refusal: ANOTHER actor
+    moved the ref), the ref now holds the value THIS caller wrote. Callers that
+    attribute ref moves (the consolidation rollback recorder) must treat it as
+    their own move. The worktree named in the message is behind its own HEAD.
+    """
+
+    error_code = "REF_RESYNC_FAILED"
 
 
 class RefRestoreError(RuntimeError):
@@ -398,6 +430,66 @@ def reset_would_obstruct_untracked(
     return any(_RESET_OBSTRUCTION_MARKER in entry for entry in dirty)
 
 
+def _checkouts_ready_for(
+    repo_root: Path,
+    branch: str,
+    new_sha: str,
+    env: dict[str, str] | None,
+    is_residue: Callable[[str], bool] | None,
+    *,
+    old_sha: str,
+) -> list[Path]:
+    """List worktrees with ``branch`` checked out, refusing if any is dirty.
+
+    Runs strictly BEFORE the ref moves so a refusal is atomic (nothing
+    advanced, nothing reset). Shared by :func:`advance_branch_ref` and
+    :func:`restore_branch_ref` (``resync_checkouts=True``).
+    """
+    ref = f"refs/heads/{branch}"
+    checkouts = [entry.path for entry in _list_worktrees(repo_root, env) if not entry.detached and entry.branch == ref]
+    target_paths = _target_tree_paths(repo_root, new_sha, env)
+    for worktree in checkouts:
+        dirty = _dirty_entries(
+            worktree,
+            env,
+            new_sha=new_sha,
+            target_paths=target_paths,
+            is_residue=is_residue,
+        )
+        if dirty:
+            raise RefAdvanceDirtyWorktreeError(
+                worktree_path=worktree.resolve(),
+                branch=branch,
+                old_sha=old_sha,
+                new_sha=new_sha,
+                dirty_entries=dirty,
+            )
+    return checkouts
+
+
+def _resync_checkouts(
+    checkouts: list[Path],
+    branch: str,
+    env: dict[str, str] | None,
+    *,
+    context: str,
+) -> None:
+    """Hard-reset each checkout to the (already moved) ``branch`` ref (#1826).
+
+    Raises :class:`RefResyncError` (the ref already moved) when a reset fails.
+    """
+    for worktree in checkouts:
+        reset = _run_git(worktree, ["reset", "--hard", branch], env=env)
+        if reset.returncode != 0:
+            raise RefResyncError(
+                f"{context} but "
+                f"failed to resync the checked-out worktree at {worktree}: "
+                f"{reset.stderr.strip() or reset.stdout.strip()}. "
+                f"The worktree is behind its own HEAD (#1826); repair with "
+                f"`git -C {worktree} reset --hard` once the cause is fixed."
+            )
+
+
 def advance_branch_ref(
     repo_root: Path,
     branch: str,
@@ -451,10 +543,11 @@ def advance_branch_ref(
         RefAdvanceDirtyWorktreeError: a worktree with ``branch`` checked out
             holds uncommitted tracked changes (NFR-002/NFR-003); nothing was
             mutated.
-        RefAdvanceError: the worktree scan or a resync failed at the git
-            level, or the compare-and-swap ``update-ref`` failed because the
-            ref changed since it was read (fail-closed; never a 2-arg fallback
-            or a retry).
+        RefAdvanceError: the worktree scan failed at the git level, or the
+            compare-and-swap ``update-ref`` failed because the ref changed
+            since it was read (fail-closed; never a 2-arg fallback or a retry).
+        RefResyncError: the ``RefAdvanceError`` subclass raised when the ref
+            WAS advanced but a checked-out worktree could not be resynced.
     """
     ref = f"refs/heads/{branch}"
 
@@ -476,30 +569,10 @@ def advance_branch_ref(
         if ff_check.returncode != 0:
             raise RefAdvanceError(f"Could not verify fast-forward ancestry for {branch}: {ff_check.stderr.strip() or ff_check.stdout.strip()}")
 
-    checkouts = [entry.path for entry in _list_worktrees(repo_root, env) if not entry.detached and entry.branch == ref]
-    target_paths = _target_tree_paths(repo_root, new_sha, env)
-
-    # Dirty check strictly BEFORE the ref mutation and BEFORE any reset path:
-    # a refusal must be atomic (nothing advanced, nothing reset).
-    for worktree in checkouts:
-        dirty = _dirty_entries(
-            worktree,
-            env,
-            new_sha=new_sha,
-            target_paths=target_paths,
-            is_residue=is_residue,
-        )
-        if dirty:
-            raise RefAdvanceDirtyWorktreeError(
-                worktree_path=worktree.resolve(),
-                branch=branch,
-                old_sha=old_sha,
-                new_sha=new_sha,
-                dirty_entries=dirty,
-            )
+    checkouts = _checkouts_ready_for(repo_root, branch, new_sha, env, is_residue, old_sha=old_sha)
 
     expected_old = _cas_expected_old(expected_old_sha, old_sha)
-    result = _run_git(repo_root, ["update-ref", ref, new_sha, expected_old], env=env)
+    result = _update_branch_ref_cas(repo_root, ref, new_sha, expected_old, env=env)
     if result.returncode != 0:
         raise RefAdvanceError(
             f"Compare-and-swap advance of {branch!r} "
@@ -510,16 +583,12 @@ def advance_branch_ref(
             f"git: {result.stderr.strip() or result.stdout.strip()}"
         )
 
-    for worktree in checkouts:
-        reset = _run_git(worktree, ["reset", "--hard", branch], env=env)
-        if reset.returncode != 0:
-            raise RefAdvanceError(
-                f"Advanced {branch} ({old_sha[:12]} -> {new_sha[:12]}) but "
-                f"failed to resync the checked-out worktree at {worktree}: "
-                f"{reset.stderr.strip() or reset.stdout.strip()}. "
-                f"The worktree is behind its own HEAD (#1826); repair with "
-                f"`git -C {worktree} reset --hard` once the cause is fixed."
-            )
+    _resync_checkouts(
+        checkouts,
+        branch,
+        env,
+        context=f"Advanced {branch} ({old_sha[:12]} -> {new_sha[:12]})",
+    )
 
 
 def restore_branch_ref(
@@ -528,20 +597,149 @@ def restore_branch_ref(
     restored_sha: str,
     *,
     expected_current_sha: str,
+    resync_checkouts: bool = False,
+    is_residue: Callable[[str], bool] | None = None,
+    env: dict[str, str] | None = None,
 ) -> None:
     """Restore a branch ref with compare-and-swap semantics after failure.
 
     This is the rollback-only counterpart to :func:`advance_branch_ref`.
     It deliberately permits a non-fast-forward move, but only when the ref is
-    still at ``expected_current_sha``. Callers own restoration of the affected
-    checkout's index and intentionally retain worktree files for diagnosis.
+    still at ``expected_current_sha``.
+
+    By DEFAULT (``resync_checkouts=False``) callers own restoration of the
+    affected checkout's index and intentionally retain worktree files for
+    diagnosis. With ``resync_checkouts=True`` every worktree that has
+    ``branch`` checked out is dirty-checked BEFORE the ref moves (a dirty
+    checkout raises :class:`RefAdvanceDirtyWorktreeError` and nothing is
+    mutated; ``is_residue`` excludes toolchain churn exactly as in
+    :func:`advance_branch_ref`), the ref then moves under the same
+    compare-and-swap, and each checkout is hard-reset to the restored ref via
+    the shared :func:`_resync_checkouts` (HEAD == index == worktree).
     """
     ref = f"refs/heads/{branch}"
-    result = _run_git(
-        repo_root,
-        ["update-ref", ref, restored_sha, expected_current_sha],
-    )
+    checkouts: list[Path] = []
+    if resync_checkouts:
+        checkouts = _checkouts_ready_for(
+            repo_root,
+            branch,
+            restored_sha,
+            env,
+            is_residue,
+            old_sha=expected_current_sha,
+        )
+    result = _update_branch_ref_cas(repo_root, ref, restored_sha, expected_current_sha, env=env)
     if result.returncode != 0:
         raise RefRestoreError(
             f"Failed to restore {branch!r} from {expected_current_sha[:12]} to {restored_sha[:12]}: {result.stderr.strip() or result.stdout.strip()}"
         )
+    _resync_checkouts(
+        checkouts,
+        branch,
+        env,
+        context=f"Restored {branch} ({expected_current_sha[:12]} -> {restored_sha[:12]})",
+    )
+
+
+def advance_branch_ref_for_commit(
+    repo_root: Path,
+    worktree_root: Path,
+    branch: str,
+    new_sha: str,
+    *,
+    expected_old_sha: str,
+    message: str,
+    env: dict[str, str] | None = None,
+) -> None:
+    """CAS-advance a safe-commit target without resyncing unrelated paths.
+
+    This narrow seam is only for ``safe_commit``'s path-scoped index
+    transaction: after this returns, that caller reconciles the requested
+    paths itself. Unlike :func:`advance_branch_ref`, it must not hard-reset a
+    worktree, because doing so would discard unrelated staged or working-tree
+    state. Before writing, it verifies that the target ref is checked out
+    exactly in ``worktree_root``; otherwise a raw ref move could leave a
+    sibling checkout stale (#1826), or leave the caller without a checkout to
+    reconcile.
+    """
+    ref = f"refs/heads/{branch}"
+    resolved_worktree = worktree_root.resolve()
+    checkouts = [entry for entry in _list_worktrees(repo_root, env) if not entry.detached and entry.branch == ref]
+    if len(checkouts) > 1:
+        raise RefAdvanceError(f"Refusing safe-commit advance of {branch!r}: it is checked out in another worktree too (more than one worktree total).")
+    if not checkouts:
+        raise RefAdvanceError(f"Refusing safe-commit advance of {branch!r}: it is not checked out in the worktree safe_commit reconciles at {resolved_worktree}.")
+    if checkouts[0].path.resolve() != resolved_worktree:
+        raise RefAdvanceError(
+            f"Refusing safe-commit advance of {branch!r}: it is checked out in other worktree "
+            f"{checkouts[0].path.resolve()}, not the worktree safe_commit reconciles at {resolved_worktree}."
+        )
+
+    updated = _update_branch_ref_cas(
+        repo_root,
+        ref,
+        new_sha,
+        expected_old_sha,
+        env=env,
+        message=message,
+    )
+    if updated.returncode != 0:
+        detail = (updated.stderr or updated.stdout).strip()
+        raise RefAdvanceError(
+            f"Compare-and-swap safe-commit advance of {branch!r} failed: expected "
+            f"{expected_old_sha[:12]}; refusing to clobber a concurrent ref update. "
+            f"git: {detail or 'git update-ref failed'}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Spec Kitty bookkeeping refs (``refs/spec-kitty/**``)
+# ---------------------------------------------------------------------------
+
+#: Namespace of the bookkeeping refs spec-kitty records for itself (lane work
+#: tips, repo-root claim bases). They are never branches and never checked
+#: out, so the #1826 worktree-resync hazard :func:`advance_branch_ref` guards
+#: against cannot arise; they still go through this module so the AC-B3
+#: ratchet keeps every raw ``update-ref`` in one place.
+BOOKKEEPING_REF_PREFIX: str = "refs/spec-kitty/"
+
+
+class BookkeepingRefError(ValueError):
+    """A bookkeeping-ref write named a ref outside ``refs/spec-kitty/``."""
+
+    error_code = "BOOKKEEPING_REF_OUT_OF_NAMESPACE"
+
+
+def _require_bookkeeping_ref(ref: str) -> None:
+    if not ref.startswith(BOOKKEEPING_REF_PREFIX) or ref == BOOKKEEPING_REF_PREFIX:
+        raise BookkeepingRefError(
+            f"Refusing to write {ref!r}: only {BOOKKEEPING_REF_PREFIX}** bookkeeping refs are written here; branch refs go through advance_branch_ref()."
+        )
+
+
+def write_bookkeeping_ref(repo_root: Path, ref: str, sha: str) -> bool:
+    """Point the bookkeeping ref *ref* at *sha*; return ``True`` on success.
+
+    A plain (2-arg) ``git update-ref``: bookkeeping refs are single-writer
+    records owned by their caller, which decides whether a failure matters
+    (a best-effort recorder ignores ``False``; a mandatory one raises).
+
+    Raises:
+        BookkeepingRefError: *ref* is not under ``refs/spec-kitty/`` -- a
+            branch or any other namespace must never be moved through here.
+    """
+    _require_bookkeeping_ref(ref)
+    return _run_git(repo_root, ["update-ref", ref, sha]).returncode == 0
+
+
+def delete_bookkeeping_ref(repo_root: Path, ref: str) -> bool:
+    """Delete the bookkeeping ref *ref*; return ``True`` on success.
+
+    Deleting an already-absent ref succeeds (``git update-ref -d`` is a
+    no-op for a missing ref), so callers may treat this as idempotent.
+
+    Raises:
+        BookkeepingRefError: *ref* is not under ``refs/spec-kitty/``.
+    """
+    _require_bookkeeping_ref(ref)
+    return _run_git(repo_root, ["update-ref", "-d", ref]).returncode == 0

@@ -333,7 +333,6 @@ exclude = [
     "src/charter/activation/evidence/corpus_loader.py",
     "src/charter/activation/evidence/orchestrator.py",
     "src/charter/activation/governance_references.py",
-    "src/charter/hasher.py",
     "src/charter/activation/interview.py",
     "src/charter/activation/invocation_context.py",
     "src/charter/activation/language_scope.py",
@@ -420,10 +419,8 @@ exclude = [
     "src/kernel/env_expand.py",
     "src/kernel/git_topology.py",
     "src/kernel/sibling_paths.py",
-    "src/mission_runtime/__init__.py",
     "src/mission_runtime/artifacts.py",
     "src/mission_runtime/checkout_identity.py",
-    "src/mission_runtime/context.py",
     "src/mission_runtime/lifecycle_phase.py",
     "src/mission_runtime/read_dir_degrade.py",
     "src/runtime/next/__init__.py",
@@ -441,7 +438,6 @@ exclude = [
     "src/runtime/next/_runtime_pkg_notice.py",
     "src/runtime/next/discovery.py",
     "src/runtime/next/runtime_bridge_composition.py",
-    "src/runtime/next/runtime_bridge_cores.py",
     "src/runtime/next/runtime_bridge_engine.py",
     "src/runtime/next/runtime_bridge_identity.py",
     "src/runtime/next/runtime_bridge_retrospective.py",
@@ -489,7 +485,6 @@ exclude = [
     "src/specify_cli/cli/commands/_doctrine_collect.py",
     "src/specify_cli/cli/commands/_doctrine_health.py",
     "src/specify_cli/cli/commands/_env_file_doctor.py",
-    "src/specify_cli/cli/commands/_identity_audit.py",
     "src/specify_cli/cli/commands/_mission_type_audit.py",
     "src/specify_cli/cli/commands/_profile_health_render.py",
     "src/specify_cli/cli/commands/_test_env_check.py",
@@ -505,7 +500,6 @@ exclude = [
     "src/specify_cli/cli/commands/agent/tasks.py",
     "src/specify_cli/cli/commands/agent/tasks_command_adapters.py",
     "src/specify_cli/cli/commands/agent/tasks_dependency_graph.py",
-    "src/specify_cli/cli/commands/agent/tasks_map_requirements.py",
     "src/specify_cli/cli/commands/agent/tasks_mark_status.py",
     "src/specify_cli/cli/commands/agent/tasks_materialization.py",
     "src/specify_cli/cli/commands/agent/tasks_outline.py",
@@ -570,7 +564,6 @@ exclude = [
     "src/specify_cli/context/store.py",
     "src/specify_cli/contracts/anchoring.py",
     "src/specify_cli/contracts/registry.py",
-    "src/specify_cli/coordination/coherence.py",
     "src/specify_cli/coordination/commit_router.py",
     "src/specify_cli/coordination/legacy_resolution.py",
     "src/specify_cli/coordination/outbound.py",
@@ -651,15 +644,12 @@ exclude = [
     "src/specify_cli/consolidation/conflict_classifier.py",
     "src/specify_cli/consolidation/conflict_resolver.py",
     "src/specify_cli/consolidation/done_bookkeeping.py",
-    "src/specify_cli/consolidation/executor.py",
     "src/specify_cli/consolidation/forecast.py",
-    "src/specify_cli/consolidation/git_probes.py",
     "src/specify_cli/consolidation/push_preflight.py",
     "src/specify_cli/consolidation/workspace.py",
     "src/specify_cli/migration/backfill_identity.py",
     "src/specify_cli/migration/backfill_mission_type.py",
     "src/specify_cli/migration/backfill_runtime_state.py",
-    "src/specify_cli/migration/backfill_topology.py",
     "src/specify_cli/migration/canonicalization.py",
     "src/specify_cli/migration/normalize_mission_lifecycle.py",
     "src/specify_cli/migration/rebuild_state.py",
@@ -693,7 +683,6 @@ exclude = [
     "src/specify_cli/readiness/render.py",
     "src/specify_cli/readiness/upgrade_ux.py",
     "src/specify_cli/release/version.py",
-    "src/specify_cli/requirement_mapping.py",
     "src/specify_cli/retrospective/cli.py",
     "src/specify_cli/retrospective/deprecation.py",
     "src/specify_cli/retrospective/events.py",
@@ -706,7 +695,6 @@ exclude = [
     "src/specify_cli/retrospective/summary.py",
     "src/specify_cli/retrospective/tracer_writer.py",
     "src/specify_cli/retrospective/writer.py",
-    "src/specify_cli/review/arbiter.py",
     "src/specify_cli/review/artifacts.py",
     "src/specify_cli/review/baseline.py",
     "src/specify_cli/review/cycle.py",
@@ -820,7 +808,6 @@ exclude = [
     "src/specify_cli/upgrade/migrations/m_3_2_4_derived_views_gitignore_backfill.py",
     "src/specify_cli/upgrade/migrations/m_3_2_4_runtime_dirs_gitignore_backfill.py",
     "src/specify_cli/upgrade/migrations/m_3_2_5_agents_skills_gitignore_backfill.py",
-    "src/specify_cli/upgrade/migrations/m_3_2_6_retire_rtk_search_tooling.py",
     "src/specify_cli/upgrade/migrations/m_3_2_7_heal_provenance_paths.py",
     "src/specify_cli/upgrade/migrations/m_3_2_x_normalize_activation_absence.py",
     "src/specify_cli/upgrade/migrations/m_3_3_0_session_presence_all_harnesses.py",
@@ -850,7 +837,6 @@ exclude = [
     "tests/_support/test_wall_clock_assertions.py",
     "tests/_support/wall_clock_assertions.py",
     "tests/acceptance/test_issue_3231_scaffold_pending_poisons_acceptance.py",
-    "tests/acceptance/test_post_consolidation.py",
     "tests/acceptance/test_provenance_and_deferral.py",
     "tests/adversarial/test_distribution.py",
     "tests/agent/cli/commands/test_agent_config.py",
@@ -917,7 +903,6 @@ exclude = [
     "tests/architectural/_placement_whole_tree_scan.py",
     "tests/architectural/_ratchet_keys.py",
     "tests/architectural/_sole_door_scan.py",
-    "tests/architectural/_symbol_identity.py",
     "tests/architectural/_symbol_key.py",
     "tests/architectural/_workflow_fixtures/__init__.py",
     "tests/architectural/conftest.py",
@@ -963,7 +948,6 @@ exclude = [
     "tests/architectural/test_merge_reconciliation_class_guard.py",
     "tests/architectural/test_meta_decoder_comparator_singletons.py",
     "tests/architectural/test_migration_chain_integrity.py",
-    "tests/architectural/test_mission_runtime_surface.py",
     "tests/architectural/test_no_absolute_event_timestamp_mixture.py",
     "tests/architectural/test_no_authored_applies_edge.py",
     "tests/architectural/test_no_dead_doctrine_paths.py",
@@ -1126,7 +1110,6 @@ exclude = [
     "tests/charter/test_every_load_delivery.py",
     "tests/charter/test_fetch_stanza_normalization.py",
     "tests/charter/test_glossary_pack_activation.py",
-    "tests/charter/test_hasher.py",
     "tests/charter/test_integration.py",
     "tests/charter/test_interview.py",
     "tests/charter/test_interview_mapping_mission_alias.py",
@@ -1296,7 +1279,6 @@ exclude = [
     "tests/doctrine/agent_profiles/test_doctrine_daphne_canonical_structure.py",
     "tests/doctrine/agent_profiles/test_schema_generation.py",
     "tests/doctrine/agent_profiles/test_scoring.py",
-    "tests/doctrine/agent_profiles/test_supply_chain_profile_bindings.py",
     "tests/doctrine/assets/test_repository.py",
     "tests/doctrine/directives/test_models.py",
     "tests/doctrine/directives/test_schema_compatibility.py",
@@ -1568,7 +1550,6 @@ exclude = [
     "tests/integration/test_planning_artifact_wp.py",
     "tests/integration/test_post_merge_custom_mission_loader.py",
     "tests/integration/test_post_merge_index_refresh.py",
-    "tests/integration/test_post_merge_unrelated_untracked.py",
     "tests/integration/test_pre30_layout_coord_husk_noop.py",
     "tests/integration/test_protected_primary_spec_commit.py",
     "tests/integration/test_quickstart_end_to_end.py",
@@ -1632,7 +1613,6 @@ exclude = [
     "tests/consolidation/test_executor_coord_reconcile.py",
     "tests/consolidation/test_executor_coverage.py",
     "tests/consolidation/test_executor_option_a_revert_helpers_2711.py",
-    "tests/consolidation/test_executor_phase_boundary.py",
     "tests/consolidation/test_forecast_seam.py",
     "tests/consolidation/test_hollow_review_warnings.py",
     "tests/consolidation/test_issue_2367_bake_strand.py",
@@ -1649,7 +1629,6 @@ exclude = [
     "tests/consolidation/test_merge_target_resolution.py",
     "tests/consolidation/test_merge_time_number_assignment.py",
     "tests/consolidation/test_merge_workspace_unit.py",
-    "tests/consolidation/test_mission_number_idempotency.py",
     "tests/consolidation/test_preflight_seam.py",
     "tests/consolidation/test_profile_charter_e2e.py",
     "tests/consolidation/test_push_preflight.py",
@@ -1659,7 +1638,6 @@ exclude = [
     "tests/migrate/test_charter_encoding_migration.py",
     "tests/migration/test_backfill_identity_cli.py",
     "tests/migration/test_backfill_provenance.py",
-    "tests/migration/test_backfill_topology_cli.py",
     "tests/migration/test_birth_cutover.py",
     "tests/migration/test_corpus_frontload_idempotent.py",
     "tests/migration/test_mission_handle_matches_meta_contract.py",
@@ -1682,7 +1660,6 @@ exclude = [
     "tests/mission_runtime/test_resolve_context_for_mission_pure.py",
     "tests/mission_runtime/test_resolve_placement_only.py",
     "tests/mission_runtime/test_retrospective_artifact_kind.py",
-    "tests/mission_runtime/test_self_bookkeeping_allowlist.py",
     "tests/mission_runtime/test_status_read_path_error_contract.py",
     "tests/mission_runtime/test_write_target_degrade.py",
     "tests/missions/test_command_templates_canonical_path.py",
@@ -1697,7 +1674,6 @@ exclude = [
     "tests/missions/test_mission_switching_integration.py",
     "tests/missions/test_mission_topology_seam.py",
     "tests/missions/test_mission_type_profile_resolution.py",
-    "tests/missions/test_resolution_convergence.py",
     "tests/missions/test_specify_metadata_explicit_integration.py",
     "tests/missions/test_wp02_coord_routing_consolidation.py",
     "tests/missions/test_wp04_planning_read_split.py",
@@ -1777,7 +1753,6 @@ exclude = [
     "tests/retrospective/test_writer.py",
     "tests/retrospective/test_writer_atomicity.py",
     "tests/review/fixtures/parity/_capture.py",
-    "tests/review/test_arbiter.py",
     "tests/review/test_arbiter_coord_root.py",
     "tests/review/test_artifacts.py",
     "tests/review/test_artifacts_no_verdict_field.py",
@@ -1799,7 +1774,6 @@ exclude = [
     "tests/runtime/_bridge_oracle.py",
     "tests/runtime/test_bootstrap_version_fallback.py",
     "tests/runtime/test_bridge_composition.py",
-    "tests/runtime/test_bridge_cores.py",
     "tests/runtime/test_bridge_decide_next.py",
     "tests/runtime/test_bridge_engine.py",
     "tests/runtime/test_bridge_io.py",
@@ -1894,7 +1868,6 @@ exclude = [
     "tests/specify_cli/cli/commands/agent/test_mission_parsing.py",
     "tests/specify_cli/cli/commands/agent/test_mission_planning_entry.py",
     "tests/specify_cli/cli/commands/agent/test_mission_record_analysis.py",
-    "tests/specify_cli/cli/commands/agent/test_mission_setup_plan_phases.py",
     "tests/specify_cli/cli/commands/agent/test_mission_shim_reexports.py",
     "tests/specify_cli/cli/commands/agent/test_move_task_approval_body_collision.py",
     "tests/specify_cli/cli/commands/agent/test_move_task_durability.py",
@@ -1931,7 +1904,6 @@ exclude = [
     "tests/specify_cli/cli/commands/agent/test_tasks_shared_seam.py",
     "tests/specify_cli/cli/commands/agent/test_tasks_status_cmd_seam.py",
     "tests/specify_cli/cli/commands/agent/test_tasks_status_view.py",
-    "tests/specify_cli/cli/commands/agent/test_tasks_transition_core.py",
     "tests/specify_cli/cli/commands/agent/test_tests_stale_check.py",
     "tests/specify_cli/cli/commands/agent/test_workflow.py",
     "tests/specify_cli/cli/commands/agent/test_workflow_canonical_cleanup.py",
@@ -1996,7 +1968,6 @@ exclude = [
     "tests/specify_cli/cli/commands/test_env_file_doctor.py",
     "tests/specify_cli/cli/commands/test_finalize_tasks_explicit_empty_owned_files.py",
     "tests/specify_cli/cli/commands/test_help_snapshot.py",
-    "tests/specify_cli/cli/commands/test_identity_audit.py",
     "tests/specify_cli/cli/commands/test_implement.py",
     "tests/specify_cli/cli/commands/test_implement_base_ref.py",
     "tests/specify_cli/cli/commands/test_implement_bookkeeping_identifiers.py",
@@ -2196,7 +2167,6 @@ exclude = [
     "tests/specify_cli/migration/test_backfill_migration_coexistence.py",
     "tests/specify_cli/migration/test_backfill_mission_type.py",
     "tests/specify_cli/migration/test_backfill_ownership.py",
-    "tests/specify_cli/migration/test_backfill_topology.py",
     "tests/specify_cli/migration/test_backfill_topology_mission_scope.py",
     "tests/specify_cli/migration/test_dogfood_corpus_backfilled.py",
     "tests/specify_cli/migration/test_mission_event_rebuild.py",
@@ -2254,7 +2224,6 @@ exclude = [
     "tests/specify_cli/retrospective/test_retrospective_yaml_first_resolution.py",
     "tests/specify_cli/retrospective/test_tracer_writer.py",
     "tests/specify_cli/retrospective/test_tracer_writer_coord_e2e.py",
-    "tests/specify_cli/review/test_arbiter.py",
     "tests/specify_cli/review/test_cycle_segment_validation.py",
     "tests/specify_cli/review/test_prompt_retention.py",
     "tests/specify_cli/review/test_scope_result_from_override.py",
@@ -2479,8 +2448,6 @@ exclude = [
     "tests/unit/status/test_innerstatechanged_reducer_fold.py",
     "tests/unit/status/test_mission_status_aggregate.py",
     "tests/unit/test_descriptor_resolver.py",
-    "tests/unit/test_symbol_identity_spike.py",
-    "tests/unit/test_symbol_key.py",
     "tests/upgrade/migrations/test_m_2_0_11_install_skills.py",
     "tests/upgrade/migrations/test_m_2_0_1_tool_config_key_rename.py",
     "tests/upgrade/migrations/test_m_2_0_6_consistency_sweep.py",
@@ -2536,6 +2503,17 @@ select = [
     "ASYNC",  # async issues (≈ Sonar S7497, S7502)
     "S",      # bandit security checks (≈ Sonar S2083)
     "TID251", # flake8-tidy-imports: banned-api (not TID252 which enforces absolute imports codebase-wide)
+    # flake8-pytest-style weak-oracle rules (#5351): a test whose `raises`/`warns` accepts the
+    # wrong failure, or whose assertion lives in an `except` that never runs, passes on a broken
+    # product. Caught here, before any test runs. Legacy hits: ruff.toml PT baseline (shrink-only).
+    "PT010",  # pytest.raises() without an exception class
+    "PT011",  # pytest.raises(<broad exception>) without match=
+    "PT012",  # pytest.raises() block with more than one statement
+    "PT015",  # assertion that always fails
+    "PT016",  # pytest.fail() without a message
+    "PT017",  # assertion on an exception inside `except` (vacuous when nothing raises)
+    "PT030",  # pytest.warns(<broad warning>) without match=
+    "PT031",  # pytest.warns() block with more than one statement
 ]
 ignore = [
     "S101",   # allow assert (used extensively in tests and guards)
@@ -2730,6 +2708,27 @@ module = ["specify_cli.auth.errors"]
 follow_imports = "normal"
 
 [[tool.mypy.overrides]]
+# requirement_mapping.grammar is the single requirement-ID grammar authority
+# (C-001); its concrete ``RequirementId | None`` / ``str`` / ``list[...]``
+# return types are needed by requirement_mapping/lint.py's setup-plan lint
+# (WP05, requirement-id-grammar-01M3NRCA). Under the ``specify_cli.*`` skip
+# above every attribute of the module (functions, patterns, the ``RULE_TEXT``
+# constant) resolves as ``Any``, so a narrow ``mypy --strict`` check on
+# lint.py reports "Returning Any from function declared to return str" even
+# though grammar.py itself is strict-clean in isolation. It imports only
+# ``dataclasses``, ``typing`` and ``kernel._safe_re``, so following it cannot
+# drag bootstrap errors into a narrow check — same shape/precedent as the
+# core.errors/auth.errors entries above (issue #3719); must stay after the
+# ``specify_cli.*`` skip. Scoped to the grammar module only:
+# ``specify_cli.requirement_mapping`` (the package's own ``__init__.py``) is
+# NOT included here — it does function-local imports of
+# ``specify_cli.frontmatter`` (see ``read_all_wp_raw_requirement_refs``), so
+# following it normally would risk dragging non-grammar modules into a
+# narrow strict check.
+module = ["specify_cli.requirement_mapping.grammar"]
+follow_imports = "normal"
+
+[[tool.mypy.overrides]]
 # When checking charter.activation.neutrality in isolation, mypy walks into other
 # charter submodules (interview, resolver, context, …) that have pre-existing
 # strict issues being addressed in a separate mission. Skip them so that
@@ -2739,6 +2738,45 @@ follow_imports = "normal"
 # the activation-layer modules under charter.activation).
 module = ["charter.*"]
 follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+# skills.paths hosts get_primary_project_skill_root / get_primary_global_skill_root,
+# whose concrete ``str | None`` / ``Path | None`` return types are needed by
+# skills/installer.py's _valid_skill_entry and _managed_link (WP06, #4998).
+# Under the ``specify_cli.*`` skip above they resolve as ``Any``, so a
+# narrow-file check on installer.py reports "Returning Any from function
+# declared to return bool" at both call sites. It imports only
+# specify_cli.tool_surface.operations and specify_cli.core.config, so
+# following it cannot drag bootstrap errors into a narrow check — same
+# shape/precedent as the core.paths/asset_preservation.backup entries above
+# (issue #3719) — must stay after the ``specify_cli.*`` skip.
+module = ["specify_cli.skills.paths"]
+follow_imports = "normal"
+
+[[tool.mypy.overrides]]
+# skills.manifest hosts compute_content_hash, whose concrete ``-> str``
+# return type is needed by skills/verifier.py's _expected_content_hash
+# (WP06, #4998). Under the ``specify_cli.*`` skip above it resolves as
+# ``Any``, so a narrow-file check on verifier.py reports "Returning Any from
+# function declared to return str". It imports specify_cli.core.atomic,
+# kernel.clock and specify_cli.skills.paths (itself overridden above), so
+# following it cannot drag bootstrap errors into a narrow check — same
+# shape/precedent as the entries above; must stay after the
+# ``specify_cli.*`` skip.
+module = ["specify_cli.skills.manifest"]
+follow_imports = "normal"
+
+[[tool.mypy.overrides]]
+# skills.registry hosts SkillRegistry, subclassed by
+# installer.py::_CapturedSkillRegistry (WP06, #4998). Under the
+# ``specify_cli.*`` skip above it resolves as ``Any`` and the subclass
+# declaration reads "Class cannot subclass SkillRegistry (has type Any)".
+# It imports only specify_cli.skills.paths (itself overridden above), so
+# following it cannot drag bootstrap errors into a narrow check — same
+# shape as the core.errors/auth.errors entries above (issue #3719); must
+# stay after the ``specify_cli.*`` skip.
+module = ["specify_cli.skills.registry"]
+follow_imports = "normal"
 
 [[tool.mypy.overrides]]
 # Transitional quarantine for legacy modules that are still being migrated to strict typing.

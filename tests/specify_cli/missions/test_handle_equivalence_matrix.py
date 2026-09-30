@@ -901,7 +901,7 @@ def test_mission_run_resolver_fail_closed_window_does_not_raise(repo: Path) -> N
 
 # ---------------------------------------------------------------------------
 # MissionContext parity — resolve_context must persist the canonical
-# mission_slug and compose authoritative_ref from it (lane_branch_name),
+# mission_slug and compose authoritative_ref from it (code_lane_branch_name),
 # identical across handle forms
 # ---------------------------------------------------------------------------
 
@@ -989,7 +989,7 @@ def test_resolve_context_unresolvable_handle_raises_feature_not_found(
 # ---------------------------------------------------------------------------
 # Mission close --discard parity — close_cmd resolves the DIRECTORY but must
 # also re-key the slug before _discard_mission composes lane branch names
-# (lane_branch_name(raw, lane_id)) and the .worktrees/ f"{raw}-" prefix match
+# (code_lane_branch_name(raw, lane_id)) and the .worktrees/ f"{raw}-" prefix match
 # ---------------------------------------------------------------------------
 
 
@@ -1011,10 +1011,10 @@ def _seed_discardable_lane(repo: Path) -> tuple[str, Path]:
     ``_force_delete_branch_if_exists`` runs) is not blocked by a checkout —
     the seam under test is the NAME composition, not git's checkout guard.
     """
-    from specify_cli.lanes.branch_naming import lane_branch_name
+    from specify_cli.lanes.branch_naming import code_lane_branch_name
 
     _write_lanes_json(repo)
-    lane_branch = lane_branch_name(_FULL_SLUG, "lane-a")
+    lane_branch = code_lane_branch_name(_FULL_SLUG, "lane-a")
     _git(repo, "branch", lane_branch)
     _git(repo, "branch", f"kitty/mission-{_FULL_SLUG}")
     lane_worktree = repo / ".worktrees" / f"{_FULL_SLUG}-lane-a"
@@ -1030,7 +1030,7 @@ def test_mission_close_discard_removes_lane_branch_and_worktree_across_handles(
     branch and lane worktree for every handle form. Pre-fix, close resolved
     the DIRECTORY canonically but handed the RAW handle to
     ``_discard_mission`` / ``_teardown_coordination_worktree`` —
-    ``lane_branch_name(raw, lane_id)`` named a nonexistent branch and the
+    ``code_lane_branch_name(raw, lane_id)`` named a nonexistent branch and the
     ``.worktrees/`` ``f"{raw}-"`` prefix matched nothing, silently leaving
     the lane worktree AND branch behind while reporting success."""
     from typer.testing import CliRunner
@@ -1161,11 +1161,14 @@ def test_research_lands_on_the_canonical_directory_across_handle_forms(
     from fabricating a 0-byte ``research.md`` when no template resolves at
     all, which this fixture's ``software-dev`` mission type otherwise never
     has (this test is about directory routing, not the fabrication policy, so
-    a real template preserves its original intent).
+    a real template preserves its original intent). Since #5254 ``research``
+    resolves through the canonical ``resolve_template`` chain, which asks for
+    the shipped template filename (``research-template.md``), so the legacy
+    tier is seeded under that name rather than the destination name.
     """
     templates_dir = repo / ".kittify" / "templates"
     templates_dir.mkdir(parents=True, exist_ok=True)
-    (templates_dir / "research.md").write_text("# Research\n\nSeeded template content.\n", encoding="utf-8")
+    (templates_dir / "research-template.md").write_text("# Research\n\nSeeded template content.\n", encoding="utf-8")
 
     result = _invoke_research(repo, handle, monkeypatch)
     assert result.exit_code == 0, result.output

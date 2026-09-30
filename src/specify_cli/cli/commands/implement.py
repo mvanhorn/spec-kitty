@@ -17,6 +17,7 @@ from specify_cli.cli.console import console
 from rich.panel import Panel
 
 from specify_cli.cli import StepTracker
+from specify_cli.cli.commands._commit_recipes import PROTECTED_PRIMARY_HINT, safe_commit_recipe
 from specify_cli.cli.selector_resolution import resolve_mission_handle
 from specify_cli.core.context_validation import require_main_repo
 from kernel.clock import now_utc_iso
@@ -108,10 +109,11 @@ _BANNER_OPEN = "[bold yellow]"
 _BANNER_CLOSE = "[/bold yellow]"
 
 
-def _protected_branch_status_commit_error(branch: str, repo_root: Path) -> str | None:
-    # ProtectionPolicy.resolve is the sole I/O boundary (FR-007/NFR-003):
-    # config+hatch reads happen once; is_protected() is I/O-free.
-    if not ProtectionPolicy.resolve(repo_root).is_protected(branch):
+def _protected_branch_status_commit_error(branch: str, repo_root: Path, mission_slug: str | None = None) -> str | None:
+    # ProtectionPolicy.resolve_for_mission is the sole I/O boundary (FR-007/NFR-003):
+    # config+hatch+meta reads happen once; is_protected() is I/O-free. A mission-scoped
+    # write also honours that mission's ``commit_to_target`` for its own target (#5100 FR-008).
+    if not ProtectionPolicy.resolve_for_mission(repo_root, mission_slug).is_protected(branch):
         return None
     return (
         f"Refusing to start implementation status on protected branch '{branch}' "
@@ -420,8 +422,16 @@ def _print_planning_artifact_commit_instructions(
         return
 
     console.print("\n[yellow]Auto-commit disabled.[/yellow] Commit planning artifacts first:")
-    console.print(f"  git add -f {feature_dir}")
-    console.print(f'  git commit -m "chore: planning artifacts for {mission_slug}"')
+    # WP03 review (cycle 1, #4) correction: safe-commit does NOT force-add
+    # gitignored paths at the CLI level -- its candidate-changes check and
+    # directory expansion both use ``git status`` without ignored files, so a
+    # gitignored path yields "No requested changes to commit" rather than
+    # being force-staged. Dropping the old `git add -f` step here is still
+    # correct, but for a DIFFERENT reason: migration m_0_12_1 removes
+    # kitty-specs/ from .gitignore, so feature_dir is never ignored and needs
+    # no force-add to be picked up.
+    console.print(f"  {safe_commit_recipe([str(feature_dir)], f'chore: planning artifacts for {mission_slug}', planning_branch)}")
+    console.print(f"  {PROTECTED_PRIMARY_HINT}")
     raise typer.Exit(1)
 
 
@@ -1191,7 +1201,7 @@ def _commit_planning_artifacts_transaction(
             files=files_to_commit,
             commit_msg=commit_msg,
         )
-    elif ProtectionPolicy.resolve(repo_root).is_protected(planning_branch):
+    elif ProtectionPolicy.resolve_for_mission(repo_root, mission_slug).is_protected(planning_branch):
         # #2648 (WP01) narrow-triple fail-close: ``placement_ref is None`` AND
         # the meta-derived ``coord_branch`` is truthy AND
         # ``is_protected(planning_branch)`` -- EXACTLY the precondition where
@@ -1463,21 +1473,15 @@ def _detect_wp_context(
     return auto_commit, mission_slug, feature_dir, wp_file, declared_deps
 
 
-def _raise_if_status_commit_protected(repo_root: Path, planning_branch: str, auto_commit: bool | None) -> None:
+def _raise_if_status_commit_protected(repo_root: Path, planning_branch: str, auto_commit: bool | None, mission_slug: str | None = None) -> None:
     """Raise ``ValueError`` when auto-commit is on and the pre-lane status
     commit would target a protected branch."""
     if not auto_commit:
         return
     status_destination = _status_commit_destination_branch(repo_root, fallback_branch=planning_branch)
-    protected_error = _protected_branch_status_commit_error(status_destination, repo_root)
+    protected_error = _protected_branch_status_commit_error(status_destination, repo_root, mission_slug)
     if protected_error is not None:
         raise ValueError(protected_error)
-
-
-def _execution_mode_for_workspace(resolved_workspace: Any) -> str:
-    """``"direct_repo"`` for a repository-root planning workspace, else
-    ``"worktree"``."""
-    return "direct_repo" if resolved_workspace.resolution_kind == "repo_root" else "worktree"
 
 
 def _ensure_wp_claim_preconditions(status_feature_dir: Path, wp_id: str, declared_deps: Any) -> None:
@@ -1571,9 +1575,9 @@ def _resolve_execution_lane(resolved_workspace: Any, lanes_feature_dir: Path, wp
     """Resolve ``(lanes_manifest, lane)`` for a lane workspace, or ``(None,
     None)`` for a repository-root planning workspace. Completes the
     ``validate`` tracker step either way."""
-    from specify_cli.lanes.compute import is_planning_lane
+    from specify_cli.lanes.compute import is_repo_root_lane
 
-    if is_planning_lane(resolved_workspace):
+    if is_repo_root_lane(resolved_workspace):
         tracker.complete("validate", "Execution: repository root planning workspace")
         return None, None
     lanes_manifest = require_lanes_json(lanes_feature_dir)
@@ -1864,6 +1868,44 @@ def _report_workspace_created(tracker: StepTracker, result: Any, workspace_path:
         console.print("[cyan]→ Workspace contract: repository root planning workspace[/cyan]")
 
 
+def _refuse_repo_root_checkout_if_unavailable(
+    repo_root: Path,
+    mission_slug: str,
+    wp_id: str,
+    resolved_workspace: Any,
+) -> bool:
+    """Run the repo-root write-checkout refusals early (no side effects).
+
+    Returns ``True`` when the occupancy scan ran, so ``implement`` threads it
+    into ``create_lane_workspace`` and the full-repo scan runs once per call.
+    """
+    from specify_cli.lanes.compute import is_repo_root_lane
+    from specify_cli.lanes.implement_support import _ensure_repo_root_checkout_available
+
+    if is_repo_root_lane(resolved_workspace):
+        return _ensure_repo_root_checkout_available(repo_root, mission_slug, wp_id, resolved_workspace)
+    return False
+
+
+def _planning_commit_branch(repo_root: Path, mission_slug: str, target_branch: str) -> str:
+    """The branch planning artifacts must be committed on.
+
+    For a single_branch mission that minted a mission branch (protected target)
+    this is ``meta.mission_branch`` -- never the protected target the operator is
+    deliberately NOT on. Every other mission keeps the resolved target branch.
+    The rule itself is :func:`mission_runtime.single_branch_write_ref` (the one
+    authority every write-branch site shares); this only supplies the values.
+    """
+    from mission_runtime import single_branch_write_ref
+
+    from specify_cli.migration.backfill_topology import stored_topology
+
+    meta = _load_primary_anchored_mission_meta(repo_root, mission_slug)
+    if meta is None:
+        return target_branch
+    return single_branch_write_ref(stored_topology(meta), meta.get("mission_branch"), target_branch)
+
+
 def _print_workspace_ready_banner(result: Any, workspace_path: Path) -> None:
     """Human-readable "workspace ready" banner (repo-root planning vs lane
     worktree), plus the FR-006 lane-test-env export block."""
@@ -1878,6 +1920,16 @@ def _print_workspace_ready_banner(result: Any, workspace_path: Path) -> None:
         console.print()
         console.print("[dim]This WP does not get a lane worktree or workspace context file.[/dim]")
         console.print("[dim]Make planning-artifact changes directly in the repository root.[/dim]")
+        return
+
+    if getattr(result, "resolution_kind", None) == "repo_root" and result.branch_name:
+        # single_branch code WP: executes in the write checkout, no lane worktree.
+        console.print("\n[bold green]✓ Repository-root workspace ready[/bold green]")
+        console.print()
+        console.print(f"  Work in the repository root checkout on branch [bold]{result.branch_name}[/bold]")
+        console.print(f"  [bold]cd {workspace_path}[/bold]")
+        console.print()
+        console.print("[dim]This WP runs directly in the repository root; commit your work on this branch yourself.[/dim]")
         return
 
     console.print("\n[bold green]✓ Lane worktree ready[/bold green]")
@@ -1986,7 +2038,7 @@ def implement(
     tracker.start("validate")
     try:
         planning_branch = resolve_feature_target_branch(mission_slug, repo_root)
-        _raise_if_status_commit_protected(repo_root, planning_branch, auto_commit)
+        _raise_if_status_commit_protected(repo_root, planning_branch, auto_commit, mission_slug)
 
         from specify_cli.coordination.surface_resolver import (
             resolve_status_surface_with_anchor as _resolve_status_surface,
@@ -2027,7 +2079,7 @@ def implement(
             feature_dir=feature_dir,
             mission_slug=mission_slug,
             wp_id=wp_id,
-            planning_branch=planning_branch,
+            planning_branch=_planning_commit_branch(repo_root, mission_slug, planning_branch),
             auto_commit=bool(auto_commit),
             placement_ref=_placement_ref,
         )
@@ -2078,7 +2130,7 @@ def implement(
     tracker.start("create")
     effective_actor = actor or "implement-command"
     status_result = None
-    status_execution_mode = _execution_mode_for_workspace(resolved_workspace)
+    status_execution_mode = resolved_workspace.status_execution_mode
     # #4888/T025: distinguishes a failure that occurred BEFORE the workspace
     # existed (create_lane_workspace itself failed -- the WP is still
     # `planned`, matching the comment below) from a failure that occurred
@@ -2093,6 +2145,10 @@ def implement(
         # _start_wp_implementation_status below). The former frontmatter
         # dual-write mirror was removed in the #2816 unconditional cutover, so
         # `spec-kitty implement` writes 0 runtime bytes to the WP file.
+        # #5100 A3: refusals (wrong branch / occupied / dirty) run BEFORE the VCS
+        # lock is written into meta.json, so a refused implement leaves nothing
+        # behind (the read-only check is repeated, idempotently, at allocation).
+        occupancy_verified = _refuse_repo_root_checkout_if_unavailable(repo_root, mission_slug, wp_id, resolved_workspace)
         vcs_backend = _ensure_vcs_in_meta(feature_dir, repo_root)
 
         # #3571: when --base is provided, validate the ref (planning-lane
@@ -2113,6 +2169,7 @@ def implement(
             declared_deps=declared_deps,
             vcs_backend_value=vcs_backend.value,
             base=effective_base,
+            occupancy_verified=occupancy_verified,
         )
         workspace_path = result.workspace_path
         branch_name = result.branch_name

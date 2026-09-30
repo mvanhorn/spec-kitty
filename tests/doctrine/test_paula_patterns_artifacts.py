@@ -59,11 +59,18 @@ def test_paula_patterns_graph_node_and_edges_exist(built_in_graph: DRGGraph) -> 
         "tactic:paula-patterns-architecture-scout-review",
         "requires",
     ) in edges
+    # The directive SUGGESTS the scout swarm (an escalation, not a prerequisite),
+    # with no action- or profile-channel reachability loss.
+    assert (
+        "directive:DIRECTIVE_001",
+        "tactic:paula-patterns-architecture-scout-review",
+        "suggests",
+    ) in edges
     assert (
         "directive:DIRECTIVE_001",
         "tactic:paula-patterns-architecture-scout-review",
         "requires",
-    ) in edges
+    ) not in edges
     assert (
         "tactic:paula-patterns-architecture-scout-review",
         "directive:DIRECTIVE_001",

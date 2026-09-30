@@ -363,7 +363,7 @@ def _output_error(
         _tasks.console.print(f"[red]Error:[/red] {error_message}")
 
 
-def _protected_branch_status_commit_error(branch: str, repo_root: Path, command: str) -> str | None:
+def _protected_branch_status_commit_error(branch: str, repo_root: Path, command: str, mission_slug: str | None = None) -> str | None:
     """Refuse a planning-kind status commit onto a protected primary (#2300).
 
     The map-requirements REFUSE arm (and the move-task no-coord-route fallback):
@@ -382,9 +382,9 @@ def _protected_branch_status_commit_error(branch: str, repo_root: Path, command:
     """
     from specify_cli.cli.commands.agent import tasks as _tasks
 
-    # ProtectionPolicy.resolve is the sole I/O boundary (FR-007/NFR-003):
-    # config+hatch reads happen once; is_protected() is I/O-free.
-    primary_protected = _tasks.ProtectionPolicy.resolve(repo_root).is_protected(branch)
+    # ProtectionPolicy.resolve_for_mission is the sole I/O boundary (FR-007/NFR-003):
+    # config+hatch+meta reads happen once; is_protected() is I/O-free.
+    primary_protected = _tasks.ProtectionPolicy.resolve_for_mission(repo_root, mission_slug).is_protected(branch)
     verdict = resolve_surface_authority(
         topology=MissionTopology.SINGLE_BRANCH,
         primary_target=branch,
@@ -451,9 +451,9 @@ def _skip_target_branch_commit(repo_root: Path, mission_slug: str, target_branch
     # mission ever reaches the protection resolve (no policy I/O on flat missions).
     if not _tasks._coord_topology_active(repo_root, mission_slug):
         return False
-    # ProtectionPolicy.resolve is the sole I/O boundary (FR-007/NFR-003):
-    # config+hatch reads happen once; is_protected() is I/O-free.
-    primary_protected = _tasks.ProtectionPolicy.resolve(repo_root).is_protected(target_branch)
+    # ProtectionPolicy.resolve_for_mission is the sole I/O boundary (FR-007/NFR-003):
+    # config+hatch+meta reads happen once; is_protected() is I/O-free.
+    primary_protected = _tasks.ProtectionPolicy.resolve_for_mission(repo_root, mission_slug).is_protected(target_branch)
     verdict = resolve_surface_authority(
         topology=MissionTopology.COORD,
         primary_target=target_branch,

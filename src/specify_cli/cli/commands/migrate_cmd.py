@@ -41,9 +41,12 @@ Usage examples::
 from __future__ import annotations
 
 import json
+import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
 
+import click
 import typer
 from rich.console import Console
 from specify_cli.cli.console import console
@@ -115,13 +118,139 @@ _MISSION_TYPE_MANUAL_DIAGNOSTIC = (
     "Fix: assign a mission type whose governance profile resolves at some layer (built-in / org / project), or author/activate that type. Not necessarily a typo."
 )
 
+#: #4964: the group's own forwardable flags, by their typer/click
+#: parameter name. Order is the order they are checked in
+#: ``_forward_or_refuse_group_flags``; it has no other significance.
+_GROUP_FORWARDABLE_PARAMS: tuple[str, ...] = ("dry_run", "verbose", "force")
+
+#: Group-flag forward-or-refuse help suffix, shared by ``--dry-run``,
+#: ``--verbose``/``-v`` and ``--force`` below so the policy is spelled once.
+_GROUP_FLAG_FORWARDING_HELP = "Before a subcommand, forwarded if the subcommand declares it, else rejected (exit 2) — place it after the subcommand when unsure."
+
+
+#: The ``ParameterSource`` member name for a value typed on the command line.
+#: Compared by ``.name`` rather than against ``click.core.ParameterSource``:
+#: typer 0.26+ vendors its own click (``typer._click``) whose enum shares no
+#: identity with the real ``click`` package's (#4964).
+_COMMANDLINE_SOURCE = "COMMANDLINE"
+
+
+def _usage_error_class(ctx: Any) -> Callable[..., Exception]:
+    """Return the ``UsageError`` of the click universe that built ``ctx``.
+
+    ``typer>=0.24.1,<0.28`` spans two click eras: typer <=0.25 runs on the
+    real ``click`` package, typer 0.26+ on its vendored ``typer._click``. A
+    real-click ``UsageError`` raised inside a vendored-click dispatch is not
+    caught by typer's standalone handler (it escapes as a traceback instead
+    of a clean exit 2), so the class is resolved from the context's own
+    ``<click>.core.Context`` base: its sibling ``<click>.exceptions`` module
+    is already imported by ``core``. Falls back to the real ``click`` when
+    no such base is found.
+    """
+    for klass in type(ctx).__mro__:
+        module_name = klass.__module__
+        if klass.__name__ != "Context" or not module_name.endswith(".core"):
+            continue
+        exceptions_module = sys.modules.get(f"{module_name.rsplit('.', 1)[0]}.exceptions")
+        candidate = getattr(exceptions_module, "UsageError", None)
+        if isinstance(candidate, type) and issubclass(candidate, Exception):
+            return candidate
+    return click.UsageError
+
+
+def _given_on_command_line(ctx: Any, name: str) -> bool:
+    """True when ``name`` was typed on the command line (click-era agnostic)."""
+    source = ctx.get_parameter_source(name)
+    return getattr(source, "name", None) == _COMMANDLINE_SOURCE
+
+
+def _flag_display(opts: list[str]) -> str:
+    """Every spelling of a flag, short form first (``-v/--verbose``).
+
+    Click does not record which spelling the user typed, so naming them all
+    guarantees the token the user actually gave appears in the message.
+    """
+    return "/".join(sorted(opts, key=len))
+
+
+def _forward_or_refuse_group_flags(ctx: typer.Context) -> None:
+    """Forward group-level flags to the invoked subcommand, or refuse them.
+
+    #4964: a group flag
+    (``--dry-run`` / ``--verbose``/``-v`` / ``--force``) given on the command
+    line before a subcommand is silently dropped by Click's own dispatch —
+    the group callback returns before the subcommand ever sees it. This
+    closes that gap: for each group flag actually typed on the command line
+    (its parameter source is ``COMMANDLINE``) with a truthy value, look up
+    the invoked subcommand's own declared params
+    (``ctx.command.get_command(ctx, sub).params``). If the subcommand
+    declares the same flag name, forward the value via ``ctx.default_map``
+    — Click builds the subcommand's own context AFTER this callback
+    returns, so a flag given directly after the subcommand still wins over
+    a forwarded one. If the subcommand does not declare it, refuse
+    with a usage error (exit 2) *before* the subcommand runs, so nothing is
+    ever silently dropped — the message names the flag, the subcommand,
+    and the next action.
+
+    Every click touchpoint is duck-typed (``get_command``, the parameter
+    source's ``.name``, :func:`_usage_error_class`) so the helper works in
+    both the real-click and the vendored ``typer._click`` eras.
+    """
+    sub_name = ctx.invoked_subcommand
+    if sub_name is None:
+        return
+    get_command = getattr(ctx.command, "get_command", None)
+    if get_command is None:
+        return
+    sub_command = get_command(ctx, sub_name)
+    if sub_command is None:
+        return
+    sub_param_names = {param.name for param in sub_command.params}
+
+    forwarded: dict[str, Any] = {}
+    for name in _GROUP_FORWARDABLE_PARAMS:
+        if not _given_on_command_line(ctx, name):
+            continue
+        value = ctx.params.get(name)
+        if not value:
+            continue
+        if name in sub_param_names:
+            forwarded[name] = value
+            continue
+        group_param = next(p for p in ctx.command.params if p.name == name)
+        flag = _flag_display(list(group_param.opts))
+        raise _usage_error_class(ctx)(
+            f"'{flag}' is not supported by 'migrate {sub_name}': that subcommand declares no such option, "
+            f"so it cannot be forwarded. Drop the flag, or run 'spec-kitty migrate {sub_name} --help' "
+            "to see the options it supports.",
+            ctx=ctx,
+        )
+
+    if forwarded:
+        default_map = ctx.default_map or {}
+        sub_defaults = {**default_map.get(sub_name, {}), **forwarded}
+        ctx.default_map = {**default_map, sub_name: sub_defaults}
+
 
 @app.callback(invoke_without_command=True)
 def migrate(  # noqa: C901
     ctx: typer.Context,
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change without modifying the filesystem"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show file-by-file detail"),
-    force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help=f"Show what would change without modifying the filesystem. {_GROUP_FLAG_FORWARDING_HELP}",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help=f"Show file-by-file detail. {_GROUP_FLAG_FORWARDING_HELP}",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=f"Skip confirmation prompt. {_GROUP_FLAG_FORWARDING_HELP}",
+    ),
 ) -> None:
     """Migrate project .kittify/ to centralized model.
 
@@ -137,8 +266,10 @@ def migrate(  # noqa: C901
         spec-kitty migrate --dry-run    # Preview
         spec-kitty migrate --force      # Apply without confirmation
     """
-    # If a subcommand was invoked, don't run the migrate callback body.
+    # If a subcommand was invoked, forward-or-refuse group flags for it
+    # (#4964), then don't run the migrate callback body.
     if ctx.invoked_subcommand is not None:
+        _forward_or_refuse_group_flags(ctx)
         return
 
     # Windows-only: run legacy state migration BEFORE any tracker/sync/daemon reads.
@@ -571,6 +702,58 @@ def backfill_merge_commit_cmd(
         raise typer.Exit(1)
 
 
+def _run_restamp_single_branch(repo_root: Path, *, dry_run: bool, json_output: bool, mission: str | None) -> None:
+    """``--restamp-single-branch`` arm of ``backfill-topology`` (#5100 IC-02).
+
+    Calls the same :func:`~specify_cli.migration.backfill_topology.restamp_single_branch_with_code_lanes`
+    the forward migration ``m_4_0_0rc5_single_branch_code_lanes_restamp`` drives
+    -- re-stamps every ``single_branch`` mission whose ``lanes.json`` has a
+    code lane (Invariant T-1 violation) to ``topology: lanes``. Kept as its
+    own function so the command entry point stays simple (Sonar complexity).
+    Honours ``--mission`` (review cycle-1 nit 4: it must never be silently
+    ignored).
+    """
+    from specify_cli.migration.backfill_topology import restamp_single_branch_with_code_lanes
+
+    results = restamp_single_branch_with_code_lanes(repo_root, dry_run=dry_run, mission_slug=mission)
+    restamped = [r for r in results if r.action == "restamped"]
+    skipped = [r for r in results if r.action == "skip"]
+    errored = [r for r in results if r.action == "error"]
+
+    if json_output:
+        payload = {
+            "dry_run": dry_run,
+            "summary": {
+                "total": len(results),
+                "restamped": len(restamped),
+                "skip": len(skipped),
+                "error": len(errored),
+            },
+            "results": [{"slug": r.slug, "action": r.action, "reason": r.reason} for r in results],
+        }
+        print(json.dumps(payload, indent=2))
+    else:
+        prefix = "[dim](dry-run)[/dim] " if dry_run else ""
+        console.print(f"\n{prefix}[bold]backfill-topology --restamp-single-branch summary[/bold]")
+        console.print(f"  Total missions scanned      : {len(results)}")
+        console.print(f"  Re-stamped (single_branch -> lanes) : {len(restamped)}")
+        console.print(f"  Skipped (no violation)      : {len(skipped)}")
+        console.print(f"  Errors                      : {len(errored)}")
+        if errored:
+            console.print("\n[red]Errors:[/red]")
+            for r in errored:
+                console.print(f"  [red]{r.slug}:[/red] {r.reason}")
+        if dry_run:
+            console.print("\n[dim]Dry run — no files were modified.[/dim]")
+        elif restamped:
+            console.print(f"\n[green]Done.[/green] {len(restamped)} mission(s) re-stamped to ``lanes``.")
+        else:
+            console.print("\n[green]Done.[/green] No un-migrated single_branch mission found.")
+
+    if errored:
+        raise typer.Exit(1)
+
+
 @app.command(name="backfill-topology")
 def backfill_topology(
     json_output: Annotated[
@@ -592,6 +775,18 @@ def backfill_topology(
             metavar="SLUG",
         ),
     ] = None,
+    restamp_single_branch: Annotated[
+        bool,
+        typer.Option(
+            "--restamp-single-branch",
+            help=(
+                "Re-stamp every single_branch mission whose lanes.json has a code lane "
+                "to topology: lanes (Invariant T-1 repair, #5100). Mutually exclusive "
+                "with the ordinary backfill this command otherwise runs; combine with "
+                "--dry-run to preview."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Persist each legacy mission's MissionTopology into its meta.json.
 
@@ -613,13 +808,19 @@ def backfill_topology(
         spec-kitty migrate backfill-topology --mission 083-foo-bar
 
         spec-kitty migrate backfill-topology
-    """
-    from specify_cli.migration.backfill_topology import backfill_topology_repo
 
+        spec-kitty migrate backfill-topology --restamp-single-branch --dry-run
+    """
     repo_root = locate_project_root()
     if repo_root is None:
         _error(_NO_PROJECT_ROOT)
         raise typer.Exit(1)
+
+    if restamp_single_branch:
+        _run_restamp_single_branch(repo_root, dry_run=dry_run, json_output=json_output, mission=mission)
+        return
+
+    from specify_cli.migration.backfill_topology import backfill_topology_repo
 
     results = backfill_topology_repo(repo_root, dry_run=dry_run, mission_slug=mission)
 

@@ -9,6 +9,7 @@ from charter.hasher import hash_content, hash_charter, is_stale
 
 pytestmark = pytest.mark.fast
 
+
 def test_hash_content_deterministic():
     """Hash function produces consistent output for same content."""
     content = "# My Charter\n\nSome content here."
@@ -32,6 +33,20 @@ def test_hash_content_whitespace_normalization():
 
     # All should produce same hash after normalization
     assert hash1 == hash2 == hash3
+
+
+def test_hash_content_crlf_and_cr_normalize_to_lf():
+    """CRLF and lone-CR variants of the same content hash identically to the LF form
+    (#4998), and the digest is byte-for-byte the pinned value below."""
+    lf = "# Charter\nline one\nline two\nline three\n"
+    crlf = "# Charter\r\nline one\r\nline two\r\nline three\r\n"
+    cr = "# Charter\rline one\rline two\rline three\r"
+
+    expected = "sha256:d16c8cec5f460428fdabc97b00f41d49a40bd5881c50b8ed4ae939dbb96f9444"
+
+    assert hash_content(lf) == expected
+    assert hash_content(crlf) == expected
+    assert hash_content(cr) == expected
 
 
 def test_hash_content_internal_whitespace_preserved():

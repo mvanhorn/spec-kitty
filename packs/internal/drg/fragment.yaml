@@ -56,7 +56,7 @@ nodes:
     kind: procedures
     title: "Agent-Memory Curation and Knowledge Escalation (classify, place, escalate)"
     body_path: procedures/memory-curation-and-escalation.procedure.yaml
-  # Maintainer-only refinements and residue moved out of packs/built-in (#5203):
+  # Maintainer-only refinements and residue moved out of packs/built-in:
   # the built-in artefacts stay repository-agnostic; the Spec Kitty specifics
   # live here and refine them.
   - id: terminology-guard
@@ -87,6 +87,34 @@ nodes:
     kind: tactics
     title: "Spec Kitty Gate Non-Vacuity Exemplar Audit"
     body_path: tactics/spec-kitty-gate-non-vacuity-exemplar.tactic.yaml
+  # Backlog-triage doctrine moved from built-in: these are
+  # maintainer/tracker-backlog specifics, not repository-agnostic product
+  # doctrine, so they never shipped to consumers correctly. The tactic was
+  # renamed on the move (iterative-deepening-review ->
+  # tracker-backlog-iterative-deepening); the procedure kept its id.
+  - id: tracker-backlog-iterative-deepening
+    kind: tactics
+    title: "Tracker Backlog Iterative-Deepening Review"
+    body_path: tactics/tracker-backlog-iterative-deepening.tactic.yaml
+  - id: tracker-organisation-workflow
+    kind: procedures
+    title: "Tracker Organisation Workflow (backlog triage)"
+    body_path: procedures/tracker-organisation-workflow.procedure.yaml
+  # Test-suite quality assessment: static triage asset, its toolguide, and the
+  # squad procedure that reads the ranked ledgers against the built-in
+  # test-desiderata doctrine.
+  - id: test-quality-scan
+    kind: assets
+    title: "Test-quality static triage scanner (ranks test files; runs no tests)"
+    body_path: assets/test-quality-scan.py
+  - id: test-quality-triage
+    kind: toolguides
+    title: "Test-Quality Triage (static scan of the pytest corpus)"
+    body_path: toolguides/test-quality-triage.toolguide.yaml
+  - id: test-suite-quality-assessment
+    kind: procedures
+    title: "Test-Suite Quality Assessment (static triage, domain squads, shrink-only follow-through)"
+    body_path: procedures/test-suite-quality-assessment.procedure.yaml
 edges:
   # Reference-not-duplicate: the landing runbook refines built-in doctrine that
   # already ships publicly, rather than re-authoring it. Targets are
@@ -142,8 +170,8 @@ edges:
   - source: branded-document-generation
     target: "asset:spec-kitty-branded-pdf"
     relation: requires
-  # Repository-specific refinements of repository-agnostic built-in doctrine
-  # (#5203). Each internal node refines the built-in artefact it specialises.
+  # Repository-specific refinements of repository-agnostic built-in doctrine.
+  # Each internal node refines the built-in artefact it specialises.
   - source: spec-kitty-arch-gate-adjudication
     target: "procedure:post-merge-arch-gate-adjudication"
     relation: refines
@@ -175,3 +203,57 @@ edges:
   - source: spec-kitty-gate-non-vacuity-exemplar
     target: "tactic:architectural-gate-non-vacuity"
     relation: refines
+  # Backlog-triage authoring chain (moved from built-in). Ported
+  # verbatim from the built-in tactic.graph.yaml / procedure.graph.yaml edge
+  # set for these two artifacts, plus their outbound edges to built-in
+  # nodes (moscow-scoping-lens, issue-triage-state-machine,
+  # planning-and-tracking, github-tracker) -- an internal node referencing a
+  # built-in one is allowed; only the reverse direction is forbidden.
+  - source: tracker-backlog-iterative-deepening
+    target: "procedure:tracker-organisation-workflow"
+    relation: suggests
+  - source: tracker-backlog-iterative-deepening
+    target: "tactic:moscow-scoping-lens"
+    relation: suggests
+  - source: tracker-organisation-workflow
+    target: "tactic:tracker-backlog-iterative-deepening"
+    relation: requires
+  - source: tracker-organisation-workflow
+    target: "tactic:moscow-scoping-lens"
+    relation: requires
+  - source: tracker-organisation-workflow
+    target: "procedure:issue-triage-state-machine"
+    relation: requires
+  - source: tracker-organisation-workflow
+    target: "styleguide:planning-and-tracking"
+    relation: suggests
+  - source: tracker-organisation-workflow
+    target: "toolguide:github-tracker"
+    relation: suggests
+  # Test-suite quality assessment chain: the procedure requires the scan
+  # toolguide, which requires the scanner asset; the review itself applies the
+  # built-in test doctrine rather than restating it.
+  - source: test-suite-quality-assessment
+    target: "toolguide:test-quality-triage"
+    relation: requires
+  - source: test-quality-triage
+    target: "asset:test-quality-scan"
+    relation: requires
+  - source: test-suite-quality-assessment
+    target: "styleguide:test-desiderata-and-boundaries"
+    relation: suggests
+  - source: test-suite-quality-assessment
+    target: "styleguide:testing-principles"
+    relation: suggests
+  - source: test-suite-quality-assessment
+    target: "directive:DIRECTIVE_041"
+    relation: suggests
+  - source: test-suite-quality-assessment
+    target: "procedure:development-assist-test-cleanup"
+    relation: suggests
+  - source: test-suite-quality-assessment
+    target: "procedure:adversarial-squad-deployment"
+    relation: suggests
+  - source: test-suite-quality-assessment
+    target: "directive:NO_FULL_HEAVY_SUITES_IN_MISSION"
+    relation: requires

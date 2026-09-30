@@ -30,6 +30,7 @@ submodule instead of widening the public surface for test convenience.
 
 See ADR ``docs/adr/3.x/2026-06-07-1-execution-state-canonical-surface.md``.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,9 +40,12 @@ from mission_runtime.context import (
     MissionContext,
     MissionExecutionContext,
     MissionTopology,
+    TopologyManifestMismatch,
+    assert_topology_matches_manifest,
     classify_topology,
     is_single_branch,
     routes_through_coordination,
+    unstamped_runtime_topology,
 )
 from mission_runtime.artifacts import (
     MissionArtifactKind,
@@ -68,7 +72,9 @@ from mission_runtime.resolution import (
     resolve_artifact_surface,
     resolve_create_time_write_target,
     resolve_placement_only,
+    resolve_single_branch_write_ref,
     resolve_topology,
+    single_branch_write_ref,
 )
 from mission_runtime.issue_matrix_partition import resolve_issue_matrix_partition
 from mission_runtime.mission_resolver_port import MissionResolver
@@ -100,6 +106,7 @@ __all__ = [
     "PlacementSeam",
     "ReadDegradeStrategy",
     "ReadDirDecision",
+    "TopologyManifestMismatch",
     "TopologySurface",
     # coord-read-fail-closed landing (#5001): the basename->kind classifier map
     # itself, re-exported so ``specify_cli.coordination.surface_resolver`` can
@@ -107,6 +114,7 @@ __all__ = [
     # ``mission_runtime.artifacts`` submodule directly (MR-1/MR-2).
     "_MISSION_FILE_KIND_BY_BASENAME",
     "assert_coord_write_materialized",
+    "assert_topology_matches_manifest",
     "classify_topology",
     "coord_read_dir_for",
     "declared_read_surface",
@@ -129,9 +137,12 @@ __all__ = [
     "resolve_mid8",
     "resolve_placement_only",
     "resolve_read_dir_or_degrade",
+    "resolve_single_branch_write_ref",
     "resolve_topology",
     "resolve_write_target_or_degrade",
     "routes_through_coordination",
+    "single_branch_write_ref",
+    "unstamped_runtime_topology",
 ]
 
 _COMPAT_ATTRS = frozenset(

@@ -59,6 +59,7 @@ from specify_cli.decisions.models import (
 
 __all__ = [
     "FoldError",
+    "is_allowed_terminal_reopen",
     "build_opened_entry",
     "apply_terminal",
     "fold_events",
@@ -74,6 +75,27 @@ _OUTCOME_TO_STATUS: dict[TerminalOutcome, DecisionStatus] = {
     TerminalOutcome.DEFERRED: DecisionStatus.DEFERRED,
     TerminalOutcome.CANCELED: DecisionStatus.CANCELED,
 }
+
+
+#: The single transition-rule authority (#4919), shared by BOTH the
+#: write path (:func:`specify_cli.decisions.service._is_allowed_terminal_reopen`
+#: delegates here) and the read-side fold below (:func:`_select_terminal_event`)
+#: -- one canonical answer to "which terminal-to-terminal reopen is legal",
+#: never two independently-maintained copies. Today's only legal reopen is a
+#: deferred decision later being explicitly resolved; resolved/canceled stay
+#: terminal (the service's TERMINAL_CONFLICT refusal covers those, unchanged).
+ALLOWED_TERMINAL_REOPEN: frozenset[tuple[DecisionStatus, DecisionStatus]] = frozenset({(DecisionStatus.DEFERRED, DecisionStatus.RESOLVED)})
+
+
+def is_allowed_terminal_reopen(current: DecisionStatus, target: DecisionStatus) -> bool:
+    """True when a decision already in *current* may still transition to *target*.
+
+    The forward write path calls this to decide whether a terminal-to-terminal
+    request is a legal reopen (deferred -> resolved) rather than a conflict;
+    the fold below uses the identical rule to decide which
+    ``DecisionPointResolved`` pair is foldable (see :func:`_select_terminal_event`).
+    """
+    return (current, target) in ALLOWED_TERMINAL_REOPEN
 
 
 # ---------------------------------------------------------------------------
@@ -190,23 +212,115 @@ def _fold_resolved(entry: IndexEntry, payload: Mapping[str, Any]) -> IndexEntry:
     )
 
 
+def _select_terminal_event(
+    resolved_events: list[Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    """Pick the single ``DecisionPointResolved`` envelope to fold, if any.
+
+    #4919: the documented ``open -> defer -> resolve`` flow emits
+    TWO real ``DecisionPointResolved`` events for one decision -- ``defer``
+    with ``terminal_outcome=deferred``, then a later ``resolve`` with
+    ``terminal_outcome=resolved`` (:func:`is_allowed_terminal_reopen`, the
+    SAME rule the write path enforces). Because the event-log git merge
+    driver (``status/event_log_merge.py:62-68``) re-sorts the whole log by
+    ``(at, event_id)``, the pair can land in EITHER order after a merge --
+    this fold must not depend on append order (the #4941 ordering-bug
+    class). It therefore recognizes the pair by OUTCOME SET, not position:
+    exactly one ``deferred`` + one ``resolved`` outcome, in either order,
+    folds to the ``resolved`` envelope (its ``final_answer`` and
+    ``state_entered_at`` become the entry's). Any other multi-outcome
+    combination (two ``resolved``, ``resolved`` + ``canceled``, three or
+    more, ...) is malformed and raises.
+
+    Returns:
+        ``None`` when *resolved_events* is empty (the decision is still
+        OPEN); the sole envelope when there is exactly one; for exactly two
+        envelopes whose statuses form an allowed reopen pair (per
+        :func:`is_allowed_terminal_reopen`), the envelope carrying the
+        REOPEN TARGET status.
+
+    Raises:
+        FoldError: *resolved_events* holds more than one envelope and they
+            do not form a pair :func:`is_allowed_terminal_reopen` allows (in
+            either direction).
+    """
+    if not resolved_events:
+        return None
+    if len(resolved_events) == 1:
+        return resolved_events[0]
+
+    if len(resolved_events) == 2:
+        first, second = resolved_events
+        first_status = _OUTCOME_TO_STATUS[TerminalOutcome(first["payload"]["terminal_outcome"])]
+        second_status = _OUTCOME_TO_STATUS[TerminalOutcome(second["payload"]["terminal_outcome"])]
+        # Single-authority check (#4919): derive
+        # foldability from the SAME ``ALLOWED_TERMINAL_REOPEN`` table the
+        # write path (`service._is_allowed_terminal_reopen`) enforces --
+        # never a second, independently-maintained outcome-set literal here.
+        # A pair the write path would accept as a reopen (current -> target)
+        # folds to the envelope carrying the TARGET status, in either
+        # position (order-independence, #4941 class).
+        if is_allowed_terminal_reopen(first_status, second_status):
+            return second
+        if is_allowed_terminal_reopen(second_status, first_status):
+            return first
+
+    outcomes = sorted(TerminalOutcome(e["payload"]["terminal_outcome"]).value for e in resolved_events)
+    raise FoldError(f"unfoldable combination of {len(resolved_events)} DecisionPointResolved events for one decision_point_id: outcomes={outcomes}")
+
+
+#: Errors a malformed on-disk PAYLOAD raises inside the fold (a missing key,
+#: an out-of-enum value, a wrong-typed field, a pydantic ``ValidationError``
+#: -- itself a ``ValueError``). :func:`fold_events` re-raises them as
+#: :class:`FoldError` so every consumer handles ONE malformed-input type.
+_PAYLOAD_ERRORS: tuple[type[Exception], ...] = (KeyError, TypeError, ValueError, AttributeError)
+
+
 def fold_events(events: Iterable[Mapping[str, Any]]) -> IndexEntry:
+    """Fold one decision's event envelopes, raising only :class:`FoldError` on bad input.
+
+    Delegates to :func:`_fold_events`; a malformed payload (e.g. an opened
+    event missing ``origin_flow``, or ``terminal_outcome: "bogus"``) surfaces
+    as ``FoldError(...) from <original>`` instead of a bare
+    ``KeyError``/``ValueError``, so the read-only ``doctor decisions`` reports
+    it as a malformed fold rather than crashing (#4919).
+    """
+    try:
+        return _fold_events(events)
+    except FoldError:
+        raise
+    except _PAYLOAD_ERRORS as exc:
+        raise FoldError(f"malformed decision event payload ({type(exc).__name__}: {exc})") from exc
+
+
+def _fold_events(events: Iterable[Mapping[str, Any]]) -> IndexEntry:
     """Fold one decision's ordered event envelopes into an ``IndexEntry``.
+
+    Order-independent (#4919): the event-log git merge driver
+    (``status/event_log_merge.py:62-68``) re-sorts the whole log by
+    ``(at, event_id)``, so append order cannot be relied on after a merge.
+    *events* may therefore arrive in ANY order. A decision with exactly one
+    ``deferred``-outcome and one ``resolved``-outcome ``DecisionPointResolved``
+    envelope (the ``open -> defer -> resolve`` flow) folds to ``resolved``
+    regardless of which envelope appears first -- see
+    :func:`_select_terminal_event`.
 
     Args:
         events: Envelopes (``{"event_id", "at", "event_type", "payload"}``)
             for exactly ONE ``decision_point_id``, in any order. Must contain
-            exactly one ``DecisionPointOpened`` event; a
-            ``DecisionPointResolved`` event, if present, is folded on top of
-            the opened state.
+            exactly one ``DecisionPointOpened`` event; any
+            ``DecisionPointResolved`` event(s), if present, are folded on top
+            of the opened state via :func:`_select_terminal_event`.
 
     Returns:
         The reconstructed :class:`~specify_cli.decisions.models.IndexEntry`.
 
     Raises:
         FoldError: no ``DecisionPointOpened`` event is present, more than one
-            ``DecisionPointOpened``/``DecisionPointResolved`` event is
-            present, or an event of an unrecognized type is present.
+            ``DecisionPointOpened`` event is present, the
+            ``DecisionPointResolved`` events do not form an allowed
+            deferred+resolved pair (or a single event), or an event of an
+            unrecognized type is present.
     """
     materialized = list(events)
 
@@ -217,14 +331,14 @@ def fold_events(events: Iterable[Mapping[str, Any]]) -> IndexEntry:
         raise FoldError("more than one DecisionPointOpened event for one decision_point_id")
 
     resolved = [e for e in materialized if e.get("event_type") == DECISION_POINT_RESOLVED]
-    if len(resolved) > 1:
-        raise FoldError("more than one DecisionPointResolved event for one decision_point_id")
 
     unknown = {str(e.get("event_type")) for e in materialized} - {DECISION_POINT_OPENED, DECISION_POINT_RESOLVED}
     if unknown:
         raise FoldError(f"unknown event type(s) in fold input: {sorted(unknown)}")
 
+    terminal_event = _select_terminal_event(resolved)
+
     entry = _fold_opened(opened[0]["payload"])
-    if resolved:
-        entry = _fold_resolved(entry, resolved[0]["payload"])
+    if terminal_event is not None:
+        entry = _fold_resolved(entry, terminal_event["payload"])
     return entry

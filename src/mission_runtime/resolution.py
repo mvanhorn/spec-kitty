@@ -942,6 +942,120 @@ def _resolve_coordination_branch(
     return str(raw) if raw else None
 
 
+def _resolve_mission_branch(
+    primary_root: Path,
+    mission_slug: str,
+    *,
+    resolver: MissionResolver | None = None,
+    effective_root: Path | None = None,
+) -> str | None:
+    """Read the mission ``mission_branch`` from meta (WP08 / #5100 T036).
+
+    Returns ``None`` when the field is absent -- every topology except a
+    protected-target ``single_branch`` mint (research.md R-8). Mirrors
+    :func:`_resolve_coordination_branch`'s anchoring exactly (same
+    topology-blind primary-dir read, same malformed-meta degrade), so the two
+    readers can never disagree about which checkout a value came from.
+    """
+    from specify_cli.core.paths import MissionMetaReadError, load_meta_fail_closed
+
+    primary_dir = read_dir_for(
+        effective_root,
+        primary_root,
+        mission_slug,
+        kind=MissionArtifactKind.PRIMARY_METADATA,
+        resolver=resolver,
+    )
+    try:
+        meta = load_meta_fail_closed(primary_dir)
+    except MissionMetaReadError:
+        return None
+    if not meta:
+        return None
+    raw = meta.get("mission_branch")
+    return str(raw) if raw else None
+
+
+def single_branch_write_ref(
+    stored_topology: MissionTopology | None,
+    mission_branch: object,
+    target_branch: str,
+) -> str:
+    """The ONE write-branch rule for a mission (#5100 FR-007/012, IC-05) -- pure.
+
+    A mission whose STORED topology is ``single_branch`` and whose ``meta.json``
+    records a non-empty ``mission_branch`` (the protected-target mint) writes
+    to that branch; every other combination -- any other topology, an absent
+    or unreadable topology, an unprotected single_branch mission with no
+    ``mission_branch`` -- writes to ``target_branch``. Callers that already
+    hold the ``meta.json`` values pass them in (``meta.json`` is the only
+    authority: ``lanes.json.mission_branch`` is a stale copy after a protected
+    landing clears the meta field); callers holding only the repository use
+    :func:`resolve_single_branch_write_ref`. Pure so ``mission_runtime`` stays
+    free of ``specify_cli`` imports -- *mission_branch* is ``object`` because
+    it is the raw, untyped ``meta.json`` value; anything but a non-empty
+    string reads as "not recorded".
+    """
+    if not is_single_branch(stored_topology):
+        return target_branch
+    if isinstance(mission_branch, str) and mission_branch:
+        return mission_branch
+    return target_branch
+
+
+def resolve_single_branch_write_ref(
+    repo_root: Path,
+    mission_handle: str,
+    target_branch: str,
+    *,
+    resolver: MissionResolver | None = None,
+) -> str:
+    """Shell over :func:`single_branch_write_ref` for callers with only a repository.
+
+    Reads the STORED topology and ``mission_branch`` from the mission's PRIMARY
+    ``meta.json`` (the same anchored reads :func:`_resolve_single_branch_write_ref`
+    uses for the placement arms) so a caller that does not already hold the
+    meta dict cannot re-derive the rule from ``lanes.json`` or a second meta
+    read of its own.
+    """
+    from specify_cli.core.paths import get_main_repo_root
+
+    topology = resolve_topology(repo_root, mission_handle, resolver=resolver)
+    return _resolve_single_branch_write_ref(topology, target_branch, get_main_repo_root(repo_root), mission_handle, resolver=resolver)
+
+
+def _resolve_single_branch_write_ref(
+    topology: MissionTopology,
+    target_branch: str,
+    primary_root: Path,
+    mission_slug: str,
+    *,
+    resolver: MissionResolver | None = None,
+    effective_root: Path | None = None,
+) -> str:
+    """SINGLE_BRANCH protected-target write destination (WP08 / IC-05, FR-007/012).
+
+    For a ``single_branch`` mission whose ``meta.json`` records a
+    ``mission_branch`` (minted at create for a protected target -- see
+    :mod:`specify_cli.core.mission_creation`), every artifact kind -- planning
+    AND status/code -- writes there instead of the raw ``target_branch``. This
+    is the SINGLE choke point :func:`_assemble_core_fragments` (status/code
+    write target via ``BranchRefFragment.destination_ref``) and the two
+    PRIMARY-artifact-kind bypasses (:func:`mission_context_for`,
+    :func:`resolve_placement_only`) all consult, so a planning commit and a
+    status commit for the same mission can never disagree (C-005: one
+    authority).
+
+    Every other topology, and an unprotected or ``commit_to_target``
+    single_branch mission (no ``mission_branch`` recorded), returns
+    ``target_branch`` unchanged -- byte-identical to pre-WP08 behaviour.
+    """
+    if not is_single_branch(topology):
+        return target_branch
+    mission_branch = _resolve_mission_branch(primary_root, mission_slug, resolver=resolver, effective_root=effective_root)
+    return single_branch_write_ref(topology, mission_branch, target_branch)
+
+
 def _resolve_topology(
     primary_root: Path,
     mission_slug: str,
@@ -1138,9 +1252,16 @@ def mission_context_for(
         resolver=resolver,
         effective_root=effective_root,
     )
+    # WP08 (#5100 FR-007/012): a single_branch mission's PRIMARY-kind bypass
+    # (below) resolves to `mission_branch` too when a protected-target mint
+    # recorded one -- every artifact kind of such a mission writes there, not
+    # just the non-primary ones `branch_ref.destination_ref` already covers.
+    primary_kind_ref = _resolve_single_branch_write_ref(
+        resolved_topology, target_branch, primary_root, mission_slug, resolver=resolver, effective_root=effective_root
+    )
     artifacts: list[MissionArtifactContext] = []
     for kind in MissionArtifactKind:
-        placement_ref = CommitTarget(ref=target_branch) if is_primary_artifact_kind(kind) else branch_ref.destination_ref
+        placement_ref = CommitTarget(ref=primary_kind_ref) if is_primary_artifact_kind(kind) else branch_ref.destination_ref
         home = artifact_home_for(kind, placement_ref)
         read_dir = primary_read_dir if home.read_surface == TopologySurface.PRIMARY else status_surface.status_read_dir
         write_dir = primary_read_dir if home.write_surface == TopologySurface.PRIMARY else status_surface.status_write_dir
@@ -1450,7 +1571,14 @@ def _assemble_core_fragments(
     # (FR-005 / WP04 drain) — never a re-derived per-ref enum. ``CommitTarget`` is a
     # ref-only carrier (C-007 / FR-001b): the destination ref is the coord branch
     # when the stored topology routes through coordination, else the target branch.
-    coord_ref = coordination_branch if routes_through_coordination(topology) and coordination_branch is not None else target_branch
+    if routes_through_coordination(topology) and coordination_branch is not None:
+        coord_ref = coordination_branch
+    else:
+        # WP08 (#5100 FR-007/012): a single_branch mission's write target is
+        # its minted `mission_branch` when a protected-target mint recorded
+        # one, else `target_branch` unchanged (see
+        # `_resolve_single_branch_write_ref`).
+        coord_ref = _resolve_single_branch_write_ref(topology, target_branch, primary_root, mission_slug, resolver=resolver, effective_root=effective_root)
     destination_ref = CommitTarget(ref=coord_ref)
     branch_ref = BranchRefFragment(
         target_branch=target_branch,
@@ -1681,7 +1809,11 @@ def resolve_placement_only(
     # ArtifactPlacementFragment because planning callers hand it straight to
     # ``safe_commit(target=...)``.
     if kind in _PRIMARY_ARTIFACT_KINDS:
-        return CommitTarget(ref=target_branch)
+        # WP08 (#5100 FR-007/012): a single_branch mission's protected-target
+        # mint redirects even the PRIMARY-kind bypass to `mission_branch` --
+        # see `_resolve_single_branch_write_ref`.
+        primary_kind_ref = _resolve_single_branch_write_ref(topology, target_branch, get_main_repo_root(repo_root), mission_slug, resolver=resolver)
+        return CommitTarget(ref=primary_kind_ref)
     return branch_ref.destination_ref
 
 

@@ -363,11 +363,38 @@ Follow [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) for PyPI and GitHub releas
   everything to primary. Planning commands may be invoked from the repo root — no worktree is
   required to run `/spec-kitty.specify` / `/spec-kitty.plan` / `/spec-kitty.tasks`.
 - `spec-kitty implement WP##` creates/reuses the execution workspace via
-  `resolve_workspace_for_wp` (`src/specify_cli/workspace/context.py`),
-  resolving `.worktrees/<feature>-lane-<id>` from `lanes.json`. There is no
-  `-WP##` fallback: flat / `SINGLE_BRANCH` / `LANES` missions all still
-  require `lanes.json`; a missing manifest fails closed with
-  `MissingLanesError` (`src/specify_cli/lanes/persistence.py`).
+  `resolve_workspace_for_wp` (`src/specify_cli/workspace/context.py`).
+  `lanes` / `lanes_with_coord` missions resolve
+  `.worktrees/<slug>-lane-<id>` from `lanes.json`; a missing manifest fails
+  closed with `MissingLanesError` (`src/specify_cli/lanes/persistence.py`).
+  There is no `-WP##` fallback.
+- **`single_branch` has no lanes** ([topology glossary](docs/context/topology.md)). Its
+  `lanes.json` is a one-lane repo-root manifest (`lane-planning`). Its WPs run
+  sequentially in the *write checkout* (the repository root checkout, or a
+  validated owned checkout), stamped `execution_mode: direct_repo`. There is no lane
+  worktree and no dependency merge. `implement` refuses with
+  `WRITE_CHECKOUT_WRONG_BRANCH`, `WRITE_CHECKOUT_OCCUPIED` (another WP is
+  `in_progress` in the same write checkout) or `WRITE_CHECKOUT_DIRTY` (a resume is
+  exempt), all in `src/specify_cli/lanes/implement_support.py`.
+- **Create-time topology.** On a non-primary branch the create default is `lanes`.
+  `single_branch` comes only from `--topology single_branch` or `--owned-checkout`.
+  Caveat: in a repository with no `origin/HEAD` (for example no remote), primary-branch
+  detection falls back to the current branch (`resolve_primary_branch`, `src/specify_cli/core/git_ops.py`),
+  so a create on that branch resolves to `coord`, not `lanes`. That behaviour is pre-existing.
+  When a `single_branch` mission targets a *protected target* (the primary branch or a
+  configured protected branch), `agent mission create` mints and checks out
+  `kitty/mission-<slug>-<mid8>` in the write checkout and records it in `meta.json`;
+  `--commit-to-target` (accepted only with `single_branch`) opts out: it is persisted in `meta.json` and `ProtectionPolicy.resolve_for_mission` then lets that mission's own writes reach its own `target_branch` (no env var; other missions, non-mission commits and mixed code+mission-dir `safe_commit` commits stay refused; a non-boolean value refuses). `consolidate` lands the mission branch onto the target.
+- **Unmigrated `single_branch` missions with code lanes fail closed** with
+  `SINGLE_BRANCH_CODE_LANES_UNMIGRATED` (`src/mission_runtime/context.py`). Remedy: the
+  re-stamp migration, or `spec-kitty migrate backfill-topology --restamp-single-branch`.
+  `spec-kitty doctor topology` reports it, plus `LANES_MANIFEST_UNREADABLE`.
+- **Lane work tips.** When the recorder hook is installed (migration `4_0_0rc5_install_lane_tip_recorder`), a POSIX `post-commit` / `post-rewrite` hook, plus spec-kitty's own
+  record points (lane allocation in `implement`, `for_review` transitions, crash recovery, auto-rebase), write `refs/spec-kitty/lane-tip/<branch>` (`src/specify_cli/lanes/lane_tip.py`).
+  A destroyed lane with unabsorbed work is refused with `DESTROYED_LANE`
+  (`src/specify_cli/lanes/worktree_allocator.py`), naming the SHA and the restore
+  command `git branch <b> refs/spec-kitty/lane-tip/<b>`. `LANE_WORK_TIP_UNKNOWN` (`LaneWorkTipUnknownError`) fires when a lane's branch was deleted before any work tip was recorded, or after its `refs/spec-kitty/lane-tip/<branch>` ref was deleted: nothing is left to classify the lane by, so the guard fails closed. Its message says to look for stranded commits (`git reflog <branch>` or `git fsck --lost-found`); if you find one, record it with `git update-ref refs/spec-kitty/lane-tip/<branch> <sha>` and re-run `implement`; if you are sure no work was ever committed, run `spec-kitty context cleanup` to clear the stale workspace record and retry. Abandoning a destroyed lane (`DESTROYED_LANE`) is two steps today: `git update-ref -d refs/spec-kitty/lane-tip/<branch>`, then `spec-kitty context cleanup`. Squash-absorption detection needs git >= 2.38 (`git merge-tree --write-tree`); on older git the guard fails closed and refuses even a genuinely squash-merged lane.
+  The recorder hooks are installed into your repository's hooks directory (`.git/hooks`, or a `core.hooksPath` set at repository-local scope that points outside the working tree) and are skipped, with a warning, when `core.hooksPath` comes from global or system git config, is `/dev/null`, missing, or points inside the working tree; then tips are recorded only at spec-kitty's own record points. With the recorder inactive (skipped, or a foreign `post-commit` hook), a destroyed lane whose tip still equals its creation base is refused with `LANE_WORK_TIP_UNKNOWN` instead of being treated as empty (`lane_tip_recorder_active`, `src/specify_cli/policy/lane_tip_recorder.py`).
 
 **Planning artifacts** (land on the primary partition):
 - `/spec-kitty.specify` → `kitty-specs/<mission>/`
@@ -427,6 +454,21 @@ spec-kitty consolidate --mission 017-my-mission
 **Forward ref advance is compare-and-swap (terminus-merge-integrity / #4996).** The forward consolidation advance `advance_branch_ref` (`git/ref_advance.py`) now performs a 3-arg `git update-ref <ref> <new_sha> <expected_old_sha>` and **fails closed** (raises) when the ref moved since it was read — it never falls back to a 2-arg write and never silently retries. This matches the compare-and-swap discipline `restore_branch_ref` (rollback) always had; the two are no longer opposite (the pre-fix `advance_branch_ref` was a non-CAS 2-arg write, the #4996 smoking gun). The coord teardown additionally re-checks the coordination tip via a compare-and-swap gate (`coordination/teardown.py::ProjectionTeardownGate`) before destroying the coordination triple, so a commit that landed after the projection window is never silently torn down.
 
 **The DEFAULT squash merge now runs a content axis (terminus-integrity-followups / #5013).** The reconciliation gate no longer early-returns PASS under the default `squash` strategy before the content checks. `MergeOutcomeVerifier.verify` runs a squash-sound **blob-attribution axis** (`_unattributable_content_squash`): every non-bookkeeping content path of the squashed diff `B..T` is attributed against the union of approved lanes' **first-parent authored blobs** (`ApprovedWpCommitSet.authored_blobs` — the *final* blob per `(lane, path)`, content identity rather than the lane-tip SHAs/patch-ids squash destroys); an unattributable path FAILs the gate and CAS-reverts the target. It is fail-closed: an empty authored set while approved WPs resolved commits, an unresolved window base, or any git-probe error REFUSE rather than passing vacuously (`consolidation/git_probes.py::blob_id_at`/`changed_paths_in_range` raise `GitProbeError`). `consolidate --resume` honors the persisted `ConsolidationState.strategy` and anchors the claim to a read-persisted-first `pre_mutation_coord_sha` + `pre_interrupt_lane_tips` (never the poisoned resume-start checkpoint), preserving an already-consolidated lane's commit by SHA; the per-lane tip is a CAS expectation (`state.lane_tip_cas_ok`) that tolerates the behind-HEAD window but REFUSEs true divergence. Honest residual remains `xfail`: the 3-way merge-resolution content case (a target blob equal to neither parent). (#4997 — the resume behind-own-HEAD staged-deletion window — was closed by PR #5031: a `--resume` now recovers a *provably pure* behind-own-HEAD primary in place and the MERGE-strategy no-op is adjudicated like the squash no-op.)
+
+**Mixed lanes are attributed per WP (mixed-lane-authorship-soundness / #5046).**
+- **Problem.** A lane that mixes an approved WP with a WP in `excluded_canceled_wp_ids` was previously trusted as a whole, so the canceled WP's committed content shipped at exit 0.
+- **Stamp.** Every persisted lifecycle transition of a lane-mapped WP now carries `policy_metadata["lane_head"]`. It is stamped best-effort in `status/transition_pipeline.prepare_transition` through a probe (`status/lane_head.py`) that the two status shells inject; the pipeline itself stays git-free.
+- **Resolver.** `consolidation/wp_attribution.py` rebuilds each WP's work windows from those stamps and derives the canceled WP's unsuperseded per-path content, comparing against its pre-state.
+- **Verdict.** The strategy-independent `_canceled_content_divergence` step returns:
+  - **FAIL** (`Divergence.canceled_content`) when that content is on the target;
+  - **REFUSE** when attribution is missing or contradictory, when the canceled change was merged with an independent change, or (closed world, FR-013, ADR `2026-09-29-1`) when a lane content commit lies outside every WP's window.
+- **Migration events.** Events whose actor starts with `migration:` (`wp_attribution.MIGRATION_ACTOR_PREFIX`) never open or close a window (FR-011).
+- **Override.** `consolidate --attest-canceled-superseded <WP> --attest-reason "..."` (`consolidation/canceled_attestation.py`) records a forced `canceled -> canceled` operator transition with `policy_metadata.attestation`; it lifts the attribution-evidence REFUSEs, exempts lane commits up to its own `lane_head` stamp from the closed world (later stragglers still REFUSE), and never lifts a FAIL or an unreadable log/history (FR-012). The closed world only counts commits after the lane's own base (first-claim stamp, dependency-lane tips, target tip).
+- **Unchanged.** Existing claim fields are byte-identical.
+- **Rollback.** Every gate REFUSE now CAS-restores the target, like FAIL.
+- **Residuals.** Five are pinned as strict `xfail` in `tests/consolidation/test_canceled_content_residuals.py` (#5330), including two gaps of the closed-world anchors (a pre-claim out-of-workflow commit; a fully-canceled dependency lane's content); two former ones now REFUSE.
+
+**Refusals and failures roll back through one authority (slice 10 / #5338 #5318 #5332 #5296).** A claim that fails its integrity check (`reconciliation.claim_integrity_refusal`, the same predicate the gate uses) now exits before the first mutation. Every run persists one pre-mutation snapshot (`ConsolidationState.pre_mutation_refs`; never recaptured on `--resume`) and records per-phase post tips (`post_mutation_refs`, the CAS expected value) only for the target/mission/coordination branches whose tip changed during that phase — never after a CAS refusal (`RefAdvanceError`/`RefRestoreError`), but always after a `RefResyncError` (our CAS won, only the checkout resync failed). Lane branches (`snapshot_lane_branches`) are report-only: snapshotted, never recorded, never restored. A reconciliation-gate FAIL/REFUSE, a squash-projection refusal and `consolidate --abort` all call `consolidation/rollback.py::rollback_to_snapshot`, which restores each run-movable branch only while it is still at this run's recorded post tip, reports a moved branch with no recorded tip (interrupted phase) or a vanished target/mission/coordination branch as NOT restored (the record is kept), reports a vanished lane branch with a `git branch <b> <sha>` recreate hint without blocking, resyncs checkouts via `git/ref_advance.py::_resync_checkouts`, and never rolls back a landing an earlier attempt verified (`state.reconciliation_passed_for_tip`). Residuals: a foreign commit landing on a run-movable branch inside the same phase after our own advance is recorded as ours; a same-mission `--abort` racing a live run relies on the existing lock owner-token scheme. `--abort` restores before clearing the record, under the consolidation lock only when a snapshot exists. The caller set is AST-pinned (`tests/consolidation/test_single_rollback_authority.py`). Planning-lane claims on the target checkout waive code-lane ancestry instead of merging code lanes there. ADR `2026-09-19-1` (Amendment 2026-09-29) records the design; the other in-phase exits are residual #5385.
 
 ---
 

@@ -56,7 +56,13 @@ def test_already_baked() -> None:
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [(5, True), (0, True), (True, False), (False, False), (None, False), ("3", False)],
+    # 0 and negatives are unassigned (#4900): ``_is_assigned_mission_number``
+    # delegates to the single canonical leaf definition
+    # (``consolidation.mission_number.is_assigned_mission_number``), which
+    # requires an integer >= 1 to match data-model.md "Mission number" and
+    # the sibling ``mission_check_prerequisites`` definition. 0 and negative
+    # integers are unassigned too.
+    [(5, True), (0, False), (-1, False), (True, False), (False, False), (None, False), ("3", False)],
 )
 def test_is_assigned_mission_number(value: object, expected: bool) -> None:
     assert ordering._is_assigned_mission_number(value) is expected
@@ -113,7 +119,10 @@ def test_bake_dry_run_logs_without_write(tmp_path: Path) -> None:
     write_mock.assert_not_called()
 
 
-def test_bake_writes_and_marks_baked_on_success(tmp_path: Path) -> None:
+def test_bake_writes_and_never_marks_baked_itself_on_success(tmp_path: Path) -> None:
+    """#4900: a fresh write returns the number but never marks
+    ``mission_number_baked`` itself -- only the executor does, after
+    target-side verification."""
     marked: list[bool] = []
     state = _state()
     with (
@@ -124,17 +133,59 @@ def test_bake_writes_and_marks_baked_on_success(tmp_path: Path) -> None:
     ):
         result = ordering._bake_mission_number_into_mission_branch(tmp_path, "m", "kitty/mission-m", "main", merge_state=state)
     assert result == 9
-    assert marked == [True]
+    assert marked == []
 
 
-def test_bake_returns_none_when_write_skipped(tmp_path: Path) -> None:
+def test_bake_keeps_number_when_write_skipped(tmp_path: Path) -> None:
+    """#4900: a skipped/failed mission-branch write must not discard
+    the computed number -- the executor's target-tree write + read-back is the
+    authority and needs it."""
     with (
         patch.object(ordering, "_is_git_repo", return_value=True),
         patch.object(ordering, "_compute_next_mission_number_or_none", return_value=9),
         patch.object(ordering, "_write_mission_number_to_branch", return_value=False),
     ):
         result = ordering._bake_mission_number_into_mission_branch(tmp_path, "m", "kitty/mission-m", "main", merge_state=_state())
-    assert result is None
+    assert result == 9
+
+
+def test_bake_refuses_loudly_when_no_number_can_be_determined(tmp_path: Path) -> None:
+    """#4900: an unsafe slug means no number can ever be decided --
+    raise the typed verification error (executor -> ``Error:`` + exit 1)
+    instead of a silent ``None`` that leaves the target ``null`` with exit 0."""
+    from specify_cli.consolidation.baseline import MissionNumberVerificationError
+
+    with (
+        patch.object(ordering, "_is_git_repo", return_value=True),
+        patch.object(ordering, "_compute_next_mission_number_or_none") as compute_mock,
+        pytest.raises(MissionNumberVerificationError, match="cannot determine a mission_number"),
+    ):
+        ordering._bake_mission_number_into_mission_branch(tmp_path, "../evil", "kitty/mission-evil", "main", merge_state=_state())
+    compute_mock.assert_not_called()
+
+
+def test_bake_onto_target_tree_refuses_absent_meta(tmp_path: Path) -> None:
+    """#4900: never fabricate a one-key stub meta.json on the target."""
+    from specify_cli.consolidation.baseline import MissionNumberVerificationError
+
+    feature_dir = tmp_path / "kitty-specs" / "m"
+    feature_dir.mkdir(parents=True)
+    with pytest.raises(MissionNumberVerificationError, match="target meta.json is missing"):
+        ordering._bake_mission_number_onto_target_tree(feature_dir, 3)
+    assert not (feature_dir / "meta.json").exists()
+
+
+def test_bake_onto_target_tree_writes_existing_meta(tmp_path: Path) -> None:
+    import json as _json
+
+    feature_dir = tmp_path / "kitty-specs" / "m"
+    feature_dir.mkdir(parents=True)
+    (feature_dir / "meta.json").write_text(_json.dumps({"mission_slug": "m", "mission_number": None}), encoding="utf-8")
+    result = ordering._bake_mission_number_onto_target_tree(feature_dir, 3)
+    assert result == feature_dir / "meta.json"
+    written = _json.loads(result.read_text(encoding="utf-8"))
+    assert written["mission_number"] == 3
+    assert written["mission_slug"] == "m"
 
 
 # --- _write_mission_number_to_branch: missing-branch early return -----------
@@ -142,7 +193,7 @@ def test_bake_returns_none_when_write_skipped(tmp_path: Path) -> None:
 
 def test_write_skips_when_branch_missing(tmp_path: Path) -> None:
     with patch.object(ordering, "_has_branch_ref", return_value=False):
-        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3, _state()) is False
+        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3) is False
 
 
 # --- _assign_planning_only_mission_number_if_needed -------------------------
@@ -164,7 +215,7 @@ def test_planning_only_assignment_writes_meta(tmp_path: Path) -> None:
         patch.object(ordering, "write_meta", side_effect=lambda _d, meta, **_k: written.append(meta)),
     ):
         result = ordering._assign_planning_only_mission_number_if_needed(tmp_path, feature_dir)
-    assert result == feature_dir / "meta.json"
+    assert result == 4
     assert written[0]["mission_number"] == 4
 
 
@@ -180,7 +231,7 @@ def test_planning_only_assignment_writes_meta_when_load_returns_none(tmp_path: P
         patch.object(ordering, "write_meta", side_effect=lambda _d, meta, **_k: written.append(meta)),
     ):
         result = ordering._assign_planning_only_mission_number_if_needed(tmp_path, feature_dir)
-    assert result == feature_dir / "meta.json"
+    assert result == 2
     assert written[0] == {"mission_number": 2}
 
 
@@ -339,7 +390,7 @@ def test_write_rejects_unsafe_mission_slug_before_git_or_file_io(tmp_path: Path)
         patch("subprocess.run") as run_mock,
         patch("specify_cli.missions._read_path_resolver.compose_meta_json_path") as compose_mock,
     ):
-        result = ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "/outside-repo", 99, _state())
+        result = ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "/outside-repo", 99)
 
     assert result is False
     branch_mock.assert_not_called()
@@ -362,7 +413,7 @@ def test_write_skips_when_worktree_add_fails(tmp_path: Path) -> None:
         patch.object(ordering, "_has_branch_ref", return_value=True),
         patch("subprocess.run", side_effect=_fake_run),
     ):
-        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3, _state()) is False
+        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3) is False
 
 
 def test_write_skips_when_meta_missing(tmp_path: Path) -> None:
@@ -377,7 +428,7 @@ def test_write_skips_when_meta_missing(tmp_path: Path) -> None:
         patch("subprocess.run", side_effect=_fake_run),
     ):
         # The composed meta path under the tmp scan worktree never exists.
-        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3, _state()) is False
+        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3) is False
 
 
 def test_write_refuses_when_meta_path_under_worktrees(tmp_path: Path) -> None:
@@ -395,7 +446,7 @@ def test_write_refuses_when_meta_path_under_worktrees(tmp_path: Path) -> None:
             side_effect=lambda wt, slug: wt / ".worktrees" / "m-coord" / "meta.json",
         ),
     ):
-        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3, _state()) is False
+        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3) is False
 
 
 def test_write_refuses_when_meta_not_a_dict(tmp_path: Path) -> None:
@@ -420,11 +471,15 @@ def test_write_refuses_when_meta_not_a_dict(tmp_path: Path) -> None:
             side_effect=lambda wt, slug: wt / "kitty-specs" / slug / "meta.json",
         ),
     ):
-        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3, _state()) is False
+        assert ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 3) is False
 
 
-def test_write_idempotency_hit_marks_baked_returns_false(tmp_path: Path) -> None:
-    """meta already has the exact number -> idempotency skip + mark baked (lines 402-414)."""
+def test_write_idempotency_hit_never_marks_baked_returns_false(tmp_path: Path) -> None:
+    """meta already has the exact number -> idempotency skip, no write (lines 402-414).
+
+    #4900: this seam never marks ``mission_number_baked`` itself --
+    that flag is set ONLY by the executor, after target-side verification.
+    """
     import json as _json
 
     def _fake_run(args: list[str], **kwargs: object) -> CompletedProcess[str]:
@@ -447,6 +502,6 @@ def test_write_idempotency_hit_marks_baked_returns_false(tmp_path: Path) -> None
             side_effect=lambda wt, slug: wt / "kitty-specs" / slug / "meta.json",
         ),
     ):
-        result = ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 9, _state())
+        result = ordering._write_mission_number_to_branch(tmp_path, "kitty/mission-m", "m", 9)
     assert result is False
-    assert marked == [True]
+    assert marked == [], "the idempotency-hit seam must never mark mission_number_baked (#4900)"

@@ -1447,7 +1447,7 @@ def implement(
         # checkout the mission does not own. write_intent gates the
         # checkout-identity refusal (pure reads leave it False).
         workspace = resolve_workspace_for_wp(main_repo_root, mission_slug, normalized_wp_id, write_intent=True)
-        status_execution_mode = "direct_repo" if workspace.resolution_kind == "repo_root" else "worktree"
+        status_execution_mode = workspace.status_execution_mode
 
         def _create_workspace() -> None:
             top_level_implement(
@@ -1494,6 +1494,12 @@ def implement(
                 f"established after self-heal for: {', '.join(ancestry.missing_refs)}"
             )
             raise typer.Exit(1)
+        if ancestry.code_lanes_deferred_to is not None:
+            print(
+                "Planning work package: code dependency lanes are not merged into the repository root "
+                f"checkout on the target branch; they reach {ancestry.code_lanes_deferred_to} "
+                "through `spec-kitty consolidate` (#5296)."
+            )
 
         subtask_ids = [str(item) for item in wp_meta.subtasks if isinstance(item, str)]
         subtask_cmd = " ".join(subtask_ids) if subtask_ids else "<subtask-ids>"

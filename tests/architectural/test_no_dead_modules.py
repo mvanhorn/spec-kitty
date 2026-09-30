@@ -285,6 +285,13 @@ _CATEGORY_1_AUTO_DISCOVERED_MIGRATIONS: frozenset[str] = frozenset(
         "specify_cli.upgrade.migrations.m_3_2_6_meta_traces_merge_drivers",  # auto-discovered (#2709)
         "specify_cli.upgrade.migrations.m_3_2_6_decisions_event_log_merge_driver",  # auto-discovered (#2709)
         "specify_cli.upgrade.migrations.m_3_2_6_retire_rtk_search_tooling",  # auto-discovered (#3009)
+        # The generic consumer-retirement sweep for the retired/renamed/
+        # re-kinded single-owner doctrine ids, built on the same shared engine
+        # (_retired_activation.py) as the rtk-retirement migration directly
+        # above. Auto-discovered via pkgutil.iter_modules +
+        # @MigrationRegistry.register; never statically imported by runtime
+        # code -- same sibling shape as the rtk entry.
+        "specify_cli.upgrade.migrations.m_4_0_0rc5_retire_single_owner_doctrine_ids",
         # auto-discovered (write-side-seam-matrix-tracer-01KYP3MH WP05/FR-008);
         # repoints the #2804 gate-artifact merge driver from issue-matrix.md
         # to issue-matrix.json
@@ -340,6 +347,19 @@ _CATEGORY_1_AUTO_DISCOVERED_MIGRATIONS: frozenset[str] = frozenset(
         # @MigrationRegistry.register; never statically imported by runtime
         # code -- same sibling shape as the m_zz_* backfill migrations above.
         "specify_cli.upgrade.migrations.m_4_0_0rc5_hosted_endpoint_session_backfill",
+        # single-branch-topology-honesty-01M3M22V WP03 (#5100 IC-02): re-stamps
+        # a single_branch mission whose lanes.json has a code lane to
+        # topology: lanes (Invariant T-1 repair). Auto-discovered via
+        # pkgutil.iter_modules + @MigrationRegistry.register; never statically
+        # imported by runtime code -- same sibling shape as the migrations
+        # above (registered/verified by registry lookup in
+        # tests/specify_cli/upgrade/migrations/test_single_branch_code_lanes_restamp.py).
+        "specify_cli.upgrade.migrations.m_4_0_0rc5_single_branch_code_lanes_restamp",
+        # #5115: same shape -- discovered via pkgutil.iter_modules +
+        # @MigrationRegistry.register, never statically imported; verified by
+        # registry lookup in
+        # tests/specify_cli/upgrade/migrations/test_install_lane_tip_recorder.py.
+        "specify_cli.upgrade.migrations.m_4_0_0rc5_install_lane_tip_recorder",
     }
 )
 

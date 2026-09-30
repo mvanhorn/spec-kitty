@@ -2,7 +2,7 @@
 title: CLI Command Reference
 description: Complete Spec Kitty 3.2 CLI command reference with subcommands, options, mission workflow commands, and generated help output.
 doc_status: active
-updated: '2026-09-27'
+updated: '2026-09-28'
 related:
 - docs/api/bulk-edit-gate.md
 - docs/api/finalize-tasks-internals.md
@@ -1602,8 +1602,8 @@ _Project health diagnostics_
 │                         prerelease-opt-in).                                  │
 │ env-file                Report ``.kitty.env`` operator env-file health       │
 │                         (presence/tier/ignore).                              │
-│ provenance              Flag committed absolute built-in-pack source_path    │
-│                         leaks (C-PRV-5).                                     │
+│ provenance              Flag committed absolute built-in-pack leaks and      │
+│                         ambiguous template sources (C-PRV-5).                │
 │ command-files           Check all agent command files for correctness.       │
 │ skills                  Check command-skill manifest drift for Codex, Vibe,  │
 │                         Pi, and Letta.                                       │
@@ -1837,17 +1837,27 @@ _Project health diagnostics_
 
  Diagnose or repair divergence between ``decisions/index.json`` and the
  authoritative ``DecisionPointOpened``/``DecisionPointResolved`` event log
- (FR-004/FR-005).
+ (FR-004/FR-005; #4919 FR-001—FR-004).
 
  Diagnose (default): read-only; reports decisions present in the event
- log but missing from the index, and index entries with no backing event.
+ log but missing from the index, index entries with no backing event, a
+ decision_id whose event group cannot be folded at all (e.g. an
+ ``open -> open`` corruption), and an index entry whose status disagrees
+ with the folded log (a stale entry). Always exits 0 (report only) — C-007.
 
  ``--repair``: rebuilds ``index.json`` from the log via the single
  canonical ``event -> IndexEntry`` fold
  (:mod:`specify_cli.decisions.index_fold`) under the same sidecar lock the
  write path uses — never invents an entry absent from the log, never
  drops a log-backed entry. A no-op (no write) when the log and index
- already agree.
+ already agree. The fold is order-independent: a decision's documented
+ ``open -> defer -> resolve`` flow emits a ``deferred``-outcome event and
+ a later ``resolved``-outcome event, and folds to ``resolved`` regardless
+ of which one the (git-merge-driver-resorted) log lists first (#4919).
+ When a decision cannot be reconciled, ``--repair`` leaves it unchanged
+ (never drops it), names it in the report, and the command then exits
+ **1** — C-007. It exits 0 only when every decision the repair touched
+ folds cleanly.
 
  Run ``--repair`` as an offline maintenance step, not concurrently with
  live decision traffic: a decision that is mid-open (its index entry
@@ -1855,8 +1865,6 @@ _Project health diagnostics_
  invisible to a log-authoritative rebuild, so a repair racing that window
  can drop the in-flight entry (a later ``--repair`` heals it). Like
  ``fsck``, it is meant to run when writers are quiesced.
-
- Informational only: always exits 0.
 
  Examples:
      spec-kitty doctor decisions --mission my-mission-01ABCD
@@ -2075,12 +2083,13 @@ _Project health diagnostics_
 ```
  Usage: spec-kitty doctor provenance [OPTIONS]
 
- Flag committed absolute built-in-pack source_path leaks (C-PRV-5).
+ Flag committed absolute built-in-pack leaks and ambiguous template sources
+ (C-PRV-5).
 
  Scans .kittify/charter/charter.yaml's catalog and
- .kittify/agent_profiles_manifest.json for a source_path that should
- be a ${SPEC_KITTY_PACKS_ROOT}/built-in/... token but is not, and
- prints a heal hint for each. Read-only -- never mutates state.
+ .kittify/agent_profiles_manifest.json for source_path values that
+ should be portable pack tokens. Read-only -- never mutates state;
+ ambiguous former-checkout paths are reported without a heal hint.
 
  Examples:
      spec-kitty doctor provenance
@@ -3226,9 +3235,16 @@ _Migration commands: update .kittify/ layout and backfill identity fields in leg
  legacy missions.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --dry-run            Show what would change without modifying the filesystem │
-│ --verbose  -v        Show file-by-file detail                                │
-│ --force              Skip confirmation prompt                                │
+│ --dry-run            Show what would change without modifying the            │
+│                      filesystem. Before a subcommand, forwarded if the       │
+│                      subcommand declares it, else rejected (exit 2) — place  │
+│                      it after the subcommand when unsure.                    │
+│ --verbose  -v        Show file-by-file detail. Before a subcommand,          │
+│                      forwarded if the subcommand declares it, else rejected  │
+│                      (exit 2) — place it after the subcommand when unsure.   │
+│ --force              Skip confirmation prompt. Before a subcommand,          │
+│                      forwarded if the subcommand declares it, else rejected  │
+│                      (exit 2) — place it after the subcommand when unsure.   │
 │ --help     -h        Show this message and exit.                             │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
@@ -3612,13 +3628,24 @@ _Migration commands: update .kittify/ layout and backfill identity fields in leg
 
      spec-kitty migrate backfill-topology
 
+     spec-kitty migrate backfill-topology --restamp-single-branch --dry-run
+
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --json                   Emit per-mission result list as structured JSON     │
-│ --dry-run                Report what would change without writing any files. │
-│                          The JSON shape is identical to a live run.          │
-│ --mission          SLUG  Scope to a single mission slug (e.g. 083-foo-bar).  │
-│                          Omit to process all.                                │
-│ --help     -h            Show this message and exit.                         │
+│ --json                                 Emit per-mission result list as       │
+│                                        structured JSON                       │
+│ --dry-run                              Report what would change without      │
+│                                        writing any files. The JSON shape is  │
+│                                        identical to a live run.              │
+│ --mission                        SLUG  Scope to a single mission slug (e.g.  │
+│                                        083-foo-bar). Omit to process all.    │
+│ --restamp-single-branch                Re-stamp every single_branch mission  │
+│                                        whose lanes.json has a code lane to   │
+│                                        topology: lanes (Invariant T-1        │
+│                                        repair, #5100). Mutually exclusive    │
+│                                        with the ordinary backfill this       │
+│                                        command otherwise runs; combine with  │
+│                                        --dry-run to preview.                 │
+│ --help                   -h            Show this message and exit.           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -5675,12 +5702,15 @@ _Emit the open-Ops reminder for the Claude Code Stop hook._
 │                                                   branch-flat shapes         │
 │                                                   (single_branch, lanes) do  │
 │                                                   not. Default:              │
-│                                                   context-derived (#2581) —  │
-│                                                   coord on the primary       │
-│                                                   branch or with --pr-bound, │
-│                                                   single_branch on a         │
-│                                                   non-primary feature        │
-│                                                   branch.                    │
+│                                                   context-derived (#2581,    │
+│                                                   #2602) — coord on the      │
+│                                                   primary branch or with     │
+│                                                   --pr-bound when            │
+│                                                   coordination is reachable; │
+│                                                   lanes otherwise.           │
+│                                                   single_branch only when    │
+│                                                   requested explicitly (or   │
+│                                                   via --owned-checkout).     │
 │ --json                                            Emit JSON result           │
 │ --help          -h                                Show this message and      │
 │                                                   exit.                      │
