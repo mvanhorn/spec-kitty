@@ -1,7 +1,7 @@
 {
-  "event_count": 5,
-  "last_event_id": "01M3RE4KFR1K4AVWETM5YY0YD0",
-  "materialized_at": "2026-09-30T05:55:57.986476+00:00",
+  "event_count": 6,
+  "last_event_id": "01M3RJR7GF9EAJ6ZDPV7WVSTJQ",
+  "materialized_at": "2026-09-30T07:16:35.471231+00:00",
   "mission_number": "",
   "mission_slug": "single-rollback-authority-01M3RCP4",
   "mission_type": "software-dev",
@@ -12,8 +12,8 @@
     "canceled": 0,
     "claimed": 0,
     "done": 0,
-    "for_review": 0,
-    "in_progress": 1,
+    "for_review": 1,
+    "in_progress": 0,
     "in_review": 0,
     "planned": 2
   },
@@ -25,14 +25,23 @@
       "agent_profile_version": "__resolved_profile_version_absent__",
       "force_count": 0,
       "implementer_of_record": "claude",
-      "lane": "in_progress",
-      "last_event_id": "01M3RE4KFR1K4AVWETM5YY0YD0",
-      "last_transition_at": "2026-09-30T05:55:57.986476+00:00",
+      "lane": "for_review",
+      "last_event_id": "01M3RJR7GF9EAJ6ZDPV7WVSTJQ",
+      "last_transition_at": "2026-09-30T07:16:35.471231+00:00",
       "model": "__resolved_model_absent__",
       "provider": "__resolved_provider_absent__",
       "role": "implementer",
       "shell_pid": 9860,
-      "shell_pid_created_at": "1790747746.94"
+      "shell_pid_created_at": "1790747746.94",
+      "subtasks": {
+        "T001": "done",
+        "T002": "done",
+        "T003": "done",
+        "T004": "done",
+        "T005": "done",
+        "T006": "done",
+        "T013": "done"
+      }
     },
     "WP02": {
       "actor": "finalize-tasks",
