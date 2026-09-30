@@ -1224,8 +1224,16 @@ _UNATTRIBUTED_KIND_CAUSE = "unattributed_kind"
 #: function renders per-id references for).
 #:
 #: PR-BOUNDARY-001 fix: this dict is the ONLY hand-written declaration of the
-#: six-kind set; every other view of it (the plural-keys frozenset below, and
-#: any future consumer) derives from it, so the two can never silently drift.
+#: six-kind set; every other view of it (the plural set
+#: :func:`_tracked_reference_kind_plurals` derives, and any future consumer)
+#: derives from it, so the two can never silently drift.
+#:
+#: PR-FRESH2-001 fix (#5257, HALT round-3 operator ruling): there is
+#: deliberately no cached module-level plural-keys constant alongside this
+#: mapping -- a prior round's ``_TRACKED_REFERENCE_KIND_PLURALS`` constant
+#: was computed once at import and could (in principle, and provably under
+#: a monkeypatch) go stale relative to this mapping. Callers instead compute
+#: the plural set on demand via :func:`_tracked_reference_kind_plurals`.
 _TRACKED_KIND_TO_GRAPH_ATTR: dict[str, str] = {
     "directive": "directives",
     "tactic": "tactics",
@@ -1236,23 +1244,22 @@ _TRACKED_KIND_TO_GRAPH_ATTR: dict[str, str] = {
 }
 
 
-def _derive_tracked_reference_kind_plurals(kind_to_graph_attr: dict[str, str]) -> frozenset[str]:
-    """Derive the tracked plural-kind set from a singular->plural mapping.
+def _tracked_reference_kind_plurals() -> frozenset[str]:
+    """Derive the tracked plural-kind set from :data:`_TRACKED_KIND_TO_GRAPH_ATTR`.
 
-    Exposed as a callable (PR-FRESH-002, #5257) so a test can exercise the
-    derivation itself -- feed it a mutated mapping and confirm the output
-    tracks it -- rather than pinning the module's own AST shape to prove
-    ``_TRACKED_REFERENCE_KIND_PLURALS`` is computed, not a second
-    independently hand-written literal.
+    Recomputed on EVERY call (PR-FRESH2-001, #5257) by reading the module
+    global at call time -- never a default argument snapshotted at import,
+    never ``functools.lru_cache``, and never mirrored into a second
+    module-level constant. This is the ONLY place ``.values()`` is taken
+    over :data:`_TRACKED_KIND_TO_GRAPH_ATTR` for this purpose, so a future
+    kind added to the mapping is reflected here automatically -- there is
+    exactly one hand-written six-member set, not two that could drift
+    apart. A test that monkeypatches ``_TRACKED_KIND_TO_GRAPH_ATTR`` on this
+    module and then calls this function observes the mutation immediately,
+    which proves the call-time derivation (a cached constant standing in
+    for this call would not move).
     """
-    return frozenset(kind_to_graph_attr.values())
-
-
-#: The plural repository keys for the same six DRG-backed kinds, derived
-#: from :data:`_TRACKED_KIND_TO_GRAPH_ATTR` (its values are exactly the
-#: plural repository/graph-attribute names) rather than hand-duplicated --
-#: see the module-level docstring on that dict.
-_TRACKED_REFERENCE_KIND_PLURALS: frozenset[str] = _derive_tracked_reference_kind_plurals(_TRACKED_KIND_TO_GRAPH_ATTR)
+    return frozenset(_TRACKED_KIND_TO_GRAPH_ATTR.values())
 
 
 def _route_unresolved_urn(
@@ -1318,7 +1325,7 @@ def _route_unresolved_urn(
 
     plural = artifact_kind.plural
     repository = _raw_kind_repository(doctrine_service, plural)
-    if plural not in _TRACKED_REFERENCE_KIND_PLURALS:
+    if plural not in _tracked_reference_kind_plurals():
         detail = (
             f"no repository for kind: {kind_prefix}"
             if repository is None
