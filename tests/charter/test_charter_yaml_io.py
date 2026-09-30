@@ -20,7 +20,6 @@ from charter.activation.charter_yaml_io import (
     OWNED_SECTIONS,
     UnknownCharterYamlSectionError,
     catalog_field_from_document,
-    catalog_mission_from_document,
     load_charter_yaml,
     save_charter_yaml,
     update_charter_yaml_section,
@@ -726,12 +725,12 @@ def test_failed_yaml_creation_does_not_mint_receipt(tmp_path: Path, monkeypatch:
 
 def test_catalog_field_from_document_accepts_a_mappingproxytype_document() -> None:
     """PR-FRESH2-002 (#5257, HALT round-3 operator ruling):
-    ``catalog_field_from_document``/``catalog_mission_from_document`` must
-    gate on ``collections.abc.Mapping``, not the narrower ``dict``.
+    ``catalog_field_from_document`` must gate on ``collections.abc.Mapping``,
+    not the narrower ``dict``.
 
     RED pre-fix: a ``types.MappingProxyType`` document -- Mapping-like but
     not a ``dict`` subclass -- failed ``isinstance(document, dict)`` and
-    ``catalog_mission_from_document`` returned ``None`` even though
+    ``catalog_field_from_document`` returned ``None`` even though
     ``catalog.mission`` was genuinely present and valid. GREEN post-fix:
     the same document's mission is read through.
     """
@@ -746,7 +745,7 @@ def test_catalog_field_from_document_accepts_a_mappingproxytype_document() -> No
         }
     )
 
-    assert catalog_mission_from_document(document) == "software-dev"
+    assert catalog_field_from_document(document, "mission") == "software-dev"
     assert catalog_field_from_document(document, "template_set") == "software-dev-default"
 
 
@@ -764,4 +763,3 @@ def test_catalog_field_from_document_rejects_a_plain_get_only_object() -> None:
             return {"mission": "software-dev"}.get(key, default)
 
     assert catalog_field_from_document(GetOnly(), "mission") is None
-    assert catalog_mission_from_document(GetOnly()) is None

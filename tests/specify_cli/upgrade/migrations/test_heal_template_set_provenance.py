@@ -379,7 +379,7 @@ def test_healable_references_accepts_a_mappingproxytype_document_with_a_valid_mi
 
     RED pre-fix: this function's own local ``catalog`` gate
     (``hasattr(document, "get")``) accepted the ``MappingProxyType``
-    document, but the shared accessor ``catalog_mission_from_document`` it
+    document, but the shared accessor ``catalog_field_from_document`` it
     delegates to gated on the stricter ``isinstance(document, dict)`` and
     returned ``None`` for the very same document -- so ``mission`` came
     back ``None``, the ``_mission_token(None)`` guard fired, and
