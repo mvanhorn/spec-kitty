@@ -90,3 +90,44 @@ Append entries during implementation; assess at close.
   The gap: any manifest edit to `owned_files` (or dependencies) after the first `finalize-tasks`
   run needs a mandatory re-finalize reminder or a staleness check — today the two files can drift
   indefinitely with no signal.
+
+## Implementation phase (orchestrator-recorded, 2026-09-28 to 2026-09-30, source CLI 4.0.0rc5)
+
+- **Every `move-task` transition on this `single_branch` mission leaves state uncommitted in
+  the primary checkout.** After `--to in_review` / `approved` / `in_progress`,
+  `status.events.jsonl`, `status.json` and a new `tasks/<WP>/review-cycle-N.md` stay dirty.
+  The next `agent action implement` then refuses to allocate a lane: "auto-commit is disabled
+  and the primary checkout carries uncommitted planning-state changes". The CLI's printed
+  remedy (`git add -f kitty-specs/<mission>/ && git commit`) was refused by the agent
+  harness's permission classifier as a false-positive credential leak. The working pattern was
+  an explicit-file `spec-kitty safe-commit` after every transition, done by the orchestrator.
+- **The approval gate reveals missing issue-matrix rows one at a time.** The scaffolded
+  `issue-matrix.json` held only issues cited in `spec.md`. Approving WP01 failed first on the
+  unfilled rows, then, once those were filled, on `#4785` (cited only in `plan.md`). The full
+  cited set had to be computed by hand across `spec.md`, `plan.md`, `tasks/` and `contracts/`.
+- **`review_result` does not reference the review evidence.** WP approvals via `move-task
+  --to approved --note ...` recorded `reviewer` as the git identity and `reference` as
+  `auto-approval:<WP>:<date>`, not the verdict file. Rejections via `--review-feedback-file
+  <relative path>` stored `feedback_path` as an ABSOLUTE local path in `status.events.jsonl`,
+  the same class as the known `record_path` leak. It is left as CLI-written and cited in the PR.
+- **`consolidate` defaults to `--strategy squash`, and `--json` is accepted only with
+  `--dry-run`.** Squash would collapse every WP's red-first test commit into one commit,
+  destroying the ATDD evidence C-011 asks reviewers to check. This mission used
+  `--strategy merge --keep-branch --keep-worktree`.
+- **The linked-worktree charter-write guard fails charter tests in lane worktrees.** WP02 and
+  WP03 lanes saw 7 tests fail with "Refusing charter write from linked git worktree". All 7
+  passed from a standalone clone of the lane branch. A lane-run test that shells out via
+  `uv run --no-sync` also failed with `ModuleNotFoundError: charter`, because lanes have no
+  `.venv`.
+- **`charter generate` auto-stages its output.** One implementation-phase agent run
+  regenerated and staged the committed `.kittify/charter/charter.yaml` in the primary
+  checkout. The orchestrator caught it, saved the stray copy aside and restored the committed
+  content. Agents must never run `generate` against a mission checkout; the auto-stage makes
+  such an accident easy to commit.
+- **The "Global asset inventory changed … re-run" startup race recurred throughout.** It hit
+  `move-task`, `consolidate --dry-run`, `safe-commit` and `issue-verdict`; one to three bare
+  retries always resolved it. The trigger appears to be a concurrent process regenerating
+  global agent command directories.
+- **A plain `uv sync` leaves out the `test` extra.** The checkout venv had no `pytest-cov`,
+  `coverage`, `diff-cover` or `respx`, so diff-cover could not be measured until
+  `uv sync --frozen --all-extras` ran, after the lanes had finished.
