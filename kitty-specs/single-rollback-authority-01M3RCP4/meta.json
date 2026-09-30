@@ -12,5 +12,7 @@
   "purpose_tldr": "A consolidate that fails after it starts moving branches puts every branch back, and a protected-target LANES mission is refused before anything moves.",
   "slug": "single-rollback-authority-01M3RCP4",
   "target_branch": "claude/5385-single-rollback-authority-qqt180",
-  "topology": "lanes"
+  "topology": "lanes",
+  "vcs": "git",
+  "vcs_locked_at": "2026-09-30T05:55:52.430642+00:00"
 }
