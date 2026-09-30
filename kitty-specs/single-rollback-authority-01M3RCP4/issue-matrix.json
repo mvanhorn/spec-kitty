@@ -85,7 +85,7 @@
       "wp": null
     },
     "#5385": {
-      "evidence_ref": "<link or commit>",
+      "evidence_ref": "lane-a 843bd6a7..3bf48d09; tests/terminus/test_repro_5385_rollback_door.py (WP02 preflight, WP03 docs pending)",
       "fr": null,
       "nfr": null,
       "repo": null,
@@ -93,8 +93,8 @@
       "scope": null,
       "source_file": "spec.md",
       "title": "<fill at WP-implementation time>",
-      "verdict": "unknown",
-      "wp": null
+      "verdict": "in-mission",
+      "wp": "WP01"
     }
   },
   "schema_version": 1
