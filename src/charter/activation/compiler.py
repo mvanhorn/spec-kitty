@@ -1235,11 +1235,24 @@ _TRACKED_KIND_TO_GRAPH_ATTR: dict[str, str] = {
     "agent_profile": "agent_profiles",
 }
 
+
+def _derive_tracked_reference_kind_plurals(kind_to_graph_attr: dict[str, str]) -> frozenset[str]:
+    """Derive the tracked plural-kind set from a singular->plural mapping.
+
+    Exposed as a callable (PR-FRESH-002, #5257) so a test can exercise the
+    derivation itself -- feed it a mutated mapping and confirm the output
+    tracks it -- rather than pinning the module's own AST shape to prove
+    ``_TRACKED_REFERENCE_KIND_PLURALS`` is computed, not a second
+    independently hand-written literal.
+    """
+    return frozenset(kind_to_graph_attr.values())
+
+
 #: The plural repository keys for the same six DRG-backed kinds, derived
 #: from :data:`_TRACKED_KIND_TO_GRAPH_ATTR` (its values are exactly the
 #: plural repository/graph-attribute names) rather than hand-duplicated --
 #: see the module-level docstring on that dict.
-_TRACKED_REFERENCE_KIND_PLURALS: frozenset[str] = frozenset(_TRACKED_KIND_TO_GRAPH_ATTR.values())
+_TRACKED_REFERENCE_KIND_PLURALS: frozenset[str] = _derive_tracked_reference_kind_plurals(_TRACKED_KIND_TO_GRAPH_ATTR)
 
 
 def _route_unresolved_urn(
