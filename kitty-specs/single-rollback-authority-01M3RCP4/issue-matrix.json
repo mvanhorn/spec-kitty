@@ -85,7 +85,7 @@
       "wp": null
     },
     "#5371": {
-      "evidence_ref": "<link or commit>",
+      "evidence_ref": "spec.md C-003 out of scope; follow-up is the open issue #5371 itself",
       "fr": null,
       "nfr": null,
       "repo": null,
@@ -93,7 +93,7 @@
       "scope": null,
       "source_file": "spec.md",
       "title": "<fill at WP-implementation time>",
-      "verdict": "unknown",
+      "verdict": "deferred-with-followup",
       "wp": null
     },
     "#5372": {
