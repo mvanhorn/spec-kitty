@@ -13,7 +13,7 @@
       "wp": "WP01"
     },
     "#2367": {
-      "evidence_ref": "<link or commit>",
+      "evidence_ref": "lane-a 843bd6a7..3bf48d09; guard tests re-pinned to the snapshot-restore contract (DM-01M3RCRDBS2RKWVVZH07AZ1B4M)",
       "fr": null,
       "nfr": null,
       "repo": null,
@@ -21,8 +21,8 @@
       "scope": null,
       "source_file": "spec.md",
       "title": "<fill at WP-implementation time>",
-      "verdict": "unknown",
-      "wp": null
+      "verdict": "in-mission",
+      "wp": "WP01"
     },
     "#2786": {
       "evidence_ref": "<link or commit>",
