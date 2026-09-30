@@ -240,7 +240,10 @@ def _load_charter_document(charter_path: Path) -> Any:
         raise MigrationStateUnreadableError(f"{charter_path} could not be read ({type(exc).__name__}); provenance was not evaluated") from exc
 
 
-def _healable_references(charter_path: Path, document: Any | None = None) -> list[tuple[dict[str, Any], str]]:
+def _healable_references(project_path: Path, document: Any | None = None) -> list[tuple[dict[str, Any], str]]:
+    from charter.activation.charter_yaml_io import read_catalog_mission  # noqa: PLC0415
+
+    charter_path = _charter_path(project_path)
     if not charter_path.is_file():
         return []
 
@@ -250,7 +253,16 @@ def _healable_references(charter_path: Path, document: Any | None = None) -> lis
     if not isinstance(catalog, dict):
         return []
 
-    mission = catalog.get("mission")
+    # PR-fold-in (#5257): read through the single shared accessor
+    # (charter.activation.charter_yaml_io.read_catalog_mission) rather than
+    # a second, independent direct catalog-mapping mission-field parse --
+    # pre-existing SSOT violation on main, folded in here per operator ruling (see
+    # tests/specify_cli/cli/commands/charter/test_recompile_preserves_mission_4908.py
+    # ::test_catalog_mission_has_exactly_one_reader_outside_the_shared_accessor).
+    # Safe: this re-read happens before any write in every caller below, so
+    # it observes the identical, already-successfully-loaded `charter.yaml`
+    # content as `document`/`catalog` above.
+    mission = read_catalog_mission(project_path)
     template_set = catalog.get("template_set")
     if not isinstance(template_set, str) or not template_set:
         return []
@@ -277,14 +289,15 @@ def _healable_references(charter_path: Path, document: Any | None = None) -> lis
 
 def describe_template_set_leaks(project_path: Path) -> list[str]:
     """Return stale built-in template-set source paths without changing files."""
-    charter_path = _charter_path(project_path)
     return [
-        f"charter.yaml catalog[{reference.get('id', '?')}].source_path={reference.get('source_path')!r}" for reference, _token in _healable_references(charter_path)
+        f"charter.yaml catalog[{reference.get('id', '?')}].source_path={reference.get('source_path')!r}" for reference, _token in _healable_references(project_path)
     ]
 
 
 def describe_template_set_ambiguities(project_path: Path) -> list[str]:
     """Return candidate legacy template paths whose checkout identity is unproven."""
+    from charter.activation.charter_yaml_io import read_catalog_mission  # noqa: PLC0415
+
     charter_path = _charter_path(project_path)
     if not charter_path.is_file():
         return []
@@ -293,7 +306,9 @@ def describe_template_set_ambiguities(project_path: Path) -> list[str]:
     catalog = document.get("catalog") if hasattr(document, "get") else None
     if not isinstance(catalog, dict):
         return []
-    suffix = _expected_mission_suffix(catalog.get("mission"))
+    # PR fold-in (#5257): shared accessor, not a second hand-rolled read --
+    # see the matching comment in `_healable_references` above.
+    suffix = _expected_mission_suffix(read_catalog_mission(project_path))
     if suffix is None:
         return []
     template_set = catalog.get("template_set")
@@ -335,7 +350,7 @@ class HealTemplateSetProvenanceMigration(BaseMigration):
     runs_on_worktrees = False
 
     def detect(self, project_path: Path) -> bool:
-        return bool(_healable_references(_charter_path(project_path)))
+        return bool(_healable_references(project_path))
 
     def can_apply(self, project_path: Path) -> tuple[bool, str]:
         if self.detect(project_path):
@@ -350,7 +365,7 @@ class HealTemplateSetProvenanceMigration(BaseMigration):
         from charter.activation.charter_yaml_io import update_charter_yaml_section  # noqa: PLC0415
 
         document = _load_charter_document(charter_path)
-        healable = _healable_references(charter_path, document)
+        healable = _healable_references(project_path, document)
         if not healable:
             return MigrationResult(success=True)
 
