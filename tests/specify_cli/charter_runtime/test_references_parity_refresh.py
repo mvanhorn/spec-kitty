@@ -565,6 +565,48 @@ def test_auto_refresh_reports_failure_when_generate_invocation_raises(
 
 
 # ---------------------------------------------------------------------------
+# PR-TESTS-003 (#5257 pre-merge squad): direct unit coverage for the two
+# `_extract_failure_detail` branches every failure-path fixture above leaves
+# dead -- every faked `CompletedProcess` for the failure path above sets a
+# non-empty `stderr`, so the stdout-fallback branch (stderr empty, stdout
+# non-empty) and the "no captured output" branch (both streams empty) never
+# execute anywhere else in this suite.
+# ---------------------------------------------------------------------------
+
+
+def test_extract_failure_detail_falls_back_to_stdout_when_stderr_is_empty() -> None:
+    """`_extract_failure_detail` uses the last non-empty `stdout` line when
+    `stderr` is empty (references_refresh.py's `for stream in
+    (completed.stderr, completed.stdout): if not stream: continue` loop --
+    the ``continue`` on the empty `stderr` entry is the branch under test).
+    """
+    completed = subprocess.CompletedProcess(
+        args=["spec-kitty", "charter", "generate"],
+        returncode=1,
+        stdout="first stdout line\nlast stdout line\n",
+        stderr="",
+    )
+
+    assert references_refresh._extract_failure_detail(completed) == "last stdout line"
+
+
+def test_extract_failure_detail_reports_no_captured_output_when_both_streams_are_empty() -> None:
+    """`_extract_failure_detail` falls back to the "no captured output"
+    summary when BOTH `stderr` and `stdout` are empty -- the final
+    ``return f"generate exited {completed.returncode} with no captured
+    output"`` line, unreachable whenever either stream carries content.
+    """
+    completed = subprocess.CompletedProcess(
+        args=["spec-kitty", "charter", "generate"],
+        returncode=3,
+        stdout="",
+        stderr="",
+    )
+
+    assert references_refresh._extract_failure_detail(completed) == "generate exited 3 with no captured output"
+
+
+# ---------------------------------------------------------------------------
 # WP04 rejection-cycle-2 fold-in (#5257, wp-WP04.yaml WP04-C1-003):
 # `ReferencesRefreshOutcome.__bool__` deliberately raises `TypeError` rather than
 # coercing to a truthiness value -- pin the guard's own contract directly,
