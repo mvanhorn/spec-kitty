@@ -4,12 +4,12 @@ artifact_type: spec-kitty.analysis-report
 command: /spec-kitty.analyze
 mission_slug: owned-checkout-lifecycle-authority-01M3M2ZB
 mission_id: 01M3M2ZB5D4A33B8070F97DKW7
-generated_at: '2026-09-29T09:08:02.340578+00:00'
+generated_at: '2026-09-30T04:28:21.698171+00:00'
 analyzer_agent: unknown
 input_artifacts:
   spec.md:
     path: kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/spec.md
-    sha256: d2381f5a14de3a4ce3585f69b7e132a7ae4c8022aea84d9dc7b9b8ed5cce9acf
+    sha256: 81f088193e4eefcf832ec549d952031252bd47d622e322f5dda3fe1a17c6f88c
   plan.md:
     path: kitty-specs/owned-checkout-lifecycle-authority-01M3M2ZB/plan.md
     sha256: ce4663bf193ac75724fa76970f47e03930ddcb81dbad8413c741cca1df311325
@@ -22,32 +22,27 @@ input_artifacts:
 verdict: ready
 issue_counts:
   critical: 0
-  medium: 2
   high: 0
-  low: 3
+  low: 2
+  medium: 0
   info: 0
 findings:
-- id: C2
-  severity: medium
-  category: coverage
-  summary: The C1 fix replaced WP19 T102 step 10 ('Flagless adoption pins (T103 step 4)') instead of adding a step, so flagless adoption for next (T103 step 4, US7-AS2/AS3) now has no test step, no row in WP19's outcome table, and FR-021 is not in WP19's requirement refs.
-- id: U3
-  severity: medium
-  category: underspecification
-  summary: The US3-AS6 branch-flip hook (WP19 T102 step 10) sits on get_main_repo_root 'or the equivalent site', so it fires only if that function is called after validation. Nothing asserts that the flip happened, so a correct implementation (or a pre-validation call) makes the test pass vacuously.
 - id: I4
   severity: low
   category: inconsistency
   summary: Census still disagrees. Spec FR-001 and research R-03 now defer to plan Scale/Scope (94), but plan Summary L13/L18 still says 92, and WP03 L106/L133, WP04 L337 and WP15 L101 still cite '92' and R-03's '92-parameter census', which R-03 no longer contains.
-- id: I5
-  severity: low
-  category: inconsistency
-  summary: The US3-AS6 test deliberately changes R's HEAD, but WP19 T102 step 8 wraps every owned scenario in r_snapshot with 0 differences (NFR-001 'every owned acceptance scenario'). No carve-out or restore step reconciles the two.
 - id: C3
   severity: low
   category: coverage
   summary: Spec US1-AS3 now lists 'a directory outside any repository (OWNERSHIP_BROKEN_POINTER)', but WP09 T049's matrix has no such row and WP02 does not pin it. T049 step 2 still says 'three rows' cite WP02 pins, although four rows do now.
 ---
+
+## Re-run 2026-09-30 (spec edit: NFR-001 amendment)
+
+- **NFR-001 amended (operator ruling 2026-09-30):** `SPEC_KITTY_HOME` stays in the R snapshot with exactly one named tolerance, the P-keyed prompt cache that owned `next` writes (`SPEC_KITTY_HOME/spec-kitty-prompts/<key of P>`), defined once in `tests/_owned_fixtures.py`. WP18's e2e snapshot is re-pointed to it (WP18 review cycle 1). No other requirement changed.
+- **Resolved since the last run, dropped from the findings:** C2 (flagless `next` adoption restored red-first in WP19, FR-021 row added), U3 (AS6 hook asserts the flip happened, WP19), I5 (AS6 snapshot baseline taken after the flip, WP19). All three were verified by the WP19 reviews.
+- **Still open, carried to closeout:** the remaining findings below (documentation drift; no code impact).
+
 
 ## Specification Analysis Report
 
